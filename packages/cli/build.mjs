@@ -2,12 +2,17 @@
 // dashboard alongside it, so the package installs with no dependencies.
 import { build } from "esbuild";
 import { cp, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
-await rm("dist", { recursive: true, force: true });
+// Resolve from this file, not the working directory, so the build is safe
+// to run from anywhere.
+const here = (path) => fileURLToPath(new URL(path, import.meta.url));
+
+await rm(here("./dist"), { recursive: true, force: true });
 
 await build({
-  entryPoints: ["src/main.ts"],
-  outfile: "dist/tripwire.mjs",
+  entryPoints: [here("./src/main.ts")],
+  outfile: here("./dist/tripwire.mjs"),
   bundle: true,
   platform: "node",
   format: "esm",
@@ -22,4 +27,4 @@ await build({
   },
 });
 
-await cp("../web/dist", "dist/web", { recursive: true });
+await cp(here("../web/dist"), here("./dist/web"), { recursive: true });

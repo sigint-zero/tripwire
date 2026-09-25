@@ -60,21 +60,28 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   process.exit(1);
 }
 
+// An empty host would make Node listen on every network interface.
+const host = values.host.trim();
+if (host === "") {
+  console.error("Invalid host: it must not be empty.");
+  process.exit(1);
+}
+
 const app = await createServer({
   webRoot: fileURLToPath(new URL("./web", import.meta.url)),
+  allowedHosts: [host],
 });
 
 try {
-  await app.listen({ host: values.host, port });
+  await app.listen({ host, port });
 } catch (error) {
-  if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
-    console.error(`Port ${port} is already in use. Try --port <other port>.`);
-    process.exit(1);
-  }
-  throw error;
+  const message = listenErrorMessage(error as NodeJS.ErrnoException);
+  if (!message) throw error;
+  console.error(message);
+  process.exit(1);
 }
 
-const url = `http://${values.host.includes(":") ? `[${values.host}]` : values.host}:${port}`;
+const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
 console.log(`Tripwire is running at ${url}\nPress Ctrl+C to stop.`);
 if (values.open) openBrowser(url);
 
@@ -82,6 +89,22 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     void app.close().then(() => process.exit(0));
   });
+}
+
+function listenErrorMessage(error: NodeJS.ErrnoException) {
+  switch (error.code) {
+    case "EADDRINUSE":
+      return `Port ${port} is already in use. Try --port <other port>.`;
+    case "EACCES":
+      return `No permission to use port ${port}. Ports below 1024 usually need admin rights; try --port ${port < 1024 ? 4747 : "<other port>"}.`;
+    case "EADDRNOTAVAIL":
+      return `Address ${host} does not belong to this machine. Try --host 127.0.0.1.`;
+    case "ENOTFOUND":
+    case "EAI_AGAIN":
+      return `Cannot resolve host "${host}". Try --host 127.0.0.1.`;
+    default:
+      return undefined;
+  }
 }
 
 function openBrowser(target: string) {

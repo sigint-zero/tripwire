@@ -11,6 +11,7 @@
     "start": "node packages/cli/dist/tripwire.mjs",
     "bundle": "pnpm build && pnpm --filter @tripwire/cli pack --pack-destination dist",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

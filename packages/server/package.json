@@ -8,18 +8,20 @@
   },
   "scripts": {
     "dev": "tsx watch --clear-screen=false --exclude \"../web/**\" src/dev.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@fastify/middie": "^9.3.4",
     "@fastify/static": "^10.1.4",
     "fastify": "^5.12.5"
   },
   "devDependencies": {
+    "@fastify/middie": "^9.3.4",
     "@types/connect": "^3.4.38",
     "@types/node": "^22.20.4",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   }
 }
