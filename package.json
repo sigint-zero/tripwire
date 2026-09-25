@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "pnpm --filter @tripwire/server dev",
     "build": "pnpm -r build",
+    "start": "node packages/cli/dist/tripwire.mjs",
+    "bundle": "pnpm build && pnpm --filter @tripwire/cli pack --pack-destination dist",
     "typecheck": "pnpm -r typecheck"
   }
 }

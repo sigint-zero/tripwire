@@ -8,6 +8,24 @@ importers:
 
   .: {}
 
+  packages/cli:
+    devDependencies:
+      '@tripwire/server':
+        specifier: workspace:*
+        version: link:../server
+      '@tripwire/web':
+        specifier: workspace:*
+        version: link:../web
+      '@types/node':
+        specifier: ^22.20.4
+        version: 22.20.4
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/server:
     dependencies:
       '@fastify/middie':
