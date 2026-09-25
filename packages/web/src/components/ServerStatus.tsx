@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 async function fetchHealth(): Promise<{ status: string }> {
   const res = await fetch("/api/v1/health");
   if (!res.ok) throw new Error(`health check failed: ${res.status}`);
-  return res.json();
+  return (await res.json()) as { status: string };
 }
 
 export function ServerStatus() {

@@ -1,5 +1,6 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginCallback } from "fastify";
 
-export const api: FastifyPluginAsync = async (app) => {
-  app.get("/health", async () => ({ status: "ok" }));
+export const api: FastifyPluginCallback = (app, _options, done) => {
+  app.get("/health", () => ({ status: "ok" }));
+  done();
 };

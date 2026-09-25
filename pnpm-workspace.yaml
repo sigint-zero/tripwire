@@ -3,3 +3,8 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
+
+peerDependencyRules:
+  allowedVersions:
+    # Declares ESLint <=9 but works on ESLint 10.
+    eslint-plugin-jsx-a11y>eslint: "10"
