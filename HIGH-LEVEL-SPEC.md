@@ -24,6 +24,7 @@ One repository, one workspace, five packages:
 | `web` | the dashboard: a single-page app built to static files, served by the server |
 | `shared` | types and validation schemas used by all packages |
 | `engine-stub` | development stand-in for the engine: same interface, fixture data, scripted scenarios. Lets the whole application run with no engine present |
+| `mcp` | a Model Context Protocol server exposing Tripwire to AI agents: the tools an agent needs to inspect contracts, draft invariants against the rule schema, validate them, and add them |
 
 ## How data moves
 
@@ -50,6 +51,21 @@ One repository, one workspace, five packages:
 | Notifications | in-app feed and alert-channel status |
 | Settings | connection readout, response defaults, retention, alert channels, keys and tokens, response-mode onboarding |
 | First run | guided setup from RPC endpoint to first rule and first alert channel |
+
+## AI agents
+
+Tripwire ships no model and no chat. Instead it exposes a Model Context
+Protocol server, and users point their own AI agent at it. The MCP server
+is self-describing: it teaches a connected agent what Tripwire is, what an
+invariant is, and exactly how rules are constructed, so the agent can:
+
+1. **Understand the system**: read the registered contracts (ABI, verified
+   source, live values) to learn what the protocol looks like.
+2. **Draft invariants**: build rules against the engine's rule schema and
+   dry-run them for real values before proposing anything.
+3. **Add them**: create invariants through the same validated path the
+   wizard uses. Agent-created invariants arrive disabled and are enabled
+   by the user in the dashboard.
 
 ## Technology
 
