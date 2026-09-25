@@ -42,7 +42,7 @@ One repository, one workspace, five packages:
 
 | Area | Purpose |
 |-|-|
-| Dashboard | counts, tripped-now, recent violations, pinned charts, system health |
+| Overview | counts, tripped-now, recent violations, pinned charts, system health |
 | Contracts | registered contracts, live state, per-contract invariants and history |
 | Invariants | all rules with current values and status; a template-driven wizard to create and edit them; per-rule detail with charts and evidence |
 | Violations | filterable history with full evidence per violation |
