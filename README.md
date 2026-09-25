@@ -11,11 +11,13 @@ database, your keys.
 Tripwire continuously re-checks a set of **invariants**, statements about
 your protocol that should always hold:
 
+E.g.
+
 - "the vault's exchange rate never deviates more than 5% from its own
   20-minute average"
 - "totalAssets never drops below totalSupply"
 - "no more than 5% of supply is minted within 24 hours"
-- "this oracle updates at least every 30 days"
+- "this oracle updates at least every hour"
 - "this event never appears in a transaction touching our pool"
 
 When an invariant breaks, Tripwire:
@@ -24,24 +26,29 @@ When an invariant breaks, Tripwire:
    transaction that caused it.
 2. **Alerts you** on your channels: chat, paging, or your own systems.
 3. **Optionally responds on-chain**: it can pause the affected function
-   (or the whole contract) through the TripwireController before the
-   damage is done. Response is opt-in per rule, with three modes: alert
-   only, hold for your approval, or fully autonomous.
+   (or the whole contract) through the TripwireController, Tripwire's
+   on-chain circuit-breaker contract, before the damage is done. Response
+   is opt-in per rule, with three modes: alert only, hold for your
+   approval, or fully autonomous.
 
 Between violations you get a live dashboard: current values, historical
-charts, trip state, and the health of the monitor itself.
+charts, which rules are currently tripped, and the health of the monitor
+itself.
 
 ## How it is put together
 
 - **This repo** is the application: the command line, the dashboard, and
-  the local interface your own tools can use.
+  a local HTTP API your own tools can use.
 - **The engine** is the detection and response core. It ships as a signed
   native binary that is installed into the application.
 - **[The contracts](https://github.com/sigint-zero/tripwire-contracts)**
   are the TripwireController circuit breaker, deployed and verified
   on-chain.
 
-The app communicates with the engine over a local interface.
+The application talks to the engine over a local connection.
+
+See [HIGH-LEVEL-SPEC.md](HIGH-LEVEL-SPEC.md) for the application's
+components and design.
 
 ## Getting started
 
