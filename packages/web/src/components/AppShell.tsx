@@ -1,5 +1,6 @@
 import { Link, Outlet } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { ServerStatus } from "./ServerStatus";
 
 const areas = [
   { to: "/", label: "Overview" },
@@ -23,7 +24,7 @@ export function AppShell() {
 export function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-white text-neutral-900">
-      <nav className="w-56 shrink-0 border-r border-neutral-200 p-4">
+      <nav className="flex w-56 shrink-0 flex-col border-r border-neutral-200 p-4">
         <div className="mb-6 px-2 text-lg font-semibold">Tripwire</div>
         <ul className="space-y-1">
           {areas.map((area) => (
@@ -45,6 +46,9 @@ export function ShellLayout({ children }: { children: ReactNode }) {
             </li>
           ))}
         </ul>
+        <div className="mt-auto pt-4">
+          <ServerStatus />
+        </div>
       </nav>
       <main className="flex-1 p-8">{children}</main>
     </div>

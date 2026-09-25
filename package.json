@@ -6,7 +6,7 @@
     "node": ">=22.14"
   },
   "scripts": {
-    "dev": "pnpm --filter @tripwire/web dev",
+    "dev": "pnpm --filter @tripwire/server dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
   }
