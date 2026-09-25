@@ -1,0 +1,13 @@
+{
+  "name": "tripwire",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @tripwire/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
