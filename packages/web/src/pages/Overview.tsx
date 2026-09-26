@@ -8,6 +8,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { Sparkline } from "../components/Sparkline";
+import { HealthStrip } from "../components/HealthStrip";
 import { EmptyState } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import { api } from "../lib/api";
@@ -66,6 +67,8 @@ export function OverviewPage() {
         title="Overview"
         description="What needs attention, and what you pinned."
       />
+
+      <HealthStrip />
 
       <div
         className={`mb-12 grid gap-2 sm:grid-cols-3 ${approvals ? "lg:grid-cols-4" : ""}`}

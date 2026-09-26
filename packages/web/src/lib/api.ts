@@ -5,7 +5,7 @@ import type {
   ContractAbi,
   ContractDetail,
   ContractRegistration,
-  EngineInfo,
+  EngineStatus,
   Issue,
   McpTokenSummary,
   CheckNow,
@@ -108,7 +108,8 @@ export const auth = {
 };
 
 export const api = {
-  engine: (signal?: AbortSignal) => request<EngineInfo>("/engine", { signal }),
+  engine: (signal?: AbortSignal) =>
+    request<EngineStatus>("/engine", { signal }),
   abi: (address: string, signal?: AbortSignal) =>
     request<ContractAbi>(`/contracts/${address}/abi`, { signal }),
   contracts: (signal?: AbortSignal) =>
