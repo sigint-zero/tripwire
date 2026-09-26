@@ -137,6 +137,12 @@ CREATE TABLE IF NOT EXISTS stub.trip_state (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (contract_address, selector, source)
 );
+CREATE TABLE IF NOT EXISTS stub.notifications (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind text NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS stub.cursors (
   name text PRIMARY KEY,
   block_number bigint NOT NULL,
@@ -184,6 +190,8 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.rule_series AS
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.trip_state AS
   SELECT contract_address, selector, source, tripped, since_block, tx_hash, updated_at
     FROM stub.trip_state;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.notifications AS
+  SELECT id, kind, payload, created_at FROM stub.notifications;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.engine_status AS
   SELECT name AS cursor, block_number, block_hash, updated_at,
          NULL::text AS instance_id, 'stand-in' AS engine_version,
@@ -553,6 +561,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
           block_time: time,
         });
         if (kind === "tripped") {
+          await this.#notifyTrip(recordedId, row, block, time, clock);
           await this.#stageResponse(recordedId, row, block, clock);
         }
       }
@@ -679,7 +688,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
         time,
       ],
     );
-    this.#emitResponse(
+    await this.#emitResponse(
       rows[0]!.id,
       rule.id,
       sending ? "submitted" : "awaiting_approval",
@@ -716,7 +725,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
         "UPDATE stub.responses SET status = $2, tx = $3, updated_at = $4 WHERE id = $1",
         [r.id, next.status, JSON.stringify(next.tx), time],
       );
-      this.#emitResponse(r.id, r.rule_id, next.status);
+      await this.#emitResponse(r.id, r.rule_id, next.status);
       if (next.status === "confirmed") {
         await this.#paused(
           r.document.on_trip,
@@ -779,8 +788,101 @@ export class StubEngine implements EngineCommands, EngineEvents {
     });
   }
 
-  #emitResponse(id: string, ruleId: string, status: string) {
+  async #emitResponse(id: string, ruleId: string, status: string) {
     this.#emit("response", { id, rule_id: ruleId, status });
+    // A person must act on one waiting, and hears how each one ends.
+    if (
+      !["awaiting_approval", "confirmed", "failed", "abandoned"].includes(
+        status,
+      )
+    ) {
+      return;
+    }
+    const { rows } = await this.#pool.query<{
+      rule_name: string;
+      contract_address: string;
+      action: string;
+      error: string | null;
+      tx: StubTx | null;
+      updated_at: Date;
+    }>(
+      `SELECT rule_name, contract_address, action, error, tx, updated_at
+         FROM ${STUB_VIEWS}.responses WHERE id = $1`,
+      [id],
+    );
+    const response = rows[0];
+    if (!response) return;
+    await this.#notify(
+      "response",
+      {
+        response_id: Number(id),
+        rule_id: Number(ruleId),
+        rule: response.rule_name,
+        contract: response.contract_address,
+        action: response.action,
+        status,
+        reason: response.error,
+        // Only a response that went out has a transaction to name.
+        tx_hash:
+          status === "confirmed" || status === "failed"
+            ? (response.tx?.hash ?? null)
+            : null,
+      },
+      response.updated_at.toISOString(),
+    );
+  }
+
+  /**
+   * A trip's notification, as the engine records it: one per trip,
+   * except inside the rule's quiet period, where the violation is
+   * recorded and nobody is told again.
+   */
+  async #notifyTrip(
+    violationId: string,
+    rule: { id: string; address: string; document: Rule },
+    block: number,
+    time: string,
+    clock: number,
+  ) {
+    const quiet = rule.document.on_trip.cooldown_seconds ?? 0;
+    if (quiet > 0) {
+      const { rows } = await this.#pool.query(
+        `SELECT 1 FROM stub.notifications
+          WHERE kind = 'violation' AND payload->>'rule_id' = $1 AND created_at > $2
+          LIMIT 1`,
+        [rule.id, new Date(clock - quiet * 1000).toISOString()],
+      );
+      if (rows.length > 0) return;
+    }
+    const { rows: described } = await this.#pool.query<{ description: string }>(
+      "SELECT description FROM stub.rules WHERE id = $1",
+      [rule.id],
+    );
+    await this.#notify(
+      "violation",
+      {
+        violation_id: Number(violationId),
+        rule_id: Number(rule.id),
+        rule: rule.document.name,
+        contract: rule.address,
+        severity: rule.document.severity,
+        kind: "tripped",
+        block_number: block,
+        block_time: time,
+        tx_hash: null,
+        description: described[0]?.description ?? "",
+      },
+      time,
+    );
+  }
+
+  async #notify(kind: string, payload: object, time: string) {
+    const { rows } = await this.#pool.query<{ id: string }>(
+      `INSERT INTO stub.notifications (kind, payload, created_at)
+       VALUES ($1, $2, $3) RETURNING id::text`,
+      [kind, JSON.stringify(payload), time],
+    );
+    this.#emit("notification", { id: rows[0]!.id, kind, payload });
   }
 
   async approveResponse(id: string): Promise<void> {

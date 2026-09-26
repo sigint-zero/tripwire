@@ -150,6 +150,10 @@ describe("the browser stream", () => {
       event: "violation",
       data: { ruleId, contractAddress: token, kind: "tripped" },
     });
+    expect(await events.next()).toMatchObject({
+      event: "notification",
+      data: { source: "engine", kind: "violation", severity: "critical" },
+    });
 
     await app.inject({
       method: "PATCH",
