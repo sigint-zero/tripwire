@@ -184,13 +184,6 @@ export function TripSimulation({
   return (
     <aside className="relative bg-white/2 p-5">
       <CornerBrackets />
-      <p
-        className="mb-4 flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-amber-400 uppercase"
-        title="An illustration of a breach, not a prediction."
-      >
-        Simulated trip
-      </p>
-
       <p className="mb-1 truncate font-mono text-[10px] text-emerald-400">
         {valueLabel}
       </p>

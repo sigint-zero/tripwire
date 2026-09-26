@@ -10,66 +10,82 @@ export const severities: {
   severity: Severity;
   title: string;
   body: string;
-  dot: string;
+  /** The colour its icon takes. */
+  tone: string;
 }[] = [
   {
     severity: "critical",
     title: "Critical",
     body: "Loss of funds or control.",
-    dot: "bg-red-500",
+    tone: "text-red-500",
   },
   {
     severity: "warning",
     title: "Warning",
     body: "A condition that comes before a loss.",
-    dot: "bg-amber-400",
+    tone: "text-amber-400",
   },
   {
     severity: "info",
     title: "Info",
     body: "Hygiene worth knowing about.",
-    dot: "bg-gray-500",
+    tone: "text-sky-400",
   },
 ];
+
+/** A severity as a bell in its colour. */
+export function SeverityIcon({
+  severity,
+  className = "size-3.5",
+}: {
+  severity: Severity;
+  className?: string;
+}) {
+  const tone = severities.find((s) => s.severity === severity)?.tone;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className={`shrink-0 fill-none stroke-current stroke-[1.5] ${tone} ${className}`}
+    >
+      <path d="M4 11.5 V7 A4 4 0 0 1 12 7 V11.5 L13.5 13 H2.5 Z" />
+      <path d="M6.5 14.5 H9.5" />
+    </svg>
+  );
+}
 
 export const actions: {
   action: OnTrip["action"];
   title: string;
   body: string;
-  dot: string;
 }[] = [
   {
     action: "notify",
     title: "Notify only",
-    body: "Record the violation and alert your channels. Nothing happens on-chain.",
-    dot: "bg-emerald-500",
+    body: "Record the violation and alert. The contract is left alone.",
   },
   {
     action: "trip_global",
     title: "Pause the contract",
     body: "Pause the whole contract through its circuit breaker.",
-    dot: "bg-red-500",
   },
   {
     action: "trip_function",
     title: "Pause one function",
     body: "Pause just the function you choose; the rest keeps working.",
-    dot: "bg-amber-400",
   },
   {
     action: "call",
     title: "Call a function",
     body: "Call one of the contract's own functions, such as an admin pause(), with fixed arguments.",
-    dot: "bg-sky-400",
   },
 ];
 
 /** How this installation carries out an on-chain action; set for all rules in Settings. */
 export const responseModes: Record<EngineInfo["responseMode"], string> = {
-  prepare:
-    "This installation holds on-chain actions for your approval in Responses.",
-  send: "This installation sends on-chain actions at once, without waiting for approval.",
-  notify: "On-chain response is off for this installation, so nothing is sent.",
+  prepare: "Held for your approval.",
+  send: "Sent at once.",
+  notify: "On-chain response is off in Settings.",
 };
 
 /** The name a call is known by: "pause" for "pause()". */
@@ -83,13 +99,16 @@ export const cooldowns = [
   { seconds: 3_600, label: "1 hour" },
 ];
 
-const heading =
-  "mb-3 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+const row = "space-y-3";
+const rowLabel =
+  "text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+/** One control per row: a single track, only the chosen option filled. */
+const track = "flex w-fit bg-white/3 p-1";
 const choice = (active: boolean) =>
-  `inline-flex items-center gap-2 px-4 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
+  `inline-flex items-center gap-2 px-4 py-2 text-xs whitespace-nowrap font-bold tracking-wider uppercase transition-colors ${
     active
       ? "bg-emerald-500/10 text-emerald-400"
-      : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
+      : "text-gray-500 hover:text-gray-300"
   }`;
 
 export function ResponseStep({
@@ -135,90 +154,83 @@ export function ResponseStep({
 
   return (
     <div className="space-y-8">
-      <section>
-        <h3 className={heading}>Severity</h3>
-        <div className="flex flex-wrap gap-2">
+      <div className={row}>
+        <h3 className={rowLabel}>On-chain</h3>
+        <div>
+          <div className={track}>
+            {actions.map((a) => {
+              const unavailable =
+                (a.action === "trip_function" || a.action === "call") &&
+                writes.length === 0;
+              return (
+                <button
+                  key={a.action}
+                  type="button"
+                  aria-pressed={value.action === a.action}
+                  disabled={unavailable}
+                  title={
+                    unavailable
+                      ? "This contract has no functions a rule can reach."
+                      : a.body
+                  }
+                  onClick={() => choose(a.action)}
+                  className={`${choice(value.action === a.action)} disabled:opacity-30`}
+                >
+                  {a.title}
+                </button>
+              );
+            })}
+          </div>
+          {value.action === "trip_function" && (
+            <select
+              aria-label="Function to pause"
+              className={`mt-4 ${field}`}
+              value={value.function}
+              onChange={(e) => onChange({ ...value, function: e.target.value })}
+            >
+              {writes.map((w) => (
+                <option key={w.signature} value={w.signature}>
+                  {w.signature}
+                </option>
+              ))}
+            </select>
+          )}
+          {value.action === "call" && (
+            <CallFields value={value} writes={writes} onChange={onChange} />
+          )}
+          {value.action !== "notify" && (
+            <p className="mt-3 text-xs text-gray-500">
+              {value.action === "call"
+                ? `Sent by the operator key, which needs the role ${nameOf(value.call.function)}() requires.`
+                : "Acts through the Tripwire controller."}{" "}
+              {responseMode && responseModes[responseMode]}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className={row}>
+        <h3 className={rowLabel}>Alert as</h3>
+        <div className={track}>
           {severities.map((s) => (
             <button
               key={s.severity}
               type="button"
               aria-pressed={severity === s.severity}
+              title={s.body}
               className={choice(severity === s.severity)}
               onClick={() => onSeverity(s.severity)}
             >
-              <span className={`size-1.5 ${s.dot}`} />
+              <SeverityIcon severity={s.severity} />
               {s.title}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-gray-500">
-          {severities.find((s) => s.severity === severity)?.body}
-        </p>
-      </section>
+      </div>
 
-      <section>
-        <h3 className={heading}>Action</h3>
-        <div className="grid gap-3">
-          {actions.map((a) => {
-            const active = value.action === a.action;
-            const unavailable =
-              (a.action === "trip_function" || a.action === "call") &&
-              writes.length === 0;
-            return (
-              <button
-                key={a.action}
-                type="button"
-                aria-pressed={active}
-                disabled={unavailable}
-                onClick={() => choose(a.action)}
-                className={`relative p-5 text-left transition-colors disabled:opacity-30 ${
-                  active ? "bg-emerald-500/10" : "bg-white/3 hover:bg-white/5"
-                }`}
-              >
-                <span className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
-                  <span className={`size-2 ${a.dot}`} />
-                  {a.title}
-                </span>
-                <span className="text-xs leading-relaxed text-gray-500">
-                  {unavailable
-                    ? "This contract has no functions a rule can reach."
-                    : a.body}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {value.action === "trip_function" && (
-          <select
-            aria-label="Function to pause"
-            className="mt-3 w-full bg-white/4 px-3 py-2.5 font-mono text-xs text-white transition-colors hover:bg-white/6 focus:bg-white/6"
-            value={value.function}
-            onChange={(e) => onChange({ ...value, function: e.target.value })}
-          >
-            {writes.map((w) => (
-              <option key={w.signature} value={w.signature}>
-                {w.signature}
-              </option>
-            ))}
-          </select>
-        )}
-        {value.action === "call" && (
-          <CallFields value={value} writes={writes} onChange={onChange} />
-        )}
-        {value.action !== "notify" && (
-          <p className="mt-3 text-xs leading-relaxed text-gray-500">
-            {value.action === "call"
-              ? `Tripwire's operator key sends the call, so it must hold whatever role ${nameOf(value.call.function)}() requires.`
-              : "A pause acts through the Tripwire controller, so the contract must be registered with it for response."}{" "}
-            {responseMode &&
-              `${responseModes[responseMode]} That is set for every rule in Settings.`}
-          </p>
-        )}
-      </section>
-
-      <section>
-        <h3 className={heading}>Quiet period after it trips</h3>
-        <div className="flex flex-wrap gap-2">
+      <div className={row}>
+        <h3 className={rowLabel}>Quiet for</h3>
+        <div className={track}>
           {cooldowns.map((c) => (
             <button
               key={c.seconds}
@@ -233,7 +245,7 @@ export function ResponseStep({
             </button>
           ))}
         </div>
-      </section>
+      </div>
     </div>
   );
 }

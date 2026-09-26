@@ -64,7 +64,7 @@ section when clicked. Sections not yet opened cannot be selected.
 |-|-|-|
 | 1 Contract | a registered contract, or one registered on the spot | a contract is chosen |
 | 2 Rule | a starting point, and the blanks in its sentence | the trigger and condition pass the schema |
-| 3 Response | severity, action and quiet period | a function trip names a function; a call names a function and has a valid value for each of its arguments |
+| 3 Response | action, severity and quiet period | a function trip names a function; a call names a function and has a valid value for each of its arguments |
 | 4 Review | a name and an optional description | the document passes the schema and no identical rule exists; creating stores it |
 
 Choosing another contract clears the starting point, the blanks, the
@@ -205,10 +205,14 @@ the same shape the engine reports.
 
 ## Response
 
+Three rows, in the order a trip plays out: what happens on-chain, the
+severity the alert carries, and the quiet period. Each row is one
+control; what each option means is shown on hover.
+
 | Choice | Values |
 |-|-|
-| severity | critical: loss of funds or control; warning: a condition that comes before a loss; info: hygiene. Starts at the starting point's default |
 | action | notify only: record the violation and alert; pause the contract (`trip_global`); pause one function (`trip_function`), chosen from the contract's functions; or call a function (`call`): one the contract already exposes, such as an admin `pause()`, chosen from its functions, with a value for each argument |
+| severity | critical: loss of funds or control; warning: a condition that comes before a loss; info: hygiene. Starts at the starting point's default |
 | quiet period | `on_trip.cooldown_seconds`: none, 1 minute, 5 minutes (default), 1 hour. Trips inside it are still recorded, but not acted on again |
 
 A call's arguments are fixed values saved in the rule, entered per
@@ -280,9 +284,8 @@ list below it:
 The list ends with the quiet period. The pause names its target, the
 whole contract or the chosen function; the call names the function it
 calls. The picture updates as the
-response changes. It is labelled **Simulated trip**: it illustrates
-the response, and makes no prediction about when or whether the rule
-will trip.
+response changes. It illustrates the response, and makes no
+prediction about when or whether the rule will trip.
 
 ## Review and create
 

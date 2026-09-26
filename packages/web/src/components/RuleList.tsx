@@ -1,6 +1,6 @@
 import type { Contract, SavedRule } from "@tripwire/shared";
 import { shortAddress } from "../lib/format";
-import { actions, severities } from "./wizard/ResponseStep";
+import { actions, SeverityIcon, severities } from "./wizard/ResponseStep";
 
 /** Rules as rows: name, the engine's sentence, contract, severity, action. */
 export function RuleList({
@@ -62,7 +62,10 @@ export function RuleList({
               )}
               {severity && (
                 <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.2em] uppercase">
-                  <span className={`size-1.5 ${severity.dot}`} />
+                  <SeverityIcon
+                    severity={severity.severity}
+                    className="size-3"
+                  />
                   {severity.title}
                 </span>
               )}

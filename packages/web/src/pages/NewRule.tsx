@@ -314,7 +314,7 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
         {surface &&
           section(
             2,
-            <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+            <div className="grid items-start gap-8 min-[1400px]:grid-cols-[min-content_minmax(0,1fr)] min-[1400px]:gap-12">
               <ResponseStep
                 severity={ruleSeverity}
                 onSeverity={setSeverity}
