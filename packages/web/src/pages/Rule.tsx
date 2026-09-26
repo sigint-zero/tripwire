@@ -2,7 +2,14 @@ import type { RuleDisplay, SavedRule } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Button, buttonClass, EmptyState, Switch, Tag } from "../components/ui";
+import {
+  Button,
+  buttonClass,
+  EmptyState,
+  PinIcon,
+  Switch,
+  Tag,
+} from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import {
   actions,
@@ -97,8 +104,13 @@ export function RulePage({ id }: { id: string }) {
       <header className="mt-4 mb-10 flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
+            <h1 className="flex items-center gap-3 font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
               {rule.rule.name}
+              {isPinned && (
+                <span title="Pinned to the Overview" className="text-gray-400">
+                  <PinIcon className="size-6" />
+                </span>
+              )}
             </h1>
             <Switch
               on={rule.enabled}
@@ -160,6 +172,7 @@ export function RulePage({ id }: { id: string }) {
             onClick={() => pin.mutate(!isPinned)}
             title="Pinned rules show on the Overview"
           >
+            <PinIcon />
             {isPinned ? "Unpin" : "Pin"}
           </Button>
           {confirming ? (

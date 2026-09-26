@@ -44,6 +44,22 @@ export function Plus() {
   );
 }
 
+/** A pushpin: the rule shows on the Overview. */
+export function PinIcon({ className = "size-3.5" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden="true"
+      className={`shrink-0 ${className}`}
+    >
+      <path d="M5 2h6M6 2v4.5L4 9.5h8l-2-3V2M8 9.5V14" />
+    </svg>
+  );
+}
+
 /** A form field's label, and the field. */
 export const labelClass =
   "mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";

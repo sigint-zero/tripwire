@@ -1,6 +1,9 @@
 import type { Contract, SavedRule } from "@tripwire/shared";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { api } from "../lib/api";
 import { shortAddress } from "../lib/format";
+import { PinIcon } from "./ui";
 import { actions, SeverityIcon, severities } from "./wizard/ResponseStep";
 
 /** Rules as rows: name, the engine's sentence, contract, severity, action. */
@@ -14,6 +17,10 @@ export function RuleList({
   contracts?: Contract[];
   highlight?: string;
 }) {
+  const { data: pinned } = useQuery({
+    queryKey: ["pinned"],
+    queryFn: ({ signal }) => api.pinnedRules(signal),
+  });
   return (
     <ul className="space-y-2">
       {rules.map((saved) => {
@@ -44,6 +51,14 @@ export function RuleList({
                     className={`size-1.5 ${saved.enabled ? "bg-emerald-500" : "bg-gray-600"}`}
                   />
                   {saved.rule.name}
+                  {pinned?.includes(saved.id) && (
+                    <span
+                      title="Pinned to the Overview"
+                      className="text-gray-400"
+                    >
+                      <PinIcon className="size-3" />
+                    </span>
+                  )}
                   {!saved.enabled && (
                     <span className="text-[10px] tracking-[0.2em] text-gray-500">
                       Off
