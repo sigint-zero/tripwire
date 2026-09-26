@@ -79,6 +79,34 @@ export function lastReadyStatus(
   return status;
 }
 
+/**
+ * How a message touches the session's one unnamed prepared statement:
+ * a Parse replaces it, a Bind or a statement Describe uses it, a Close
+ * or any simple query destroys it.
+ */
+export function unnamedStatement(
+  message: Uint8Array,
+): "parse" | "use" | "destroy" | null {
+  const type = String.fromCharCode(message[0]!);
+  const at = (offset: number) => {
+    const end = message.indexOf(0, offset);
+    return { name: end < 0 ? null : message.subarray(offset, end), end };
+  };
+  if (type === "Q") return "destroy";
+  if (type === "P") return at(5).name?.length === 0 ? "parse" : null;
+  if (type === "B") {
+    const portal = at(5);
+    return portal.end >= 0 && at(portal.end + 1).name?.length === 0
+      ? "use"
+      : null;
+  }
+  if ((type === "D" || type === "C") && message[5] === 0x53) {
+    if (at(6).name?.length !== 0) return null;
+    return type === "D" ? "use" : "destroy";
+  }
+  return null;
+}
+
 /** A simple-query message carrying `sql`. */
 export function queryMessage(sql: string): Uint8Array {
   const text = Buffer.from(`${sql}\0`, "utf8");

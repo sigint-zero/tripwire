@@ -104,6 +104,34 @@ describe("Pooler", () => {
     a.close();
   });
 
+  it("keeps a client's unnamed statement from one sequence to its next", async () => {
+    // A prepares in one sequence and binds in the next, as drivers that
+    // avoid named statements do. B parses its own unnamed statement in
+    // between, taking a parameter A's Bind does not supply.
+    const a = await rawClient(port);
+    const b = await client();
+    await a.send(
+      Buffer.concat([
+        parseMessage("SELECT 'from a' AS v"),
+        frame("D", Buffer.concat([Buffer.from("S"), text("")])),
+        frame("S", Buffer.alloc(0)),
+      ]),
+    );
+    await a.until("Z");
+    expect((await b.query("SELECT $1::text AS v", ["from b"])).rows).toEqual([
+      { v: "from b" },
+    ]);
+    await a.send(BIND_EXECUTE_SYNC);
+    const answer = await a.until("Z");
+    expect(answer).toContain("from a");
+    expect(answer).not.toContain("bind message");
+    // B's statement, replaced for A, is B's again when B binds it.
+    expect((await b.query("SELECT $1::text AS v", ["b again"])).rows).toEqual([
+      { v: "b again" },
+    ]);
+    a.close();
+  });
+
   it("rolls back a client that disconnects mid-transaction", async () => {
     const a = await client();
     const b = await client();

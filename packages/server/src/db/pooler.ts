@@ -5,6 +5,7 @@ import {
   queryMessage,
   splitFrames,
   SYNC,
+  unnamedStatement,
   type TransactionStatus,
 } from "./wire";
 
@@ -31,6 +32,8 @@ interface Client {
   pumping: boolean;
   closed: boolean;
   idleTimer?: NodeJS.Timeout;
+  /** Its last Parse of the unnamed statement, to restore after another client's replaced it. */
+  unnamed: Uint8Array | null;
 }
 
 /**
@@ -42,6 +45,12 @@ interface Client {
  * interleaved with another client's statements. Waiting clients are
  * served in arrival order. A client that disconnects or sits idle inside
  * a transaction is rolled back before the next lease.
+ *
+ * The session has one unnamed prepared statement, and a driver may parse
+ * it in one sequence and bind it in the next, with another client's lease
+ * in between. The pooler keeps each client's last unnamed Parse and
+ * replays it before the client uses the statement, when another's has
+ * taken its place.
  */
 export class Pooler {
   readonly #db: ProtocolDatabase;
@@ -51,6 +60,8 @@ export class Pooler {
   readonly #waiting: Client[] = [];
   readonly #clients = new Set<Client>();
   #onFree: (() => void) | null = null;
+  /** Whose Parse the session's unnamed statement is now. */
+  #unnamedOwner: Client | null = null;
 
   constructor(db: ProtocolDatabase, options: PoolerOptions = {}) {
     this.#db = db;
@@ -107,6 +118,7 @@ export class Pooler {
       idle: true,
       pumping: false,
       closed: false,
+      unnamed: null,
     };
     this.#clients.add(client);
     socket.setNoDelay(true);
@@ -157,6 +169,8 @@ export class Pooler {
       while (this.#holder === client && !client.closed) {
         const message = client.pending.shift();
         if (!message) break;
+        const failed = await this.#unnamed(client, message);
+        if (failed && !client.socket.destroyed) client.socket.write(failed);
         const response = await this.#db.execProtocolRaw(message);
         if (response.length > 0 && !client.socket.destroyed) {
           client.socket.write(response);
@@ -181,6 +195,35 @@ export class Pooler {
       () => this.#expire(client),
       this.#idleInTransactionMs,
     );
+  }
+
+  /**
+   * Keeps track of the unnamed statement before `message` runs, restoring
+   * the client's own when `message` uses it. Returns the database's error
+   * when that Parse no longer succeeds, for the client to see.
+   */
+  async #unnamed(
+    client: Client,
+    message: Uint8Array,
+  ): Promise<Uint8Array | null> {
+    const effect = unnamedStatement(message);
+    if (effect === "parse") {
+      client.unnamed = message;
+      this.#unnamedOwner = client;
+    } else if (effect === "destroy") {
+      if (message[0] === 0x43) client.unnamed = null;
+      this.#unnamedOwner = null;
+    } else if (
+      effect === "use" &&
+      client.unnamed &&
+      this.#unnamedOwner !== client
+    ) {
+      const replayed = await this.#db.execProtocolRaw(client.unnamed);
+      this.#unnamedOwner = client;
+      // ParseComplete alone is the client's own earlier answer, not sent again.
+      if (replayed.length !== 5 || replayed[0] !== 0x31) return replayed;
+    }
+    return null;
   }
 
   /** Ends a transaction left idle too long, and the connection that left it. */
@@ -229,6 +272,8 @@ export class Pooler {
    * never reached its Sync.
    */
   async #rollBack() {
+    // A simple query destroys the unnamed statement.
+    this.#unnamedOwner = null;
     try {
       // Aborts an open implicit or explicit transaction; ignored when an
       // extended-query error is waiting for its Sync.
