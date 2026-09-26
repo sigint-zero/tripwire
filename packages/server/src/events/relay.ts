@@ -1,4 +1,5 @@
 import type { ServerResponse } from "node:http";
+import { filed } from "../notifications/render";
 import type { EngineEvent, EngineEvents } from "./types";
 
 // The browser side of live updates: one engine stream fanned out to every
@@ -89,17 +90,26 @@ export function toBrowser(event: EngineEvent): BrowserEvent | null | undefined {
       return (
         need(text(row.id)) && {
           event: "notification",
-          data: {
-            id: text(row.id),
-            // The application's own notifications carry their source and severity.
-            source: row.source === "app" ? "app" : "engine",
-            kind: row.kind,
-            severity:
-              row.severity ??
-              (typeof row.payload === "object" && row.payload
-                ? (row.payload as Row).severity
-                : undefined),
-          },
+          data:
+            // The application's own notifications carry their kind and
+            // severity; the engine's are filed as the feed files them.
+            row.source === "app"
+              ? {
+                  id: text(row.id),
+                  source: "app",
+                  kind: row.kind,
+                  severity: row.severity,
+                }
+              : {
+                  id: text(row.id),
+                  source: "engine",
+                  ...filed(
+                    String(row.kind),
+                    typeof row.payload === "object" && row.payload
+                      ? (row.payload as Row)
+                      : {},
+                  ),
+                },
         }
       );
     case "channel":

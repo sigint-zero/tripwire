@@ -246,7 +246,7 @@ function PausedRow({
         <span className="font-mono text-xs text-gray-500">
           since #{row.sinceBlock.toLocaleString("en-US")}
         </span>
-        {row.actor && (
+        {row.actor?.is === "tripwire_response" && (
           <span className="text-xs text-gray-500">
             by {row.actor.rule.name}
           </span>

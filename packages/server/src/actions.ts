@@ -1,4 +1,4 @@
-import type { ManualActionItem, WalletCall } from "@tripwire/shared";
+import type { ManualActionItem } from "@tripwire/shared";
 import type { FastifyPluginCallback } from "fastify";
 import { encodeFunctionData, parseAbiItem, type AbiFunction } from "viem";
 import { z } from "zod";
@@ -12,10 +12,9 @@ import { refuse } from "./refuse";
 
 // Pausing and unpausing by hand during an incident (`RESPONSES.md`): a
 // person's decision, sent by the engine from the signing key through the
-// same path as a response, in any mode. The engine offers the
-// controller's pauses; a call to one of the contract's own functions it
-// does not make yet, so for those the answer is the call to make from a
-// wallet.
+// same path as a response, in any mode: a call to one of the contract's
+// own functions, or the controller's pauses for a contract registered
+// with it.
 
 const note = z.string().trim().max(500).optional();
 const action = z.union([
@@ -32,7 +31,6 @@ const action = z.union([
     call: z.object({
       function: z.string().min(3).max(500),
       args: z.array(z.string().max(1000)).max(20),
-      value: z.string().regex(/^\d+$/).optional(),
     }),
     note,
   }),
@@ -47,6 +45,8 @@ function toItem(row: ActionRow): ManualActionItem {
     kind: row.kind,
     target: row.target,
     selector: row.selector,
+    function: row.function,
+    args: row.args,
     note: row.note,
     status: row.status,
     error: row.error,
@@ -68,25 +68,18 @@ function argument(type: string, text: string): unknown {
   throw new Error(`${type} arguments are not supported here`);
 }
 
-/** The calldata for a call a person makes from a wallet. */
-function walletCall(
-  to: string,
-  call: { function: string; args: string[]; value?: string },
-): WalletCall {
+/** Throws unless the call encodes: its arguments fit its signature. */
+function encodes(call: { function: string; args: string[] }) {
   const item = parseAbiItem(`function ${call.function}`) as AbiFunction;
   if (item.inputs.length !== call.args.length) {
     throw new Error(
       `${call.function} takes ${item.inputs.length} arguments, not ${call.args.length}`,
     );
   }
-  return {
-    to,
-    value: call.value ?? "0",
-    data: encodeFunctionData({
-      abi: [item],
-      args: item.inputs.map((input, i) => argument(input.type, call.args[i]!)),
-    }),
-  };
+  encodeFunctionData({
+    abi: [item],
+    args: item.inputs.map((input, i) => argument(input.type, call.args[i]!)),
+  });
 }
 
 export const actionRoutes: FastifyPluginCallback<{
@@ -111,9 +104,9 @@ export const actionRoutes: FastifyPluginCallback<{
     const said = body.data.note ? `${by}: ${body.data.note}` : by;
 
     if ("call" in body.data) {
-      let wallet: WalletCall;
+      const { call } = body.data;
       try {
-        wallet = walletCall(contract.address, body.data.call);
+        encodes(call);
       } catch (error) {
         return refuse(
           reply,
@@ -122,13 +115,26 @@ export const actionRoutes: FastifyPluginCallback<{
           error instanceof Error ? error.message : String(error),
         );
       }
-      return refuse(
-        reply,
-        501,
-        "not_available",
-        "The engine does not make calls by hand yet. Send this from a wallet that holds the permission.",
-        { wallet },
+      // The engine's refusal, a failed pre-flight or no usable key,
+      // passes through with its message.
+      const row = await commands.createAction({
+        action: "call",
+        target: contract.address,
+        function: call.function,
+        args: call.args,
+        note: said,
+      });
+      request.log.info(
+        {
+          action: row.id,
+          kind: "call",
+          function: call.function,
+          contract: contract.address,
+          by,
+        },
+        "manual action",
       );
+      return reply.code(201).send(toItem(row));
     }
 
     const { controller, scope, selector } = body.data;

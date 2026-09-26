@@ -250,6 +250,24 @@ describe("the feed", () => {
       tx_hash: null,
       evidence: { path: "/trip_when/left", error: "execution reverted" },
     });
+    await record("violation", {
+      violation_id: 100,
+      rule_id: 1,
+      rule: "Pause it",
+      contract: token,
+      severity: "critical",
+      kind: "pending",
+      block_number: 12,
+      tx_hash: "0xfeed",
+    });
+    const pending = (
+      await get<NotificationPage>("/notifications?kind=violation")
+    ).items.find((i) => i.title.endsWith("would trip"));
+    expect(pending).toMatchObject({
+      severity: "critical",
+      title: "Token: Pause it would trip",
+      text: "Seen in the mempool, not yet on chain; a landing is recorded as its own violation. Transaction 0xfeed.",
+    });
     const health = (await get<NotificationPage>("/notifications?kind=health"))
       .items;
     expect(health.map((i) => [i.title, i.severity]).sort()).toEqual([

@@ -67,7 +67,8 @@ export type ManualAction =
       note?: string;
     }
   | {
-      call: { function: string; args: string[]; value?: string };
+      /** One of the contract's own functions, in signature form, with literal arguments. */
+      call: { function: string; args: string[] };
       note?: string;
     };
 
@@ -81,9 +82,17 @@ export interface WalletCall {
 /** A recorded manual action. */
 export interface ManualActionItem {
   id: string;
-  kind: "trip_global" | "trip_function" | "reset_global" | "reset_function";
+  kind:
+    | "trip_global"
+    | "trip_function"
+    | "reset_global"
+    | "reset_function"
+    | "call";
   target: string;
   selector: string | null;
+  /** The called signature, for `call`. */
+  function: string | null;
+  args: string[] | null;
   note: string | null;
   status: string;
   error: string | null;

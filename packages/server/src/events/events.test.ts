@@ -9,7 +9,12 @@ import { createServer } from "../app";
 import { ViewReads } from "../engine/reads";
 import { STUB_VIEWS, StubEngine } from "../engine/stub";
 import { signIn, TEST_COST, testDatabase, testHome } from "../testing";
-import { BrowserRelay, QUEUE_LIMIT, STREAMS_PER_SESSION } from "./relay";
+import {
+  BrowserRelay,
+  QUEUE_LIMIT,
+  STREAMS_PER_SESSION,
+  toBrowser,
+} from "./relay";
 import type { EngineEvents, EngineListener } from "./types";
 import { EngineStream } from "./upstream";
 
@@ -198,6 +203,25 @@ const named = (out: FakeResponse) =>
   out.chunks.map((c) => /event: (\w+)/.exec(c)?.[1]).filter(Boolean);
 
 describe("the relay", () => {
+  it("files the engine's notifications as the feed does", () => {
+    const row = (kind: string, payload: object) =>
+      toBrowser({
+        event: "notification",
+        data: { id: 9, kind, payload, created_at: "2026-09-27T00:00:00Z" },
+      });
+    expect(row("action", { id: 3, status: "confirmed" })).toMatchObject({
+      data: { source: "engine", kind: "response", severity: "info" },
+    });
+    expect(row("health", { status: "degraded", cause: "lag" })).toMatchObject({
+      data: { kind: "health", severity: "warning" },
+    });
+    expect(
+      row("violation", { kind: "evaluation_error", severity: "critical" }),
+    ).toMatchObject({
+      data: { kind: "evaluation_error", severity: "warning" },
+    });
+  });
+
   it("tells a tab that cannot keep up to resync, and closes it", () => {
     const engine = new FakeEngine();
     const relay = new BrowserRelay(engine, () => {});
@@ -316,6 +340,40 @@ describe("the engine's stream", () => {
       "resync:upstream",
       "resync:upstream",
     ]);
+  });
+
+  it("takes the engine's lagged error as a warning to resync, not an event", async () => {
+    let connections = 0;
+    handle = (res) => {
+      connections++;
+      sse(
+        res,
+        connections === 1
+          ? 'event: error\ndata: {"code":"lagged","message":"the reader fell behind"}\n\n'
+          : ": hello\n\n",
+      );
+    };
+    const seen: string[] = [];
+    const warned: unknown[] = [];
+    const stream = new EngineStream({
+      url,
+      secret: () => Promise.resolve("s"),
+      log: { warn: (_message, detail) => warned.push(detail), error: () => {} },
+    });
+    const stop = stream.listen({
+      event: (e) => seen.push(e.event),
+      resync: (reason) => seen.push(`resync:${reason}`),
+    });
+    await vi.waitFor(() => expect(connections).toBe(2), { timeout: 3_000 });
+    stop();
+    expect(seen).not.toContain("error");
+    expect(seen.filter((s) => s === "resync:upstream").length).toBeGreaterThan(
+      1,
+    );
+    expect(warned).toContainEqual({
+      code: "lagged",
+      message: "the reader fell behind",
+    });
   });
 
   it("reads the secret again once when refused, then stays closed", async () => {

@@ -115,7 +115,8 @@ export class NotificationStore {
                  'action', r.action) || n.payload
                WHEN a.id IS NOT NULL THEN jsonb_build_object(
                  'action_id', a.id::text, 'kind', a.kind, 'target', a.target,
-                 'selector', a.selector, 'note', a.note) || n.payload
+                 'selector', a.selector, 'function', a.function,
+                 'note', a.note) || n.payload
                ELSE n.payload END AS payload,
              n.created_at
         FROM ${views}.notifications n

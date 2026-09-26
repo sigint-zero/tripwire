@@ -152,6 +152,20 @@ export class EngineStream implements EngineEvents {
       this.#resync("upstream");
       return;
     }
+    if (name === "error") {
+      // Sent just before the engine hangs up on a reader that fell
+      // behind: the reconnect follows, and anything may have been missed.
+      const { code, message } = (data ?? {}) as {
+        code?: string;
+        message?: string;
+      };
+      this.#log.warn("The engine is disconnecting: it fell behind.", {
+        code,
+        message,
+      });
+      this.#resync("upstream");
+      return;
+    }
     for (const l of this.#listeners) l.event({ event: name, data });
   }
 }

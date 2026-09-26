@@ -39,12 +39,18 @@ export const tripStateRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
   app.get("/trip-state", async (): Promise<TripStateItem[]> => {
     const rows = await reads.tripState();
     if (rows.length === 0) return [];
-    const [rules, responses] = await Promise.all([
-      rows.some((r) => r.source === "verify") ? reads.rules() : [],
-      rows.some((r) => r.tx_hash)
+    const hashes = rows.flatMap((r) => (r.tx_hash ? [r.tx_hash] : []));
+    const observed = rows.some((r) => r.source === "verify");
+    const [rules, responses, actions, times] = await Promise.all([
+      observed ? reads.rules() : [],
+      hashes.length > 0
         ? reads.responses({ statuses: ["confirmed"], limit: 500 })
         : [],
+      hashes.length > 0 || observed ? reads.actions() : [],
+      reads.controllerTimes(hashes),
     ]);
+    // A controller pause's time is its controller event's.
+    const timeOf = new Map(times.map((t) => [t.tx_hash, t.block_time]));
     // Tripwire's own responses, by every hash they were sent under.
     const byHash = new Map<string, (typeof responses)[number]>();
     for (const response of responses) {
@@ -56,6 +62,41 @@ export const tripStateRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
         if (hash) byHash.set(hash.toLowerCase(), response);
       }
     }
+    // And the pauses people asked for by hand.
+    const byHand = new Map<string, (typeof actions)[number]>();
+    for (const action of actions) {
+      const tx = toTx(action.tx);
+      for (const hash of [
+        tx?.hash,
+        ...(tx?.attempts ?? []).map((a) => a.hash),
+      ]) {
+        if (hash) byHand.set(hash.toLowerCase(), action);
+      }
+    }
+    // A confirmed call observed in place carries no transaction: it was a
+    // person's when their last call to that function on the contract
+    // confirmed at or before the block it was first seen.
+    const calledByHand = (row: TripStateRow) =>
+      actions.find((action) => {
+        if (action.kind !== "call" || action.status !== "confirmed") {
+          return false;
+        }
+        if (
+          action.target.toLowerCase() !== row.contract_address.toLowerCase()
+        ) {
+          return false;
+        }
+        const landed = toTx(action.tx)?.block;
+        try {
+          return (
+            toFunctionSelector(action.function ?? "") === row.selector &&
+            landed != null &&
+            landed <= row.since_block
+          );
+        } catch {
+          return false;
+        }
+      });
     const confirming = (row: TripStateRow) =>
       rules
         .filter((rule) => {
@@ -72,9 +113,13 @@ export const tripStateRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
         .map((rule) => ({ id: rule.id, name: rule.name }));
 
     return rows.map((row) => {
-      const response = row.tx_hash
-        ? byHash.get(row.tx_hash.toLowerCase())
-        : undefined;
+      const hash = row.tx_hash?.toLowerCase();
+      const response = hash ? byHash.get(hash) : undefined;
+      const action = hash
+        ? byHand.get(hash)
+        : row.source === "verify"
+          ? calledByHand(row)
+          : undefined;
       const global = row.selector === "";
       return {
         contract: { address: row.contract_address, name: row.contract_name },
@@ -85,7 +130,7 @@ export const tripStateRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
           : (functionsOf(row.abi).get(row.selector) ?? null),
         source: row.source,
         sinceBlock: row.since_block,
-        sinceTime: null,
+        sinceTime: (hash && timeOf.get(hash)) ?? null,
         txHash: row.tx_hash,
         actor: response
           ? {
@@ -94,7 +139,16 @@ export const tripStateRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
               responseId: response.id,
               rule: { id: response.rule_id, name: response.rule_name },
             }
-          : null,
+          : action
+            ? {
+                address: null,
+                is: "tripwire_manual",
+                actionId: action.id,
+                // Recorded as "username: note" by the actions route.
+                by: action.note?.split(":")[0] ?? null,
+                note: action.note,
+              }
+            : null,
         rules: row.source === "verify" ? confirming(row) : [],
       };
     });

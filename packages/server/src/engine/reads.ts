@@ -5,6 +5,7 @@ import {
   type ContractRow,
   type CursorRow,
   type EngineReads,
+  type ActionRow,
   type BucketRow,
   type OperatorRow,
   type RegistrationRow,
@@ -211,6 +212,25 @@ export class ViewReads implements EngineReads {
     );
   }
 
+  actions() {
+    return this.#read<ActionRow>(
+      `SELECT id::text, kind, target, selector, function, args, note, status,
+              tx, error, created_at, updated_at
+         FROM ${this.#schema}.actions ORDER BY id DESC LIMIT 500`,
+    );
+  }
+
+  async controllerTimes(hashes: string[]) {
+    if (hashes.length === 0) return [];
+    return this.#read<{ tx_hash: string; block_time: string }>(
+      `SELECT DISTINCT ON (lower(tx_hash)) lower(tx_hash) AS tx_hash, block_time
+         FROM ${this.#schema}.controller_events
+        WHERE lower(tx_hash) = ANY($1::text[])
+        ORDER BY lower(tx_hash), block_number DESC LIMIT ${LIMIT}`,
+      [hashes.map((h) => h.toLowerCase())],
+    );
+  }
+
   operators() {
     // Each (contract, operator) pair's latest word decides: added, or removed.
     return this.#read<OperatorRow>(
@@ -256,8 +276,11 @@ export class ViewReads implements EngineReads {
                 WHERE v.rule_id = r.id AND a.violation_id IS NULL) AS open_count
          FROM unnest($1::bigint[]) AS r(id)
          LEFT JOIN LATERAL (
+           -- A pending violation warns of a transaction that may never
+           -- land: it never sets the rule's status.
            SELECT v.kind, v.block_number FROM ${this.#schema}.violations v
-            WHERE v.rule_id = r.id ORDER BY v.id DESC LIMIT 1
+            WHERE v.rule_id = r.id AND v.kind <> 'pending'
+            ORDER BY v.id DESC LIMIT 1
          ) n ON true
         LIMIT ${LIMIT}`,
       [ruleIds.slice(0, LIMIT)],

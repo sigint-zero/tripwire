@@ -8,7 +8,7 @@ import {
   type EngineHealth,
   type ActionRow,
   type KeyChange,
-  type ManualActionKind,
+  type ManualActionRequest,
   type ResponseDryRun,
   type KeyRow,
   type ReadCall,
@@ -156,12 +156,7 @@ export class HttpEngine implements EngineCommands {
     });
   }
 
-  async createAction(action: {
-    action: ManualActionKind;
-    target: string;
-    selector?: string;
-    note?: string;
-  }) {
+  async createAction(action: ManualActionRequest) {
     const row = await this.#call<ActionRow & { id: number }>(
       "POST",
       "/v1/actions",

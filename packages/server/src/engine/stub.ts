@@ -41,6 +41,7 @@ import {
   type KeyChange,
   type KeyRow,
   type ManualActionKind,
+  type ManualActionRequest,
   type ResponseDryRun,
   type ReadCall,
   type RuleRow,
@@ -170,6 +171,8 @@ CREATE TABLE IF NOT EXISTS stub.actions (
   kind text NOT NULL,
   target text NOT NULL,
   selector text,
+  function text,
+  args jsonb,
   note text,
   status text NOT NULL,
   tx jsonb,
@@ -177,6 +180,8 @@ CREATE TABLE IF NOT EXISTS stub.actions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE stub.actions ADD COLUMN IF NOT EXISTS function text;
+ALTER TABLE stub.actions ADD COLUMN IF NOT EXISTS args jsonb;
 CREATE TABLE IF NOT EXISTS stub.keys (
   address text PRIMARY KEY,
   keystore jsonb NOT NULL,
@@ -231,8 +236,10 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.trip_state AS
     FROM stub.trip_state;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.notifications AS
   SELECT id, kind, payload, created_at FROM stub.notifications;
-CREATE OR REPLACE VIEW ${STUB_VIEWS}.actions AS
-  SELECT id, kind, target, selector, note, status, tx, error, created_at, updated_at
+DROP VIEW IF EXISTS ${STUB_VIEWS}.actions;
+CREATE VIEW ${STUB_VIEWS}.actions AS
+  SELECT id, kind, target, selector, function, args, note, status, tx, error,
+         created_at, updated_at
     FROM stub.actions;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.controller_events AS
   SELECT id, block_number, block_hash, block_time, address, tx_hash, log_index,
@@ -883,7 +890,10 @@ export class StubEngine implements EngineCommands, EngineEvents {
       `INSERT INTO stub.trip_state
          (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
        VALUES ($1, $2, $3, true, $4, $5, $6)
-       ON CONFLICT (contract_address, selector, source) DO NOTHING`,
+       ON CONFLICT (contract_address, selector, source) DO UPDATE
+         SET tripped = true, since_block = excluded.since_block,
+             tx_hash = excluded.tx_hash, updated_at = excluded.updated_at
+         WHERE NOT stub.trip_state.tripped`,
       [at, row.selector, row.source, block, row.tx, time],
     );
     this.#emit("trip_state", {
@@ -935,7 +945,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
         time,
       );
     } else if (status === "awaiting_approval" || status === "abandoned") {
-      // Waiting is announced as NOTIFICATIONS.md N1 asks: a person must act.
+      // Waiting is announced as the engine announces its hold: a person must act.
       await this.#notify(
         "response",
         {
@@ -1173,31 +1183,64 @@ export class StubEngine implements EngineCommands, EngineEvents {
     return { ok: true, revert_reason: null, gas_estimate: 48_213, preview };
   }
 
-  async createAction(input: {
-    action: ManualActionKind;
-    target: string;
-    selector?: string;
-    note?: string;
-  }): Promise<ActionRow> {
+  async createAction(input: ManualActionRequest): Promise<ActionRow> {
     const target = input.target.toLowerCase();
+    const call = input.action === "call";
     const functionLevel =
       input.action === "trip_function" || input.action === "reset_function";
-    if (functionLevel !== Boolean(input.selector)) {
-      throw new EngineError(
-        400,
-        "invalid_request",
-        functionLevel
-          ? `${input.action} needs the function's selector`
-          : `${input.action} takes no selector`,
-      );
-    }
+    const refusal = call
+      ? input.selector
+        ? "call takes no selector; declare the function instead"
+        : !input.function
+          ? 'call needs a function, e.g. "pause()"'
+          : null
+      : input.function || input.args?.length
+        ? `${input.action} takes no function or arguments; those belong to the call kind`
+        : functionLevel !== Boolean(input.selector)
+          ? functionLevel
+            ? `${input.action} needs the function's selector`
+            : `${input.action} takes no selector`
+          : null;
+    if (refusal) throw new EngineError(400, "invalid_request", refusal);
     const sender = await this.#signingKey();
+    const insert = `INSERT INTO stub.actions
+         (kind, target, selector, function, args, note, status, tx, error)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id::text, kind, target, selector, function, args, note, status,
+                 tx, error, created_at, updated_at`;
+    const recorded = [
+      input.action,
+      target,
+      input.selector ?? null,
+      call ? input.function : null,
+      call ? JSON.stringify(input.args ?? []) : null,
+      input.note ?? null,
+    ];
     if (!this.#unlocked.has(sender)) {
-      throw new EngineError(
-        409,
-        "locked",
-        "the key is locked; unlock it first",
+      // As the engine does: recorded and failed at once, not refused.
+      const error = `the signing key ${sender} is locked`;
+      const { rows } = await this.#pool.query<ActionRow>(insert, [
+        ...recorded,
+        "failed",
+        null,
+        error,
+      ]);
+      const failed = rows[0]!;
+      await this.#notify(
+        "action",
+        {
+          action_id: Number(failed.id),
+          kind: failed.kind,
+          target,
+          selector: failed.selector,
+          function: failed.function,
+          note: failed.note,
+          status: "failed",
+          detail: error,
+        },
+        new Date(this.#clock()).toISOString(),
       );
+      return failed;
     }
     const block = blockAt(this.#clock());
     const { rows: counted } = await this.#pool.query<{ n: number }>(
@@ -1206,38 +1249,38 @@ export class StubEngine implements EngineCommands, EngineEvents {
     const nonce = counted[0]?.n ?? 0;
     const tx = submitted(
       txFor(
-        manualCall(input.action, target, input.selector ?? null),
+        input.action === "call"
+          ? {
+              target,
+              function: input.function!,
+              decoded_args: input.args ?? [],
+            }
+          : manualCall(input.action, target, input.selector ?? null),
         nonce,
         `action:${target}:${nonce}`,
       ),
       block,
     );
-    const { rows } = await this.#pool.query<ActionRow>(
-      `INSERT INTO stub.actions (kind, target, selector, note, status, tx)
-       VALUES ($1, $2, $3, $4, 'submitted', $5)
-       RETURNING id::text, kind, target, selector, note, status, tx, error,
-                 created_at, updated_at`,
-      [
-        input.action,
-        target,
-        input.selector ?? null,
-        input.note ?? null,
-        JSON.stringify(tx),
-      ],
-    );
+    const { rows } = await this.#pool.query<ActionRow>(insert, [
+      ...recorded,
+      "submitted",
+      JSON.stringify(tx),
+      null,
+    ]);
     return rows[0]!;
   }
 
-  /** A person's pause or unpause confirms a block after it was sent. */
+  /** A person's pause, unpause or call confirms a block after it was sent. */
   async #advanceActions(block: number, time: string) {
     const { rows } = await this.#pool.query<{
       id: string;
       kind: ManualActionKind;
       target: string;
       selector: string | null;
+      function: string | null;
       tx: StubTx;
     }>(
-      `SELECT id::text, kind, target, selector, tx FROM stub.actions
+      `SELECT id::text, kind, target, selector, function, tx FROM stub.actions
         WHERE status = 'submitted'`,
     );
     for (const a of rows) {
@@ -1247,26 +1290,11 @@ export class StubEngine implements EngineCommands, EngineEvents {
         "UPDATE stub.actions SET status = 'confirmed', tx = $2, updated_at = $3 WHERE id = $1",
         [a.id, JSON.stringify(confirmed(a.tx, block)), time],
       );
-      const tripped = a.kind.startsWith("trip");
-      const selector = a.selector ?? "";
-      await this.#pool.query(
-        `INSERT INTO stub.trip_state
-           (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
-         VALUES ($1, $2, 'controller', $3, $4, $5, $6)
-         ON CONFLICT (contract_address, selector, source) DO UPDATE
-           SET tripped = excluded.tripped, since_block = excluded.since_block,
-               tx_hash = excluded.tx_hash, updated_at = excluded.updated_at`,
-        [a.target, selector, tripped, block, a.tx.hash, time],
-      );
-      this.#emit("trip_state", {
-        contract_address: a.target,
-        selector,
-        source: "controller",
-        tripped,
-        since_block: block,
-        tx_hash: a.tx.hash,
-        updated_at: time,
-      });
+      if (a.kind === "call") {
+        await this.#called(a.target, a.function ?? "", block, time);
+      } else {
+        await this.#controllerActed({ ...a, kind: a.kind }, block, time);
+      }
       await this.#notify(
         "action",
         {
@@ -1279,6 +1307,114 @@ export class StubEngine implements EngineCommands, EngineEvents {
         time,
       );
     }
+  }
+
+  /**
+   * What a call to the contract's own function changes, as the engine
+   * observes it: a rule's confirmation of that function now holds, and an
+   * unpause lifts every one on the contract. The engine records no
+   * transaction for an observed pause.
+   */
+  async #called(target: string, fn: string, block: number, time: string) {
+    const { rows: rules } = await this.#pool.query<{ document: Rule }>(
+      `SELECT r.document FROM stub.rules r
+         JOIN stub.contracts c ON c.id = r.contract_id
+        WHERE r.enabled AND lower(c.address) = $1`,
+      [target],
+    );
+    const selector = toFunctionSelector(fn);
+    const confirms = rules.some(
+      ({ document: { on_trip: onTrip } }) =>
+        onTrip.action === "call" &&
+        onTrip.call.verify !== undefined &&
+        toFunctionSelector(onTrip.call.function) === selector,
+    );
+    const lifts = /^unpause\b/i.test(fn);
+    if (!confirms && !lifts) return;
+    const { rows: changed } = await this.#pool.query<{ selector: string }>(
+      lifts
+        ? `UPDATE stub.trip_state SET tripped = false, since_block = $2, updated_at = $3
+            WHERE contract_address = $1 AND source = 'verify' AND tripped
+            RETURNING selector`
+        : `INSERT INTO stub.trip_state
+             (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
+           VALUES ($1, $4, 'verify', true, $2, NULL, $3)
+           ON CONFLICT (contract_address, selector, source) DO UPDATE
+             SET tripped = true, since_block = excluded.since_block,
+                 updated_at = excluded.updated_at
+             WHERE NOT stub.trip_state.tripped
+           RETURNING selector`,
+      lifts ? [target, block, time] : [target, block, time, selector],
+    );
+    for (const row of changed) {
+      this.#emit("trip_state", {
+        contract_address: target,
+        selector: row.selector,
+        source: "verify",
+        tripped: !lifts,
+        since_block: block,
+        tx_hash: null,
+        updated_at: time,
+      });
+    }
+  }
+
+  /** The controller's pause or unpause, as the engine mirrors it. */
+  async #controllerActed(
+    a: {
+      kind: Exclude<ManualActionKind, "call">;
+      target: string;
+      selector: string | null;
+      tx: StubTx;
+    },
+    block: number,
+    time: string,
+  ) {
+    const tripped = a.kind.startsWith("trip");
+    const selector = a.selector ?? "";
+    // The controller's own record of it, as the engine mirrors it.
+    const sender = await this.#signingKey().catch(() => null);
+    await this.#pool.query(
+      `INSERT INTO stub.controller_events
+         (block_number, block_hash, block_time, address, tx_hash, log_index, event_name, payload)
+       VALUES ($1, $2, $3, $4, $5, 0, $6, $7)`,
+      [
+        block,
+        `0x${block.toString(16).padStart(64, "0")}`,
+        time,
+        CONTROLLER,
+        a.tx.hash,
+        {
+          trip_global: "GlobalTripped",
+          trip_function: "FunctionTripped",
+          reset_global: "GlobalReset",
+          reset_function: "FunctionReset",
+        }[a.kind],
+        JSON.stringify({
+          guardedContract: a.target,
+          ...(a.selector ? { selector: a.selector } : {}),
+          [tripped ? "triggeredBy" : "operator"]: sender,
+        }),
+      ],
+    );
+    await this.#pool.query(
+      `INSERT INTO stub.trip_state
+         (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
+       VALUES ($1, $2, 'controller', $3, $4, $5, $6)
+       ON CONFLICT (contract_address, selector, source) DO UPDATE
+         SET tripped = excluded.tripped, since_block = excluded.since_block,
+             tx_hash = excluded.tx_hash, updated_at = excluded.updated_at`,
+      [a.target, selector, tripped, block, a.tx.hash, time],
+    );
+    this.#emit("trip_state", {
+      contract_address: a.target,
+      selector,
+      source: "controller",
+      tripped,
+      since_block: block,
+      tx_hash: a.tx.hash,
+      updated_at: time,
+    });
   }
 
   read(calls: ReadCall[]): Promise<(string | string[])[]> {

@@ -1,4 +1,8 @@
-import type { NotificationItem } from "@tripwire/shared";
+import type {
+  NotificationItem,
+  NotificationKind,
+  Severity,
+} from "@tripwire/shared";
 import type { NoticeRow } from "./store";
 
 // Every message says what happened, where, how bad, and links to the page
@@ -58,6 +62,18 @@ export function render(
           : {};
       const error = str(evidence.error) ?? str(p.error);
       const path = str(evidence.path);
+      // Seen in the mempool: a warning about a transaction not yet on chain.
+      if (p.kind === "pending") {
+        return {
+          id,
+          title: `${contractName(p.contract, names)}: ${rule} would trip`,
+          text: lines(
+            "Seen in the mempool, not yet on chain; a landing is recorded as its own violation.",
+            tx && `Transaction ${tx}.`,
+          ),
+          link: str(p.rule_id) ? `/violations?rule=${str(p.rule_id)}` : null,
+        };
+      }
       return {
         id,
         title: `${contractName(p.contract, names)}: ${rule} ${
@@ -82,9 +98,14 @@ export function render(
         str(p.tx_hash) && `Transaction ${str(p.tx_hash)}.`,
         str(p.block_number) && `Block ${str(p.block_number)}.`,
       ];
-      // A person's pause or unpause from the dashboard.
+      // A person's pause, unpause or call from the dashboard.
       if (str(p.action_id)) {
-        const verb = str(p.kind)?.startsWith("reset") ? "unpause" : "pause";
+        const verb =
+          str(p.kind) === "call"
+            ? (str(p.function) ?? "call")
+            : str(p.kind)?.startsWith("reset")
+              ? "unpause"
+              : "pause";
         return {
           id,
           title: `${contractName(p.target, names)}: ${verb} by hand ${words}`,
@@ -140,6 +161,49 @@ export function render(
         link: str(p.link) ?? "/",
       };
   }
+}
+
+/**
+ * The feed's kind and severity for one of the engine's rows, as the
+ * store's query files it, for the stream, which carries the row alone.
+ */
+export function filed(
+  kind: string,
+  payload: Record<string, unknown>,
+): { kind: NotificationKind; severity: Severity } {
+  const status = str(payload.status);
+  if (kind === "violation") {
+    if (payload.kind === "evaluation_error") {
+      return { kind: "evaluation_error", severity: "warning" };
+    }
+    const severity = str(payload.severity);
+    return {
+      kind: "violation",
+      severity:
+        severity === "info" || severity === "warning" || severity === "critical"
+          ? severity
+          : "warning",
+    };
+  }
+  if (kind === "response" || kind === "action") {
+    return {
+      kind: "response",
+      severity:
+        status === "confirmed"
+          ? "info"
+          : status === "abandoned"
+            ? "warning"
+            : "critical",
+    };
+  }
+  if (kind === "health") {
+    return {
+      kind: "health",
+      severity:
+        status === "ready" || status === "starting" ? "info" : "warning",
+    };
+  }
+  return { kind: "system", severity: "info" };
 }
 
 export function toItem(

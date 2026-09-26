@@ -11,6 +11,7 @@ import { createServer } from "./app";
 import { ViewReads } from "./engine/reads";
 import { STUB_VIEWS, StubEngine } from "./engine/stub";
 import { CONTROLLER } from "./engine/stub-responses";
+import { EngineError } from "./engine/types";
 import { signIn, TEST_COST, testDatabase, testHome } from "./testing";
 
 // A rule that pauses on chain: the stand-in stages a response when it
@@ -36,7 +37,7 @@ const pausing = (name: string, onTrip: object) => ({
   on_trip: onTrip,
 });
 
-async function setUp(mode: "prepare" | "send") {
+async function setUp(mode: "prepare" | "send", { busy = false } = {}) {
   let now = Date.UTC(2026, 8, 1);
   const database = await testDatabase();
   const home = await testHome();
@@ -45,7 +46,28 @@ async function setUp(mode: "prepare" | "send") {
     backend: {
       pool: database.pool,
       engine: {
-        commands: stub,
+        // The engine refuses an approval while the key has a
+        // transaction in flight.
+        commands: busy
+          ? new Proxy(stub, {
+              get(target, name) {
+                if (name === "approveResponse") {
+                  return () =>
+                    Promise.reject(
+                      new EngineError(
+                        409,
+                        "busy",
+                        "a transaction is in flight",
+                      ),
+                    );
+                }
+                const value: unknown = Reflect.get(target, name);
+                return typeof value === "function"
+                  ? (value as (...a: unknown[]) => unknown).bind(target)
+                  : value;
+              },
+            })
+          : stub,
         reads: new ViewReads(database.pool, STUB_VIEWS),
         events: stub,
         info: { chainId: 1, responseMode: mode, simulated: true },
@@ -236,6 +258,25 @@ describe("responses in send mode", () => {
     expect(
       (await get<ResponseItem>(t.app, `/responses/${sent!.id}`)).status,
     ).toBe("confirmed");
+    await t.close();
+  });
+});
+
+describe("an approval while the key is busy", () => {
+  it("says so, and leaves the response waiting", async () => {
+    const t = await setUp("prepare", { busy: true });
+    await t.addRule("Pause on supply", { action: "trip_global" });
+    await t.block();
+    const [held] = await get<ResponseItem[]>(
+      t.app,
+      "/responses?status=waiting",
+    );
+    const res = await post(t.app, `/responses/${held!.id}/approve`);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "busy" });
+    expect(
+      (await get<ResponseItem>(t.app, `/responses/${held!.id}`)).status,
+    ).toBe("awaiting_approval");
     await t.close();
   });
 });

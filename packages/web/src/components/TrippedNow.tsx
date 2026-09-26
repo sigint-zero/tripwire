@@ -88,7 +88,7 @@ function Row({ item }: { item: TripStateItem }) {
 
 /** Who paused it: Tripwire's response, or the transaction that did. */
 function By({ item }: { item: TripStateItem }) {
-  if (item.actor) {
+  if (item.actor?.is === "tripwire_response") {
     return (
       <Link
         to="/responses"

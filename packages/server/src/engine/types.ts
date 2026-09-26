@@ -217,16 +217,30 @@ export interface ResponseDryRun {
   };
 }
 
-/** The controller calls a person may make by hand. */
+/** What a person may send by hand: a controller call, or one to the contract's own function. */
 export type ManualActionKind =
-  "trip_global" | "trip_function" | "reset_global" | "reset_function";
+  "trip_global" | "trip_function" | "reset_global" | "reset_function" | "call";
 
-/** A row of `api_v1.actions`: a pause or unpause a person asked for. */
+/** `POST /v1/actions`: a selector for the controller's function kinds, a function and its arguments for `call`. */
+export interface ManualActionRequest {
+  action: ManualActionKind;
+  target: string;
+  selector?: string;
+  function?: string;
+  args?: string[];
+  note?: string;
+}
+
+/** A row of `api_v1.actions`: what a person asked Tripwire to send. */
 export interface ActionRow {
   id: string;
   kind: ManualActionKind;
   target: string;
   selector: string | null;
+  /** The called signature, for `call`. */
+  function: string | null;
+  /** Its literal arguments, for `call`. */
+  args: string[] | null;
   note: string | null;
   status: string;
   tx: unknown;
@@ -361,13 +375,8 @@ export interface EngineCommands {
   lockKey(address: string): Promise<KeyChange>;
   /** Builds a rule's on-chain action from the signing key and simulates it. */
   responseDryRun(ruleId: string): Promise<ResponseDryRun>;
-  /** A pause or unpause through the controller, sent like a response. */
-  createAction(action: {
-    action: ManualActionKind;
-    target: string;
-    selector?: string;
-    note?: string;
-  }): Promise<ActionRow>;
+  /** A person's pause, unpause or call, sent like a response. */
+  createAction(action: ManualActionRequest): Promise<ActionRow>;
 }
 
 /** Every read of the engine's state comes from its views. */
@@ -402,6 +411,12 @@ export interface EngineReads {
   tripState(): Promise<TripStateRow[]>;
   /** Where the engine's cursors stand; readable while the engine is down. */
   engineStatus(): Promise<CursorRow[]>;
+  /** The recent pauses and unpauses people asked for by hand, newest first. */
+  actions(): Promise<ActionRow[]>;
+  /** When each of these transactions' controller events were mined. */
+  controllerTimes(
+    hashes: string[],
+  ): Promise<{ tx_hash: string; block_time: string }[]>;
   /** Operators granted on registered contracts and not since removed. */
   operators(): Promise<OperatorRow[]>;
   /** Registered contracts on the controller, each with its latest guardian. */

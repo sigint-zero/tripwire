@@ -390,13 +390,23 @@ export interface TripStateItem {
   sinceTime: string | null;
   /** The pausing transaction; none for a confirmed call, whose state is observed. */
   txHash: string | null;
-  /** Who sent it, when that is known: Tripwire's own response. */
-  actor: {
-    address: string | null;
-    is: "tripwire_response";
-    responseId: string;
-    rule: { id: string; name: string };
-  } | null;
+  /** Who sent it, when that is known: a rule's response, or a person by hand, both through Tripwire. */
+  actor:
+    | {
+        address: string | null;
+        is: "tripwire_response";
+        responseId: string;
+        rule: { id: string; name: string };
+      }
+    | {
+        address: string | null;
+        is: "tripwire_manual";
+        actionId: string;
+        /** The person, from the action's note. */
+        by: string | null;
+        note: string | null;
+      }
+    | null;
   /** For a confirmed call: the rules whose confirmation reads true. */
   rules: { id: string; name: string }[];
 }

@@ -1,4 +1,5 @@
 import type {
+  KeyList,
   ManualActionItem,
   NotificationPage,
   Readiness,
@@ -221,7 +222,17 @@ describe("pausing by hand", () => {
     now += 12_000;
     await stub.tick();
     expect(await get<TripStateItem[]>("/trip-state")).toEqual([
-      expect.objectContaining({ scope: "global", source: "controller" }),
+      expect.objectContaining({
+        scope: "global",
+        source: "controller",
+        // When the controller recorded it, and that a person asked for it.
+        sinceTime: expect.any(String) as unknown,
+        actor: expect.objectContaining({
+          is: "tripwire_manual",
+          by: "tester",
+          note: "tester: Draining, pausing now",
+        }) as unknown,
+      }),
     ]);
     const feed = await get<NotificationPage>("/notifications?kind=response");
     // The same block also trips the rule; the pause by hand is its own row.
@@ -241,14 +252,89 @@ describe("pausing by hand", () => {
     expect(await get<TripStateItem[]>("/trip-state")).toEqual([]);
   });
 
-  it("gives the wallet call for a function of the contract's own", async () => {
+  it("calls the contract's own pause(), confirms, and says who asked", async () => {
+    // A rule whose confirmation reads the pause in place.
+    await post("/rules", {
+      rule: {
+        ...pausing,
+        name: "Confirm the pause",
+        on_trip: {
+          action: "call",
+          call: {
+            function: "pause()",
+            args: [],
+            verify: {
+              node: "compare",
+              op: "eq",
+              left: {
+                node: "view_call",
+                function: "paused() returns (bool)",
+                args: [],
+              },
+              right: { node: "literal", value: "true" },
+            },
+          },
+        },
+      },
+    });
+    const res = await post(`/contracts/${vault}/actions`, {
+      call: { function: "pause()", args: [] },
+      note: "Draining",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<ManualActionItem>()).toMatchObject({
+      kind: "call",
+      target: vault,
+      selector: null,
+      function: "pause()",
+      args: [],
+      status: "submitted",
+      note: "tester: Draining",
+    });
+    now += 12_000;
+    await stub.tick();
+    expect(await get<TripStateItem[]>("/trip-state")).toEqual([
+      expect.objectContaining({
+        scope: "function",
+        function: "pause()",
+        source: "verify",
+        txHash: null,
+        actor: expect.objectContaining({
+          is: "tripwire_manual",
+          by: "tester",
+        }) as unknown,
+        rules: [expect.objectContaining({ name: "Confirm the pause" })],
+      }),
+    ]);
+    const feed = await get<NotificationPage>("/notifications?kind=response");
+    expect(
+      feed.items.find((i) => i.title.includes("pause() by hand")),
+    ).toMatchObject({ title: "Vault: pause() by hand confirmed" });
+
+    await post(`/contracts/${vault}/actions`, {
+      call: { function: "unpause()", args: [] },
+    });
+    now += 12_000;
+    await stub.tick();
+    expect(await get<TripStateItem[]>("/trip-state")).toEqual([]);
+  });
+
+  it("fails a call at once while the signing key is locked", async () => {
+    const { keys } = await get<KeyList>("/keys");
+    await post(`/keys/${keys[0]!.address}/lock`);
     const res = await post(`/contracts/${vault}/actions`, {
       call: { function: "pause()", args: [] },
     });
-    expect(res.statusCode).toBe(501);
-    expect(res.json()).toMatchObject({
-      code: "not_available",
-      wallet: { to: vault, value: "0", data: "0x8456cb59" },
+    // The engine records it failed rather than refusing it.
+    expect(res.statusCode).toBe(201);
+    expect(res.json<ManualActionItem>()).toMatchObject({
+      kind: "call",
+      status: "failed",
+      error: `the signing key ${keys[0]!.address} is locked`,
+      txHash: null,
+    });
+    await post(`/keys/${keys[0]!.address}/unlock`, {
+      passphrase: "correct horse battery",
     });
   });
 

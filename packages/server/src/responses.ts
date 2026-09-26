@@ -160,6 +160,15 @@ export const responseRoutes: FastifyPluginCallback<{
     try {
       await act();
     } catch (error) {
+      // Another transaction in flight on the key: the response waits.
+      if (error instanceof EngineError && error.code === "busy") {
+        return refuse(
+          reply,
+          409,
+          "busy",
+          "Another transaction is in flight on the signing key. The response stays waiting: approve it again once that settles.",
+        );
+      }
       if (error instanceof EngineError && error.status === 409) {
         const now = await reads.response(id);
         return refuse(
