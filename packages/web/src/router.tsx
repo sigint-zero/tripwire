@@ -22,7 +22,7 @@ import { NotificationsPage } from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
 import { readResponsesSearch, ResponsesPage } from "./pages/Responses";
 import { RulePage } from "./pages/Rule";
-import { RulesPage } from "./pages/Rules";
+import { readRulesSearch, RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { readFilter, ViolationsPage } from "./pages/Violations";
 
@@ -97,11 +97,16 @@ const contractRoute = createRoute({
 const rulesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/rules",
-  validateSearch: (search): { created?: string } =>
-    typeof search.created === "string" ? { created: search.created } : {},
+  validateSearch: readRulesSearch,
   component: function Rules() {
-    const { created } = rulesRoute.useSearch();
-    return <RulesPage created={created} />;
+    const search = rulesRoute.useSearch();
+    const navigate = rulesRoute.useNavigate();
+    return (
+      <RulesPage
+        search={search}
+        onSearch={(next) => void navigate({ search: next, replace: true })}
+      />
+    );
   },
 });
 
