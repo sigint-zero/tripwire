@@ -20,7 +20,7 @@ import {
   severities,
 } from "../components/wizard/ResponseStep";
 import { api } from "../lib/api";
-import { formatBig, shortAddress, timeAgo } from "../lib/format";
+import { formatBig, shortAddress, showValue, timeAgo } from "../lib/format";
 
 const heading =
   "mb-4 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
@@ -231,7 +231,7 @@ export function RulePage({ id }: { id: string }) {
       <RuleValues rule={rule} violations={violations} />
 
       <section className="mb-12">
-        <h2 className={heading}>How values show</h2>
+        <h2 className={heading}>Number format</h2>
         <DisplayForm
           key={`${rule.display.decimals}:${rule.display.unit}`}
           display={rule.display}
@@ -291,7 +291,10 @@ function Fact({
   );
 }
 
-/** Decimals the raw value is divided by, and a unit after it. */
+/**
+ * How the rule's numbers read: contracts return whole numbers, so a token
+ * amount needs its decimals, and a label says what it counts.
+ */
 function DisplayForm({
   id,
   display,
@@ -305,6 +308,10 @@ function DisplayForm({
     display.decimals === null ? "" : String(display.decimals),
   );
   const [unit, setUnit] = useState(display.unit ?? "");
+  const { data: current } = useQuery({
+    queryKey: ["rule-current", id],
+    queryFn: ({ signal }) => api.ruleCurrent(id, signal),
+  });
   const save = useMutation({
     mutationFn: () =>
       api.changeRule(id, {
@@ -318,49 +325,82 @@ function DisplayForm({
   const dirty =
     decimals !== (display.decimals === null ? "" : String(display.decimals)) ||
     unit !== (display.unit ?? "");
-  const input =
-    "bg-white/5 px-3 py-2 font-mono text-sm text-white placeholder:text-gray-600 focus:bg-white/8 focus:outline-none";
+  const sample =
+    current?.find((c) => /^-?\d+$/.test(c.value))?.value ??
+    "1234500000000000000000";
+  const label = unit.trim() || null;
+  const choices: [string, string][] = [
+    ["", "raw"],
+    ["6", "6 decimals"],
+    ["8", "8 decimals"],
+    ["18", "18 decimals"],
+  ];
+  const custom = !choices.some(([v]) => v === decimals);
 
+  // Each choice is the latest value read that way: pick what looks right.
   return (
     <form
-      className="flex flex-wrap items-end gap-3"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate();
       }}
     >
-      <label className="grid gap-1.5">
-        <span
-          className="text-xs text-gray-500"
-          title="The raw value is divided by 10 to this power: 18 for most tokens, 6 for USDC"
+      <div className="flex flex-wrap gap-2">
+        {choices.map(([value, caption]) => (
+          <button
+            key={caption}
+            type="button"
+            onClick={() => setDecimals(value)}
+            className={`cursor-pointer px-4 py-2.5 text-left transition-colors ${
+              decimals === value
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-white/3 text-gray-300 hover:bg-white/6"
+            }`}
+          >
+            <span className="block font-mono text-sm">
+              {showValue(sample, {
+                decimals: value === "" ? null : Number(value),
+                unit: label,
+              })}
+            </span>
+            <span className="block text-[10px] tracking-wider text-gray-500 uppercase">
+              {caption}
+            </span>
+          </button>
+        ))}
+        <label
+          className={`px-4 py-2.5 ${custom ? "bg-emerald-500/15" : "bg-white/3"}`}
         >
-          Decimals
-        </span>
-        <input
-          value={decimals}
-          onChange={(e) => setDecimals(e.target.value.replace(/\D/g, ""))}
-          inputMode="numeric"
-          maxLength={2}
-          placeholder="Raw"
-          className={`w-24 ${input}`}
-        />
-      </label>
-      <label className="grid gap-1.5">
-        <span className="text-xs text-gray-500">Unit</span>
+          <input
+            value={custom ? decimals : ""}
+            onChange={(e) => setDecimals(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            maxLength={2}
+            placeholder="Other"
+            className="block w-16 bg-transparent font-mono text-sm text-white placeholder:text-gray-500 focus:outline-none"
+          />
+          <span className="block text-[10px] tracking-wider text-gray-500 uppercase">
+            decimals
+          </span>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
         <input
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
           maxLength={16}
-          placeholder="None"
-          className={`w-32 ${input}`}
+          placeholder="Label, like USDC"
+          aria-label="Label after each value"
+          className="w-44 bg-white/5 px-3 py-2 font-mono text-sm text-white placeholder:text-gray-600 focus:bg-white/8 focus:outline-none"
         />
-      </label>
-      <Button type="submit" disabled={!dirty || save.isPending}>
-        Save
-      </Button>
-      {save.error && (
-        <p className="w-full text-sm text-red-400">{save.error.message}</p>
-      )}
+        <Button type="submit" disabled={!dirty || save.isPending}>
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        {save.error && (
+          <p className="text-sm text-red-400">{save.error.message}</p>
+        )}
+      </div>
     </form>
   );
 }

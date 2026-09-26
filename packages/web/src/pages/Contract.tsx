@@ -136,10 +136,13 @@ export function ContractPage({ address }: { address: string }) {
         )}
       </section>
 
-      <section className="mb-12">
-        <h2 className={heading}>Response readiness</h2>
-        <Readiness address={key} />
-      </section>
+      {/* With no rules nothing trips, and the section above says so. */}
+      {hasRules && (
+        <section className="mb-12">
+          <h2 className={heading}>When a rule trips</h2>
+          <Readiness address={key} />
+        </section>
+      )}
 
       <section>
         <h2 className={heading}>What it exposes</h2>
