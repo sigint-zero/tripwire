@@ -99,7 +99,7 @@ From the ABI the wizard extracts:
 
 | Offered as | Taken from |
 |-|-|
-| values | `view` and `pure` functions with no inputs, one entry per integer output; a function returning several values offers each, named `function.output` (e.g. `latestRoundData.updatedAt`). A read declares everything it returns, so a function with any output rules cannot describe (an array, a tuple) is left out |
+| values | `view` and `pure` functions with no inputs, one entry per integer output (a `bool` output is offered only as a call confirmation); a function returning several values offers each, named `function.output` (e.g. `latestRoundData.updatedAt`). A read declares everything it returns, so a function with any output rules cannot describe (an array, a tuple) is left out |
 | events | every event, in the declaration style rules name them by: `Transfer(address indexed from, address indexed to, uint256 value)` |
 | functions to pause or call | every non-view function, by bare signature (`withdraw(uint256)`), with its 4-byte selector |
 
@@ -253,6 +253,22 @@ reads `true`), saved as the language's `call.verify` condition. With
 it the engine watches the effect every block and shows it beside
 controller trip state, skips a send whose effect already holds, and
 alerts when a confirmed call did not produce its effect.
+
+The confirmation picker offers the contract's view functions with no
+inputs that return a `bool` or an integer. A `bool` is shown as **reads
+true** or **reads false** and saved as an equality with the `bool`
+literal, since the language compares values of one type:
+
+```json
+{ "node": "compare", "op": "eq",
+  "left": { "node": "view_call", "function": "paused() returns (bool)", "args": [] },
+  "right": { "node": "literal", "value": "true" } }
+```
+
+An integer read is confirmed against a number the person types, with
+the same comparison choices as a rule. `bool` reads are offered only
+here, not as rule values, where a true-or-false state is better
+watched through the event that changes it.
 
 Whether a pause or a call waits for a person's approval or is sent at
 once is not part of the rule. It is the installation's response mode
