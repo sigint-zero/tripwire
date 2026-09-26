@@ -5,6 +5,7 @@ import { contractRoutes } from "./contracts";
 import type { EngineBackend } from "./engine";
 import { EngineError, EngineNotReady } from "./engine/types";
 import { refuse } from "./refuse";
+import { RuleService } from "./rule-service";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
 import { violationRoutes } from "./violations";
@@ -45,12 +46,8 @@ export const api: FastifyPluginCallback<{ backend?: Backend }> = (
   app.get("/engine", () => info);
   app.register(abiRoutes, { lookup });
   app.register(contractRoutes, { commands, reads, store, lookup });
-  app.register(ruleRoutes, {
-    commands,
-    reads,
-    store,
-    simulated: info.simulated,
-  });
+  const rules = new RuleService(commands, reads, store, info.simulated);
+  app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
 
   done();
