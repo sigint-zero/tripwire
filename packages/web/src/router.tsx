@@ -6,7 +6,7 @@ import {
   Outlet,
   redirect,
 } from "@tanstack/react-router";
-import { auth, isLoggedOut } from "./lib/api";
+import { api, auth, isLoggedOut } from "./lib/api";
 import { useLiveUpdates } from "./lib/live";
 import { AppShell } from "./components/AppShell";
 import { Scanlines } from "./components/Scanlines";
@@ -27,6 +27,7 @@ import { readResponsesSearch, ResponsesPage } from "./pages/Responses";
 import { RulePage } from "./pages/Rule";
 import { readRulesSearch, RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
+import { SetupChainPage } from "./pages/SetupChain";
 import { readFilter, ViolationsPage } from "./pages/Violations";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -46,6 +47,11 @@ const setupQuery = {
 const sessionQuery = {
   queryKey: ["auth", "session"],
   queryFn: ({ signal }: { signal: AbortSignal }) => auth.session(signal),
+};
+const engineQuery = {
+  queryKey: ["engine"],
+  queryFn: ({ signal }: { signal: AbortSignal }) => api.engine(signal),
+  staleTime: 5_000,
 };
 
 /** Only a path on this site is followed back after logging in. */
@@ -72,6 +78,14 @@ const shellRoute = createRoute({
     } catch (error) {
       if (!isLoggedOut(error)) throw error;
       throw redirect({ to: "/login", search: { redirect: location.href } });
+    }
+    // With no chain there is nothing to show but the form that sets one;
+    // Settings stays reachable for the account.
+    if (location.pathname !== "/settings") {
+      const engine = await queryClient.fetchQuery(engineQuery);
+      if (engine.state === "unconfigured") {
+        throw redirect({ to: "/setup/chain" });
+      }
     }
   },
 });
@@ -212,6 +226,25 @@ const firstRunRoute = createRoute({
   component: FirstRunPage,
 });
 
+const setupChainRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup/chain",
+  beforeLoad: async ({ context: { queryClient }, location }) => {
+    try {
+      await queryClient.fetchQuery({ ...sessionQuery, staleTime: 60_000 });
+    } catch (error) {
+      if (!isLoggedOut(error)) throw error;
+      throw redirect({ to: "/login", search: { redirect: location.href } });
+    }
+    const engine = await queryClient.fetchQuery({
+      ...engineQuery,
+      staleTime: 0,
+    });
+    if (engine.state !== "unconfigured") throw redirect({ to: "/" });
+  },
+  component: SetupChainPage,
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
@@ -241,6 +274,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
   ]),
   firstRunRoute,
+  setupChainRoute,
   loginRoute,
 ]);
 

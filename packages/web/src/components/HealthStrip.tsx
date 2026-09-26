@@ -153,7 +153,7 @@ export function HealthStrip() {
 
   return (
     <Link
-      to={engine.state === "unconfigured" ? "/setup" : "/settings"}
+      to={engine.state === "unconfigured" ? "/setup/chain" : "/settings"}
       className={`mb-8 flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-xs transition-colors ${tones[tone]}`}
     >
       <span

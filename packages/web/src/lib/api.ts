@@ -15,6 +15,8 @@ import type {
   EngineStatus,
   Issue,
   KeyList,
+  ChainSetup,
+  ChainVerify,
   ManualAction,
   ManualActionItem,
   Readiness,
@@ -273,6 +275,12 @@ export const api = {
   tripState: (signal?: AbortSignal) =>
     request<TripStateItem[]>("/trip-state", { signal }),
   setup: (signal?: AbortSignal) => request<SetupState>("/setup", { signal }),
+  verifyChain: (chain: ChainSetup) =>
+    request<ChainVerify>("/setup/chain/verify", { json: chain }),
+  setChain: (chain: ChainSetup) =>
+    request<{ applied: true }>("/setup/chain", { method: "PUT", json: chain }),
+  engineLog: (lines = 20, signal?: AbortSignal) =>
+    request<{ lines: string[] }>(`/engine/log?lines=${lines}`, { signal }),
   dismissSetup: () =>
     request<{ dismissed: true }>("/setup/dismiss", { method: "POST" }),
   responseCounts: (signal?: AbortSignal) =>
