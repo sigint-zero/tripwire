@@ -1,4 +1,14 @@
 import { formatDuration, type EngineInfo, type Rule } from "@tripwire/shared";
+import type { ReactNode } from "react";
+import {
+  BREACH_INDEX,
+  rollingLabel,
+  rollingOf,
+  rollingSeries,
+  SAMPLES,
+  W,
+  type Rolling,
+} from "../../lib/simulation";
 import { CornerBrackets } from "../ui";
 import { cooldowns } from "./ResponseStep";
 
@@ -175,6 +185,7 @@ export function TripSimulation({
   limitLabel: string;
 }) {
   const steps = stepsFor(rule, responseMode, sentence, contractName);
+  const rolling = rollingOf(rule);
   const cooldown = rule.on_trip.cooldown_seconds ?? 0;
   const quietLabel =
     cooldowns.find((c) => c.seconds === cooldown)?.label ?? `${cooldown}s`;
@@ -187,13 +198,21 @@ export function TripSimulation({
       <p className="mb-1 truncate font-mono text-[10px] text-emerald-400">
         {valueLabel}
       </p>
-      <Chart
-        scenario={scenarioFor(rule)}
-        steps={steps}
-        limitLabel={limitLabel}
+      {rolling ? (
+        <RollingChart rolling={rolling} steps={steps} quietFrom={quietFrom} />
+      ) : (
+        <Chart
+          scenario={scenarioFor(rule)}
+          steps={steps}
+          limitLabel={limitLabel}
+          quietFrom={quietFrom}
+        />
+      )}
+      <Axis
+        ticks={rolling ? windowTicks(rolling.window) : minuteTicks}
         quietFrom={quietFrom}
+        quietEnd={`+${formatDuration(cooldown)}`}
       />
-      <Axis quietFrom={quietFrom} quietEnd={`+${formatDuration(cooldown)}`} />
 
       <ol className="mt-6 space-y-3">
         {steps.map((step, i) => (
@@ -242,18 +261,23 @@ function Pin({ index, tone }: { index: number; tone: Step["tone"] }) {
 
 const pct = (x: number) => `${(x / 300) * 100}%`;
 
-function Chart({
-  scenario,
+/** The chart's frame: quiet period, breach line and the numbered actions. */
+function Frame({
   steps,
-  limitLabel,
   quietFrom,
+  breachY,
+  plot,
+  children,
 }: {
-  scenario: Scenario;
   steps: Step[];
-  limitLabel: string;
   quietFrom: number | null;
+  /** Where the value breaks, as a percentage from the top. */
+  breachY: number;
+  /** SVG content in the 300 × 100 box. */
+  plot: ReactNode;
+  /** HTML overlays: labels that must not stretch. */
+  children?: ReactNode;
 }) {
-  const shape = scenario === "event" ? null : shapes[scenario];
   return (
     <div className="relative h-36">
       <svg
@@ -279,18 +303,85 @@ function Chart({
           className="stroke-red-500/40"
           vectorEffect="non-scaling-stroke"
         />
-        {shape ? (
+        {plot}
+      </svg>
+
+      {children}
+
+      {/* Where it breaks. */}
+      <span
+        className="absolute size-2 -translate-1/2 bg-red-500"
+        style={{ left: pct(BREACH), top: `${breachY}%` }}
+      />
+
+      {/* The actions that follow, numbered as in the list below. */}
+      {steps.map((step, i) => (
+        <span
+          key={step.title}
+          className="absolute bottom-1 -translate-x-1/2"
+          style={{ left: pct(BREACH + i * PIN) }}
+        >
+          <Pin index={i} tone={step.tone} />
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** The value, green while it holds and red once it breaks. */
+function ValueLine({
+  d,
+  safe,
+  id,
+}: {
+  d: string;
+  safe: ReactNode;
+  id: string;
+}) {
+  return (
+    <>
+      <defs>
+        <clipPath id={id}>{safe}</clipPath>
+      </defs>
+      <path
+        d={d}
+        className="fill-none stroke-red-500"
+        strokeWidth={2}
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={d}
+        clipPath={`url(#${id})`}
+        className="fill-none stroke-emerald-400"
+        strokeWidth={2}
+        vectorEffect="non-scaling-stroke"
+      />
+    </>
+  );
+}
+
+const dashed = "fill-none stroke-gray-500 [stroke-dasharray:4_4]";
+
+function Chart({
+  scenario,
+  steps,
+  limitLabel,
+  quietFrom,
+}: {
+  scenario: Scenario;
+  steps: Step[];
+  limitLabel: string;
+  quietFrom: number | null;
+}) {
+  const shape = scenario === "event" ? null : shapes[scenario];
+  return (
+    <Frame
+      steps={steps}
+      quietFrom={quietFrom}
+      breachY={shape ? shape.breachY : 20}
+      plot={
+        shape ? (
           <>
-            <defs>
-              <clipPath id={`safe-${scenario}`}>
-                <rect
-                  x={0}
-                  y={shape.safe[0]}
-                  width={300}
-                  height={shape.safe[1] - shape.safe[0]}
-                />
-              </clipPath>
-            </defs>
             {shape.limits.map((y) => (
               <line
                 key={y}
@@ -298,22 +389,21 @@ function Chart({
                 x2={300}
                 y1={y}
                 y2={y}
-                className="stroke-gray-500 [stroke-dasharray:4_4]"
+                className={dashed}
                 vectorEffect="non-scaling-stroke"
               />
             ))}
-            <path
+            <ValueLine
+              id={`safe-${scenario}`}
               d={shape.path}
-              className="fill-none stroke-red-500"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
-            />
-            <path
-              d={shape.path}
-              clipPath={`url(#safe-${scenario})`}
-              className="fill-none stroke-emerald-400"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
+              safe={
+                <rect
+                  x={0}
+                  y={shape.safe[0]}
+                  width={300}
+                  height={shape.safe[1] - shape.safe[0]}
+                />
+              }
             />
           </>
         ) : (
@@ -339,9 +429,9 @@ function Chart({
               vectorEffect="non-scaling-stroke"
             />
           </>
-        )}
-      </svg>
-
+        )
+      }
+    >
       {/* The limit's name sits on its line. */}
       {shape && limitLabel && (
         <span
@@ -351,39 +441,122 @@ function Chart({
           {limitLabel}
         </span>
       )}
-
-      {/* Where it breaks. */}
-      <span
-        className="absolute size-2 -translate-1/2 bg-red-500"
-        style={{ left: pct(BREACH), top: `${shape ? shape.breachY : 20}%` }}
-      />
-
-      {/* The actions that follow, numbered as in the list below. */}
-      {steps.map((step, i) => (
-        <span
-          key={step.title}
-          className="absolute bottom-1 -translate-x-1/2"
-          style={{ left: pct(BREACH + i * PIN) }}
-        >
-          <Pin index={i} tone={step.tone} />
-        </span>
-      ))}
-    </div>
+    </Frame>
   );
 }
 
+/** Sample index to chart x; the breach sample lands on BREACH. */
+const xOf = (i: number) => (i * 300) / SAMPLES;
+
+/**
+ * A limit that moves with the value: the band follows the trailing average,
+ * the growth ceiling follows the value a window ago, the drop floor follows
+ * the window's high.
+ */
+function RollingChart({
+  rolling,
+  steps,
+  quietFrom,
+}: {
+  rolling: Rolling;
+  steps: Step[];
+  quietFrom: number | null;
+}) {
+  const { values, upper, lower, center } = rollingSeries(rolling);
+  const all = [...values, ...(upper ?? []), ...(lower ?? [])];
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const yOf = (v: number) => 90 - ((v - min) / (max - min)) * 80;
+  const points = (xs: number[]) => xs.map((v, i) => `${xOf(i)} ${yOf(v)}`);
+  const line = (xs: number[]) => `M${points(xs).join(" L")}`;
+
+  // Where the value may be: between the limits, or on the safe side of one.
+  const safe = upper
+    ? lower
+      ? `M${points(upper).join(" L")} L${points(lower).reverse().join(" L")} Z`
+      : `M${points(upper).join(" L")} L300 100 L0 100 Z`
+    : `M${points(lower ?? []).join(" L")} L300 0 L0 0 Z`;
+  const edge = upper ?? lower ?? [];
+  const labelY = yOf(edge[edge.length - 1] ?? 0);
+
+  return (
+    <Frame
+      steps={steps}
+      quietFrom={quietFrom}
+      breachY={yOf(values[BREACH_INDEX] ?? 0)}
+      plot={
+        <>
+          {rolling.kind === "band" && (
+            <path d={safe} className="fill-emerald-500/5" />
+          )}
+          {center && (
+            <path
+              d={line(center)}
+              className="fill-none stroke-gray-600"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+          {[upper, lower].map(
+            (limit, i) =>
+              limit && (
+                <path
+                  key={i}
+                  d={line(limit)}
+                  className={dashed}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ),
+          )}
+          <ValueLine
+            id={`safe-rolling-${rolling.kind}`}
+            d={line(values)}
+            safe={<path d={safe} />}
+          />
+        </>
+      }
+    >
+      {/* The window the limit is measured over, ending at the breach. */}
+      <span
+        className="absolute top-0 h-1.5 border-x border-t border-gray-600"
+        style={{ left: pct(xOf(BREACH_INDEX - W)), width: pct(xOf(W)) }}
+      >
+        <span className="absolute top-1 left-1/2 -translate-x-1/2 bg-canvas px-1 font-mono text-[10px] leading-none whitespace-nowrap text-gray-500">
+          {formatDuration(rolling.window)}
+        </span>
+      </span>
+      <span
+        className="absolute right-0 max-w-[45%] -translate-y-full truncate pb-0.5 font-mono text-[10px] text-gray-400"
+        style={{ top: `${labelY}%` }}
+      >
+        {rollingLabel(rolling)}
+      </span>
+    </Frame>
+  );
+}
+
+const minuteTicks = [
+  { x: 0, label: "−3m" },
+  { x: BREACH / 3, label: "−2m" },
+  { x: (BREACH * 2) / 3, label: "−1m" },
+];
+
+/** One and two windows before the breach. */
+function windowTicks(window: number) {
+  return [2, 1].map((n) => ({
+    x: xOf(BREACH_INDEX - n * W),
+    label: `−${formatDuration(n * window)}`,
+  }));
+}
+
 function Axis({
+  ticks,
   quietFrom,
   quietEnd,
 }: {
+  ticks: { x: number; label: string }[];
   quietFrom: number | null;
   quietEnd: string;
 }) {
-  const ticks = [
-    { x: 0, label: "−3m" },
-    { x: BREACH / 3, label: "−2m" },
-    { x: (BREACH * 2) / 3, label: "−1m" },
-  ];
   return (
     <div className="relative mt-1 h-5 font-mono text-[10px] text-gray-600">
       {ticks.map((t) => (
