@@ -53,16 +53,6 @@ export interface Template {
 /** A readOrNumber field holding a typed number is stored as "n:<digits>". */
 export const NUMBER_PREFIX = "n:";
 
-export const durations = [
-  { seconds: 300, label: "5 minutes" },
-  { seconds: 900, label: "15 minutes" },
-  { seconds: 1_200, label: "20 minutes" },
-  { seconds: 3_600, label: "1 hour" },
-  { seconds: 21_600, label: "6 hours" },
-  { seconds: 86_400, label: "24 hours" },
-  { seconds: 604_800, label: "7 days" },
-];
-
 /** Comparisons as the sentence states them, and the one that trips the rule. */
 export const compareOps: { op: CompareOp; label: string; trips: CompareOp }[] =
   [
@@ -289,7 +279,8 @@ export const templates: Template[] = [
     readBack({ trip_when }) {
       const t = asNode(trip_when);
       const left = asNode(t.left);
-      const limit = Number(asNode(asNode(t.right).right).value) * 100;
+      const limit =
+        Math.round(Number(asNode(asNode(t.right).right).value) * 10_000) / 100;
       return only({
         value: callId(left.of),
         percent: Number.isInteger(limit) ? String(limit) : null,

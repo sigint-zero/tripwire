@@ -1,8 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import type { ContractSurface } from "../../lib/abi";
+import { api } from "../../lib/api";
+import {
+  blockSeconds,
+  durationProblem,
+  fromSeconds,
+  humanDuration,
+  toSeconds,
+  type Unit,
+} from "../../lib/duration";
 import { formatBig } from "../../lib/format";
 import {
   compareOps,
-  durations,
   NUMBER_PREFIX,
   type Field,
   type Template,
@@ -30,9 +40,7 @@ export function blankLabel(
     case "event":
       return value.replace(/\(.*$/, "");
     case "duration":
-      return (
-        durations.find((d) => String(d.seconds) === value)?.label ?? `${value}s`
-      );
+      return /^\d+$/.test(value) ? humanDuration(Number(value)) : "…";
     case "op":
       return compareOps.find((o) => o.op === value)?.label ?? value;
     case "percent":
@@ -112,20 +120,7 @@ function Blank({
         />
       );
     case "duration":
-      return (
-        <select
-          {...aria}
-          className={blank}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {durations.map((d) => (
-            <option key={d.seconds} value={d.seconds}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      );
+      return <DurationBlank field={field} value={value} onChange={onChange} />;
     case "op":
       return (
         <select
@@ -217,4 +212,97 @@ function Blank({
       );
     }
   }
+}
+
+const invalid = "border-red-400/80! bg-red-500/10! text-red-300!";
+const units: Unit[] = ["blocks", "seconds", "minutes", "hours", "days"];
+
+interface Entry {
+  amount: string;
+  unit: Unit;
+}
+
+function entryFor(value: string): Entry {
+  if (!/^\d+$/.test(value)) return { amount: "", unit: "minutes" };
+  const { amount, unit } = fromSeconds(Number(value));
+  return { amount: String(amount), unit };
+}
+
+/**
+ * A number and a unit, from blocks to days. The rule keeps seconds; blocks
+ * convert with the chain's block time.
+ */
+function DurationBlank({
+  field,
+  value,
+  onChange,
+}: {
+  field: Field;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { data: engine } = useQuery({
+    queryKey: ["engine"],
+    queryFn: ({ signal }) => api.engine(signal),
+    staleTime: Infinity,
+  });
+  const perBlock = blockSeconds(engine?.chainId);
+  const [entry, setEntry] = useState(() => entryFor(value));
+  const secondsOf = (e: Entry) =>
+    e.amount === "" ? null : toSeconds(Number(e.amount), e.unit, perBlock);
+  const emitted = (e: Entry) => String(secondsOf(e) ?? "");
+
+  // Follow a value set from elsewhere, such as another starting point.
+  if (
+    /^\d*$/.test(value) &&
+    value !== emitted(entry) &&
+    !(entry.unit === "blocks" && !perBlock)
+  ) {
+    setEntry(entryFor(value));
+  }
+
+  const update = (next: Entry) => {
+    setEntry(next);
+    onChange(emitted(next));
+  };
+  const seconds = secondsOf(entry);
+  const problem = entry.amount === "" ? null : durationProblem(seconds);
+  const one = entry.amount === "1";
+
+  return (
+    <span className="inline-flex items-baseline" title={problem ?? undefined}>
+      <input
+        aria-label={`${field.label} amount`}
+        className={`${blank} mr-0 min-w-[2ch] text-center tabular-nums ${problem ? invalid : ""}`}
+        inputMode="numeric"
+        placeholder="0"
+        value={entry.amount}
+        onChange={(e) =>
+          update({
+            ...entry,
+            amount: e.target.value.replace(/\D/g, "").slice(0, 7),
+          })
+        }
+      />
+      <select
+        aria-label={`${field.label} unit`}
+        className={`${blank} ${problem ? invalid : ""}`}
+        value={entry.unit}
+        onChange={(e) => update({ ...entry, unit: e.target.value as Unit })}
+      >
+        {units
+          .filter((u) => u !== "blocks" || perBlock || entry.unit === "blocks")
+          .map((u) => (
+            <option key={u} value={u}>
+              {one ? u.slice(0, -1) : u}
+            </option>
+          ))}
+      </select>
+      {entry.unit === "blocks" && seconds !== null && !problem && (
+        <span className="ml-1 font-mono text-sm font-normal tracking-normal text-gray-500">
+          ≈ {humanDuration(seconds)}
+        </span>
+      )}
+    </span>
+  );
 }

@@ -265,6 +265,16 @@ describe("templates", () => {
     });
   });
 
+  it("reads a growth limit back whole, even where floats are not", () => {
+    const template = byId("growth");
+    const watch = template.build({
+      value: SUPPLY,
+      percent: "7",
+      window: "86400",
+    })!;
+    expect(template.readBack(watch)).toMatchObject({ percent: "7" });
+  });
+
   it("fires an event rule on the event alone", () => {
     const signature = surface.events[0]!.signature;
     expect(byId("event").build({ event: signature })).toEqual({
