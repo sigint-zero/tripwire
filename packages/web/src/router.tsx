@@ -10,6 +10,7 @@ import { ActivityPage } from "./pages/Activity";
 import { ContractsPage } from "./pages/Contracts";
 import { FirstRunPage } from "./pages/FirstRun";
 import { InvariantsPage } from "./pages/Invariants";
+import { NewInvariantPage } from "./pages/NewInvariant";
 import { NotFoundPage } from "./pages/NotFound";
 import { NotificationsPage } from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
@@ -49,7 +50,18 @@ const contractsRoute = createRoute({
 const invariantsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/invariants",
-  component: InvariantsPage,
+  validateSearch: (search): { created?: string } =>
+    typeof search.created === "string" ? { created: search.created } : {},
+  component: function Invariants() {
+    const { created } = invariantsRoute.useSearch();
+    return <InvariantsPage created={created} />;
+  },
+});
+
+const newInvariantRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invariants/new",
+  component: NewInvariantPage,
 });
 
 const violationsRoute = createRoute({
@@ -93,6 +105,7 @@ const routeTree = rootRoute.addChildren([
     overviewRoute,
     contractsRoute,
     invariantsRoute,
+    newInvariantRoute,
     violationsRoute,
     responsesRoute,
     activityRoute,
