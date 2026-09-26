@@ -1,1 +1,28 @@
 @import "tailwindcss";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/syne";
+
+@theme {
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+  --font-display: "Syne Variable", system-ui, sans-serif;
+
+  --color-canvas: #050505;
+  --color-panel: #070707;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-canvas);
+  }
+
+  body {
+    @apply bg-canvas font-mono text-gray-300 antialiased selection:bg-emerald-500 selection:text-black;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-emerald-500;
+  }
+}

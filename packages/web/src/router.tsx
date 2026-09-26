@@ -5,6 +5,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { AppShell } from "./components/AppShell";
+import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
 import { ContractsPage } from "./pages/Contracts";
 import { FirstRunPage } from "./pages/FirstRun";
@@ -17,7 +18,12 @@ import { SettingsPage } from "./pages/Settings";
 import { ViolationsPage } from "./pages/Violations";
 
 const rootRoute = createRootRoute({
-  component: Outlet,
+  component: () => (
+    <>
+      <Outlet />
+      <Scanlines />
+    </>
+  ),
   notFoundComponent: NotFoundPage,
 });
 

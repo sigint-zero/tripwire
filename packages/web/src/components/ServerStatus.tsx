@@ -10,8 +10,11 @@ async function fetchHealth(signal: AbortSignal): Promise<{ status: string }> {
 }
 
 const states = {
-  pending: { dot: "bg-neutral-300", label: "Checking server…" },
-  success: { dot: "bg-emerald-500", label: "Server connected" },
+  pending: { dot: "bg-gray-600", label: "Checking server…" },
+  success: {
+    dot: "animate-pulse bg-emerald-500 motion-reduce:animate-none",
+    label: "Server connected",
+  },
   error: { dot: "bg-red-500", label: "Server unreachable" },
 };
 
@@ -25,8 +28,8 @@ export function ServerStatus() {
   const { dot, label } = states[status];
 
   return (
-    <div className="flex items-center gap-2 px-2 text-xs text-neutral-500">
-      <span className={`size-2 rounded-full ${dot}`} />
+    <div className="flex items-center gap-2 px-3 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
+      <span className={`size-1.5 ${dot}`} />
       {label}
     </div>
   );
