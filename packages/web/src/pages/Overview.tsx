@@ -1,9 +1,9 @@
-import { chainName, type SavedRule, type Violation } from "@tripwire/shared";
+import type { SavedRule, Violation } from "@tripwire/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
-import { EmptyState, Tag } from "../components/ui";
+import { EmptyState } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/format";
@@ -31,11 +31,6 @@ export function OverviewPage() {
     queryKey: ["pinned"],
     queryFn: ({ signal }) => api.pinnedRules(signal),
   });
-  const { data: engine } = useQuery({
-    queryKey: ["engine"],
-    queryFn: ({ signal }) => api.engine(signal),
-    staleTime: Infinity,
-  });
 
   const watching = contracts?.filter((c) => c.active).length;
   const on = rules?.filter((r) => r.enabled).length;
@@ -48,14 +43,6 @@ export function OverviewPage() {
       <PageHeader
         title="Overview"
         description="What needs attention, and what you pinned."
-        action={
-          engine && (
-            <span className="flex gap-2">
-              <Tag>{chainName(engine.chainId)}</Tag>
-              {engine.simulated && <Tag tone="text-amber-400">Stand-in</Tag>}
-            </span>
-          )
-        }
       />
 
       <div className="mb-12 grid gap-2 sm:grid-cols-3">

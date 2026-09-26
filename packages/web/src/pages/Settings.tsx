@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
+import { useLogout } from "../components/AccountMenu";
 import { PageHeader } from "../components/PageHeader";
 import {
   Button,
@@ -52,7 +52,6 @@ function Row({ children }: { children: ReactNode }) {
 /** Who is logged in, their sessions, and their password. */
 function Account() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const { data: session } = useQuery({
     queryKey: ["auth", "session"],
     queryFn: ({ signal }) => auth.session(signal),
@@ -61,13 +60,7 @@ function Account() {
     queryKey: ["auth", "sessions"],
     queryFn: ({ signal }) => auth.sessions(signal),
   });
-  const logout = useMutation({
-    mutationFn: auth.logout,
-    onSuccess: async () => {
-      queryClient.clear();
-      await navigate({ to: "/login" });
-    },
-  });
+  const logout = useLogout();
   const revoke = useMutation({
     mutationFn: auth.revokeSession,
     onSuccess: () =>

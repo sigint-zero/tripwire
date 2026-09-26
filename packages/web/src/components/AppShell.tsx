@@ -1,5 +1,7 @@
 import { Link, Outlet } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { AccountMenu } from "./AccountMenu";
+import { ChainBadge } from "./ChainBadge";
 import { ServerStatus } from "./ServerStatus";
 import { Wordmark } from "./Wordmark";
 
@@ -68,7 +70,13 @@ export function ShellLayout({ children }: { children: ReactNode }) {
           <ServerStatus />
         </div>
       </nav>
-      <main className="flex-1 px-10 py-10">{children}</main>
+      <main className="flex-1 px-10 pt-5 pb-10">
+        <header className="mb-5 flex h-9 justify-end gap-2">
+          <ChainBadge />
+          <AccountMenu />
+        </header>
+        {children}
+      </main>
     </div>
   );
 }
