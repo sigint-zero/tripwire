@@ -38,6 +38,7 @@ function read(call: Extract<ValueExpr, { type: "view_call" }>, clock: number) {
     return nowSeconds(clock) - BigInt(Math.floor(unit(seed) * 1_800));
   }
   if (/^decimals\(/.test(call.method)) return 18n;
+  if (/chainid/i.test(call.method)) return 1n;
   // Everything else: a token-sized amount. Reads from one contract sit
   // within a few percent of each other and wobble by up to ±0.5%.
   const size = unit(call.contract.toLowerCase());

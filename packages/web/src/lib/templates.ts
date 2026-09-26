@@ -13,6 +13,8 @@ export interface Field {
   label: string;
   /** Preferred ABI names for the default pick, best first. */
   prefer?: RegExp[];
+  /** Names that make this template a strong fit for the contract. */
+  suggest?: RegExp[];
   initial?: string;
 }
 
@@ -73,7 +75,8 @@ function whole(value: string | undefined): number | null {
 
 const SUPPLY = [/^totalSupply$/i, /supply/i];
 const ASSETS = [/^totalAssets$/i, /assets|reserve|balance|tvl/i];
-const PRICE = [/price|rate|answer|pershare|exchange/i];
+// Cumulative accumulators (e.g. price0CumulativeLast) are not prices.
+const PRICE = [/^(?!.*cumulative).*(price|rate|answer|pershare|exchange)/i];
 const TIME = [/updatedAt/i, /updated|timestamp|lastUpdate|time/i];
 // Constants and bookkeeping values that make poor defaults.
 const UNINTERESTING =
@@ -86,8 +89,20 @@ export const templates: Template[] = [
     blurb: "A value always stays at or above another value, or a fixed floor.",
     needs: "reads",
     fields: [
-      { key: "value", kind: "read", label: "value", prefer: ASSETS },
-      { key: "floor", kind: "readOrNumber", label: "floor", prefer: SUPPLY },
+      {
+        key: "value",
+        kind: "read",
+        label: "value",
+        prefer: ASSETS,
+        suggest: ASSETS,
+      },
+      {
+        key: "floor",
+        kind: "readOrNumber",
+        label: "floor",
+        prefer: SUPPLY,
+        suggest: SUPPLY,
+      },
     ],
     sentence: [{ field: "value" }, " never drops below ", { field: "floor" }],
     build(v, contract) {
@@ -113,6 +128,7 @@ export const templates: Template[] = [
         kind: "read",
         label: "value",
         prefer: [...PRICE, ...ASSETS, ...SUPPLY],
+        suggest: PRICE,
       },
       { key: "percent", kind: "percent", label: "band", initial: "5" },
       { key: "window", kind: "duration", label: "window", initial: "1200" },
@@ -153,7 +169,13 @@ export const templates: Template[] = [
     blurb: "Limits how fast a value can rise, like new supply minted in a day.",
     needs: "reads",
     fields: [
-      { key: "value", kind: "read", label: "value", prefer: SUPPLY },
+      {
+        key: "value",
+        kind: "read",
+        label: "value",
+        prefer: SUPPLY,
+        suggest: SUPPLY,
+      },
       { key: "percent", kind: "percent", label: "limit", initial: "5" },
       { key: "window", kind: "duration", label: "window", initial: "86400" },
     ],
@@ -192,7 +214,13 @@ export const templates: Template[] = [
     blurb: "Spots a drain in progress: a balance never falls too far too fast.",
     needs: "reads",
     fields: [
-      { key: "value", kind: "read", label: "value", prefer: ASSETS },
+      {
+        key: "value",
+        kind: "read",
+        label: "value",
+        prefer: ASSETS,
+        suggest: ASSETS,
+      },
       { key: "percent", kind: "percent", label: "limit", initial: "10" },
       { key: "window", kind: "duration", label: "window", initial: "3600" },
     ],
@@ -231,7 +259,13 @@ export const templates: Template[] = [
     blurb: "An oracle or feed keeps updating: its timestamp is never too old.",
     needs: "reads",
     fields: [
-      { key: "timestamp", kind: "read", label: "timestamp", prefer: TIME },
+      {
+        key: "timestamp",
+        kind: "read",
+        label: "timestamp",
+        prefer: TIME,
+        suggest: TIME,
+      },
       { key: "window", kind: "duration", label: "max age", initial: "3600" },
     ],
     sentence: [
@@ -273,6 +307,7 @@ export const templates: Template[] = [
         kind: "event",
         label: "event",
         prefer: [/ownership|upgraded|admin|paused|role/i],
+        suggest: [/ownership|upgraded|admin|role/i],
       },
     ],
     sentence: [{ field: "event" }, " is never emitted"],
@@ -313,7 +348,34 @@ export const templates: Template[] = [
   },
 ];
 
-/** Fills each blank with a sensible starting value for this contract. */
+/**
+ * The part of a value's label that names it: the output name for one of
+ * several outputs ("getReserves._reserve0" → "_reserve0"), else the label.
+ */
+function ownName(label: string): string {
+  return label.slice(label.lastIndexOf(".") + 1);
+}
+
+function namesFor(field: Field, surface: ContractSurface): string[] {
+  if (field.kind === "event") return surface.events.map((e) => e.name);
+  if (field.kind === "read" || field.kind === "readOrNumber") {
+    return surface.reads.map((r) => ownName(r.label));
+  }
+  return [];
+}
+
+function hasClearMatch(field: Field, surface: ContractSurface): boolean {
+  return namesFor(field, surface).some((name) =>
+    (field.suggest ?? []).some((re) => re.test(name)),
+  );
+}
+
+/**
+ * Fills each blank with a sensible starting value for this contract. A
+ * blank the template needs a specific kind of value for (a timestamp, a
+ * price) is left empty when the contract has no clear match, rather than
+ * filled with a poor guess.
+ */
 export function initialValues(
   template: Template,
   surface: ContractSurface,
@@ -325,11 +387,12 @@ export function initialValues(
       values[field.key] = field.initial;
       continue;
     }
+    if (field.suggest && !hasClearMatch(field, surface)) continue;
     const options =
       field.kind === "event"
         ? surface.events.map((e) => ({ id: e.signature, name: e.name }))
         : field.kind === "read" || field.kind === "readOrNumber"
-          ? surface.reads.map((r) => ({ id: r.id, name: r.label }))
+          ? surface.reads.map((r) => ({ id: r.id, name: ownName(r.label) }))
           : [];
     const preferred = (field.prefer ?? [])
       .map((re) => options.find((o) => re.test(o.name) && !taken.has(o.id)))
@@ -346,4 +409,43 @@ export function initialValues(
     }
   }
   return values;
+}
+
+/** True when the contract has a clear match for every signal the template names. */
+export function isSuggested(
+  template: Template,
+  surface: ContractSurface,
+): boolean {
+  const signals = template.fields.filter((f) => f.suggest);
+  return (
+    signals.length > 0 &&
+    signals.every((field) => hasClearMatch(field, surface))
+  );
+}
+
+export interface RankedTemplate {
+  template: Template;
+  available: boolean;
+  suggested: boolean;
+}
+
+/** Templates for this contract: suggested first, then the rest, then unusable ones. */
+export function rankTemplates(surface: ContractSurface): RankedTemplate[] {
+  return templates
+    .map((template) => {
+      const available =
+        template.needs === "reads"
+          ? surface.reads.length > 0
+          : surface.events.length > 0;
+      return {
+        template,
+        available,
+        suggested: available && isSuggested(template, surface),
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.available) - Number(a.available) ||
+        Number(b.suggested) - Number(a.suggested),
+    );
 }

@@ -1,7 +1,12 @@
 import { rule } from "@tripwire/shared";
 import { describe, expect, it } from "vitest";
 import { describeAbi } from "./abi";
-import { initialValues, NUMBER_PREFIX, templates } from "./templates";
+import {
+  initialValues,
+  isSuggested,
+  NUMBER_PREFIX,
+  templates,
+} from "./templates";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
 
@@ -126,5 +131,81 @@ describe("templates", () => {
     expect(
       floor.build({ value: "totalAssets()#0", floor: NUMBER_PREFIX }, vault),
     ).toBeNull();
+  });
+});
+
+describe("suggestions", () => {
+  const byId = (id: string) => templates.find((t) => t.id === id)!;
+
+  it("suggests templates whose signals the contract has", () => {
+    const suggested = templates
+      .filter((t) => isSuggested(t, surface))
+      .map((t) => t.id);
+    expect(suggested).toEqual([
+      "floor",
+      "band",
+      "growth",
+      "outflow",
+      "fresh",
+      "event",
+    ]);
+  });
+
+  it("never suggests the custom comparison", () => {
+    expect(isSuggested(byId("compare"), surface)).toBe(false);
+  });
+
+  it("leaves example blanks empty when nothing fits", () => {
+    const tokenOnly = describeAbi(
+      abi.filter((e) => e.name !== "latestRoundData"),
+    );
+    expect(isSuggested(byId("fresh"), tokenOnly)).toBe(false);
+    expect(initialValues(byId("fresh"), tokenOnly)).toEqual({ window: "3600" });
+  });
+});
+
+describe("a Uniswap V2 pair", () => {
+  const pair = describeAbi([
+    {
+      type: "function",
+      name: "getReserves",
+      stateMutability: "view",
+      inputs: [],
+      outputs: [
+        { name: "_reserve0", type: "uint112" },
+        { name: "_reserve1", type: "uint112" },
+        { name: "_blockTimestampLast", type: "uint32" },
+      ],
+    },
+    {
+      type: "function",
+      name: "price0CumulativeLast",
+      stateMutability: "view",
+      inputs: [],
+      outputs: [{ type: "uint256" }],
+    },
+    {
+      type: "function",
+      name: "totalSupply",
+      stateMutability: "view",
+      inputs: [],
+      outputs: [{ type: "uint256" }],
+    },
+  ]);
+  const pick = (id: string, key: string) =>
+    initialValues(
+      templates.find((t) => t.id === id)!,
+      pair,
+    )[key];
+
+  it("matches output names, not the function they come from", () => {
+    expect(pick("floor", "value")).toBe("getReserves()#0");
+    expect(pick("outflow", "value")).toBe("getReserves()#0");
+    expect(pick("fresh", "timestamp")).toBe("getReserves()#2");
+  });
+
+  it("does not treat a cumulative price accumulator as a price", () => {
+    const band = templates.find((t) => t.id === "band")!;
+    expect(isSuggested(band, pair)).toBe(false);
   });
 });
