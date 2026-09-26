@@ -4,7 +4,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "./app";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
-const read = (fn: string) => ({ node: "view_call", function: fn, args: [] });
+const read = (fn: string) => ({
+  node: "view_call",
+  function: `${fn} returns (uint256)`,
+  args: [],
+});
 const floor = {
   version: 1,
   name: "totalAssets floor",
@@ -127,6 +131,22 @@ describe("storing a rule", () => {
       origin: "dashboard",
       sentence: stored.sentence,
     });
+  });
+
+  it("stores a rule that calls the contract's own function", async () => {
+    const res = await submit({
+      ...floor,
+      name: "Pause on empty vault",
+      on_trip: {
+        action: "call",
+        call: { function: "pause()", args: [] },
+        cooldown_seconds: 300,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<RuleCheck>().sentence).toBe(
+      "On every block, call pause() when totalAssets() falls below 1 (critical, 5m cooldown).",
+    );
   });
 
   it("refuses an identical rule, whatever its name", async () => {

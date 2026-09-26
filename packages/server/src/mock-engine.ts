@@ -1,5 +1,6 @@
 import {
   describeRule,
+  shortSignature,
   type BoolNode,
   type Contract,
   type ContractDetail,
@@ -92,10 +93,9 @@ function evaluate(node: ValueNode, ev: Evaluation): bigint | null {
       const contract = node.address ?? ev.contract;
       const returns = node.returns ?? 0;
       const raw = simulatedRead(contract, node.function, returns, ev.clock);
+      const short = shortSignature(node.function);
       const call =
-        node.returns === undefined
-          ? node.function
-          : `${node.function}[${node.returns}]`;
+        node.returns === undefined ? short : `${short}[${node.returns}]`;
       const label = node.address ? `${call} of ${node.address}` : call;
       ev.reads.set(label, { call: label, value: raw.toString() });
       return raw * SCALE;

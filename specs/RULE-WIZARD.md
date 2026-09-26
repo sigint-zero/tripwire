@@ -99,7 +99,7 @@ From the ABI the wizard extracts:
 
 | Offered as | Taken from |
 |-|-|
-| values | `view` and `pure` functions with no inputs, one entry per integer output; a function returning several values offers each, named `function.output` (e.g. `latestRoundData.updatedAt`) |
+| values | `view` and `pure` functions with no inputs, one entry per integer output; a function returning several values offers each, named `function.output` (e.g. `latestRoundData.updatedAt`). A read declares everything it returns, so a function with any output rules cannot describe (an array, a tuple) is left out |
 | events | every event, in the declaration style rules name them by: `Transfer(address indexed from, address indexed to, uint256 value)` |
 | functions to pause or call | every non-view function, by bare signature (`withdraw(uint256)`), with its 4-byte selector |
 
@@ -153,7 +153,7 @@ Blank types:
 
 | Blank | Input | Stored as |
 |-|-|-|
-| value | a dropdown of the contract's values | a `view_call`, with `returns` when the function returns several values |
+| value | a dropdown of the contract's values | a `view_call` whose signature declares what it returns (`totalSupply() returns (uint256)`), with `returns` selecting the output when there are several |
 | value or number | the same dropdown plus "a fixed number…", which opens a number field | a `view_call` or a `literal` |
 | percent | whole number, 0 to 999 | `tolerance_percent`, a literal, or a fraction in a `mul` |
 | window | 5 minutes, 15 minutes, 20 minutes, 1 hour, 6 hours, 24 hours, 7 days | `{ "seconds": n }` |
@@ -189,11 +189,16 @@ true. Whatever cannot be known yet (a metric still warming up) counts
 as false, so an unknown never trips.
 
 `packages/shared/src/rule.ts` mirrors the engine's schema in Zod:
-every node type, numbers as decimal strings, bare function signatures
-and declaration-style event signatures, windows from 60 seconds to 30
-days, a metric's window present exactly when the metric reads one, the
-size caps (depth 32, 256 nodes, 32 calls), and event arguments only
-under an event trigger that has them. Unknown fields are rejected at
+every node type, numbers as decimal strings, signatures (reads declare
+what they return, `getReserves() returns (uint112,uint112,uint32)`;
+paused and called functions are bare), declaration-style event
+signatures, windows from 60 seconds to 30 days, a metric's window
+present exactly when the metric reads one, the size caps (depth 32, 256
+nodes, 32 calls), and event arguments only under an event trigger that
+has them. It checks types the way the engine does: arithmetic, bands,
+metrics and the ordering comparisons take numbers, `eq` and `ne` compare
+values of one type, a read's `returns` stays within what it declares,
+and every argument is a literal that fits its parameter. Unknown fields are rejected at
 every level. Problems are reported as `{ code, message, path }`, with
 `path` a JSON pointer into the document (`/trip_when/left/window/seconds`),
 the same shape the engine reports.
@@ -217,6 +222,10 @@ The wizard builds:
   "call": { "function": "pause()", "args": [] },
   "cooldown_seconds": 300 }
 ```
+
+The function list starts at `pause()` when the contract has one. Each
+argument gets its own field, labelled with its name and type and
+checked as it is typed; a `bool` is a choice of true or false.
 
 The call goes to the rule's contract and sends no ether. The language
 also lets `call` name another address and a `value` in wei; those are
@@ -457,18 +466,22 @@ Every answer from the stand-in is marked `simulated`.
 | `packages/web/src/pages/NewRule.tsx` | the wizard page and its state |
 
 Tests: the schema accepts every starting point's output, nested
-conditions, metrics, event rules and decimal literals, and rejects bad
-addresses and signatures, array parameters, numbers that are not
-strings, unknown fields, windows out of range, a metric window given
-or missing wrongly, a zero band, a function on a non-function trip, and
-event arguments the trigger does not have, each located by its JSON
+conditions, metrics, event rules, decimal literals and call responses,
+and rejects bad addresses and signatures, reads that do not declare
+what they return or select beyond it, array parameters, numbers that
+are not strings, unknown fields, windows out of range, a metric window
+given or missing wrongly, a zero band, a function on a non-function
+trip, operands of the wrong type, arguments that do not fit their
+parameters, fractional wei, a `verify` over a metric, and event
+arguments the trigger does not have, each located by its JSON
 pointer; rules read back as sentences; each starting point builds a
 valid document from its defaults for a sample ABI, states the
 violation, and builds nothing while a blank is empty; ABI extraction
-offers one value per integer output, names events in declaration
-style, and leaves out what rules cannot reference; the API checks
+offers one value per integer output under a signature declaring every
+output, names events in declaration style, and leaves out what rules
+cannot reference; the API checks
 without storing, reports a rule that would trip now and a warm-up,
-stores and lists rules, refuses rules for contracts that are not
-registered, duplicates and taken names, merges a proxy's ABI on the
-engine's chain, and maps an unverified contract and an unreachable
-Sourcify to `404` and `502`.
+stores and lists rules including call responses, refuses rules for
+contracts that are not registered, duplicates and taken names, merges
+a proxy's ABI on the engine's chain, and maps an unverified contract
+and an unreachable Sourcify to `404` and `502`.

@@ -1,4 +1,12 @@
-import type { BoolNode, CompareOp, Rule, ValueNode, ViewCall } from "./rule";
+import {
+  shortSignature,
+  type BoolNode,
+  type CompareOp,
+  type OnTrip,
+  type Rule,
+  type ValueNode,
+  type ViewCall,
+} from "./rule";
 
 const ARITH = { add: "+", sub: "−", mul: "×", div: "÷" };
 const COMPARE: Record<CompareOp, string> = {
@@ -43,10 +51,8 @@ export type CallNamer = (call: ViewCall) => string | undefined;
 function describeCall(call: ViewCall, name?: CallNamer): string {
   const named = name?.(call);
   if (named) return named;
-  const fn =
-    call.returns === undefined
-      ? call.function
-      : `${call.function}[${call.returns}]`;
+  const short = shortSignature(call.function);
+  const fn = call.returns === undefined ? short : `${short}[${call.returns}]`;
   return call.address ? `${fn} of ${call.address}` : fn;
 }
 
@@ -72,7 +78,7 @@ export function describeValue(value: ValueNode, name?: CallNamer): string {
     case "scale":
       return `${inner(value.expr)} × 10^${value.decimals}`;
     case "simulate":
-      return `the result of ${value.call.function}`;
+      return `the result of ${shortSignature(value.call.function)}`;
     case "metric": {
       const of = describeCall(value.of, name);
       const span = value.window ? formatDuration(value.window.seconds) : "";
@@ -140,12 +146,7 @@ export function describeRule(rule: Rule, name?: CallNamer): string {
     rule.when === "every_block"
       ? "On every block"
       : `On each ${rule.when.event.replace(/\(.*$/, "")} event`;
-  const action =
-    rule.on_trip.action === "notify"
-      ? "notify"
-      : rule.on_trip.action === "trip_global"
-        ? "trip the whole contract"
-        : `trip ${rule.on_trip.function}`;
+  const action = describeAction(rule.on_trip);
   const condition =
     rule.trip_when === true
       ? ""
@@ -154,4 +155,22 @@ export function describeRule(rule: Rule, name?: CallNamer): string {
     ? `, ${formatDuration(rule.on_trip.cooldown_seconds)} cooldown`
     : "";
   return `${trigger}, ${action}${condition} (${rule.severity}${cooldown}).`;
+}
+
+/** What a trip does, as the engine's sentence says it. */
+export function describeAction(onTrip: OnTrip): string {
+  switch (onTrip.action) {
+    case "notify":
+      return "notify";
+    case "trip_global":
+      return "trip the whole contract";
+    case "trip_function":
+      return `trip ${onTrip.function}`;
+    case "call": {
+      const { function: fn, args, address } = onTrip.call;
+      const name = fn.slice(0, fn.indexOf("("));
+      const target = address ? ` on ${address}` : "";
+      return `call ${name}(${args.join(", ")})${target}`;
+    }
+  }
 }

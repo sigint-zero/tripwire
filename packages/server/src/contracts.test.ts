@@ -33,7 +33,11 @@ const rule = (name: string, op: string) => ({
   trip_when: {
     node: "compare",
     op,
-    left: { node: "view_call", function: "totalSupply()", args: [] },
+    left: {
+      node: "view_call",
+      function: "totalSupply() returns (uint256)",
+      args: [],
+    },
     right: { node: "literal", value: "1" },
   },
   on_trip: { action: "notify" },

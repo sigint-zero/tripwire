@@ -388,8 +388,10 @@ function describeOnTrip(onTrip: OnTrip): string {
   const action =
     onTrip.action === "trip_function"
       ? `Pause ${onTrip.function}`
-      : (actions.find((a) => a.action === onTrip.action)?.title ??
-        onTrip.action);
+      : onTrip.action === "call"
+        ? `Call ${onTrip.call.function.replace(/\(.*$/, "")}(${onTrip.call.args.join(", ")})`
+        : (actions.find((a) => a.action === onTrip.action)?.title ??
+          onTrip.action);
   const seconds = onTrip.cooldown_seconds ?? 0;
   const quiet =
     cooldowns.find((c) => c.seconds === seconds)?.label ??

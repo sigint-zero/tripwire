@@ -23,13 +23,101 @@ export function isSupportedAbiType(type: string): boolean {
   return new RegExp(`^${ABI_TYPE}$`).test(type);
 }
 
+const PARAMS = `(?:${ABI_TYPE}(?:,${ABI_TYPE})*)?`;
+
 /** A bare signature with positional types: "transfer(address,uint256)". */
 export const functionSignature = z
   .string()
   .regex(
-    new RegExp(`^${NAME}\\((?:${ABI_TYPE}(?:,${ABI_TYPE})*)?\\)$`),
+    new RegExp(`^${NAME}\\(${PARAMS}\\)$`),
     'must be a bare signature, like "transfer(address,uint256)"',
   );
+
+/**
+ * A signature whose return value is read, so it declares what it returns:
+ * "getReserves() returns (uint112,uint112,uint32)".
+ */
+export const readSignature = z
+  .string()
+  .regex(
+    new RegExp(
+      `^${NAME}\\(${PARAMS}\\) returns \\(${ABI_TYPE}(?:,${ABI_TYPE})*\\)$`,
+    ),
+    'must declare what it returns, like "totalSupply() returns (uint256)"',
+  );
+
+export interface Signature {
+  name: string;
+  params: string[];
+  returns: string[];
+}
+
+/** Splits a bare or read signature into its name, parameters and returns. */
+export function parseSignature(signature: string): Signature {
+  const match = /^([^(]*)\(([^)]*)\)(?: returns \(([^)]*)\))?$/.exec(signature);
+  const list = (text?: string) => (text ? text.split(",") : []);
+  return {
+    name: match?.[1] ?? signature,
+    params: list(match?.[2]),
+    returns: list(match?.[3]),
+  };
+}
+
+/** The part of a signature people read: "getReserves()" for a declared read. */
+export function shortSignature(signature: string): string {
+  return signature.replace(/ returns \(.*\)$/, "");
+}
+
+/** What the engine's evaluator types a value as. */
+export type ValueType = "numeric" | "address" | "bool" | "bytes" | "string";
+
+export function valueTypeOf(abiType: string): ValueType {
+  if (/^u?int/.test(abiType)) return "numeric";
+  if (abiType.startsWith("bytes")) return "bytes";
+  return abiType as ValueType;
+}
+
+/** Why a literal does not fit a parameter of this ABI type, or null when it does. */
+export function literalProblem(type: string, value: string): string | null {
+  const int = /^(u?)int(\d*)$/.exec(type);
+  if (int) {
+    const unsigned = int[1] === "u";
+    const bits = BigInt(int[2] || "256");
+    if (!(unsigned ? /^\d+$/ : /^-?\d+$/).test(value)) {
+      return unsigned
+        ? "must be a whole number"
+        : "must be a whole number, which may be negative";
+    }
+    const n = BigInt(value);
+    const max = unsigned ? 2n ** bits - 1n : 2n ** (bits - 1n) - 1n;
+    const min = unsigned ? 0n : -(2n ** (bits - 1n));
+    return n > max || n < min ? `is out of range for ${type}` : null;
+  }
+  if (type === "address") {
+    return /^0x[0-9a-fA-F]{40}$/.test(value)
+      ? null
+      : "must be a 0x address with 40 hex digits";
+  }
+  if (type === "bool") {
+    return value === "true" || value === "false"
+      ? null
+      : 'must be "true" or "false"';
+  }
+  if (type === "string") return null;
+  const fixed = /^bytes(\d+)$/.exec(type);
+  if (fixed) {
+    const digits = Number(fixed[1]) * 2;
+    return new RegExp(`^0x[0-9a-fA-F]{${digits}}$`).test(value)
+      ? null
+      : `must be 0x and ${digits} hex digits`;
+  }
+  if (type === "bytes") {
+    return /^0x([0-9a-fA-F]{2})*$/.test(value)
+      ? null
+      : "must be 0x hex, two digits per byte";
+  }
+  return `has a type rules cannot take: ${type}`;
+}
 
 const EVENT_PARAM = `${ABI_TYPE}(?: indexed)? ${NAME}`;
 
@@ -41,12 +129,16 @@ export const eventSignature = z
     'must name its parameters, like "Transfer(address indexed from, address indexed to, uint256 value)"',
   );
 
-/** The parameter names of a declaration-style event signature. */
-export function eventArgNames(signature: string): string[] {
+/** The parameters of a declaration-style event signature, by name, with their types. */
+export function eventParams(signature: string): Record<string, string> {
   const params = signature.slice(signature.indexOf("(") + 1, -1);
-  return params
-    ? params.split(",").map((p) => p.trim().split(" ").at(-1)!)
-    : [];
+  if (!params) return {};
+  return Object.fromEntries(
+    params.split(",").map((p) => {
+      const words = p.trim().split(" ");
+      return [words.at(-1)!, words[0]!];
+    }),
+  );
 }
 
 export const window = z.strictObject({
@@ -78,12 +170,14 @@ export interface ViewCall {
   node: "view_call";
   /** Defaults to the rule's contract. */
   address?: string;
+  /** Declares what it returns: "totalSupply() returns (uint256)". */
   function: string;
   args: string[];
   /** Selects one output of a function that returns several. */
   returns?: number;
 }
 
+/** A simulated call; its function declares its returns when the value is read. */
 export interface SimulatedCall {
   from?: string;
   address?: string;
@@ -137,18 +231,19 @@ const returns = z.number().int().nonnegative();
 export const viewCall = z.strictObject({
   node: z.literal("view_call"),
   address: address.optional(),
-  function: functionSignature,
+  function: readSignature,
   args: z.array(z.string()),
   returns: returns.optional(),
 });
 
-const simulatedCall = z.strictObject({
-  from: address.optional(),
-  address: address.optional(),
-  function: functionSignature,
-  args: z.array(z.string()),
-  value: decimal.optional(),
-});
+const simulatedCall = (fn: typeof functionSignature) =>
+  z.strictObject({
+    from: address.optional(),
+    address: address.optional(),
+    function: fn,
+    args: z.array(z.string()),
+    value: decimal.optional(),
+  });
 
 const metric = z
   .strictObject({
@@ -206,7 +301,7 @@ export const valueNode: z.ZodType<ValueNode> = z.lazy(() =>
     metric,
     z.strictObject({
       node: z.literal("simulate"),
-      call: simulatedCall,
+      call: simulatedCall(readSignature),
       yields: z.literal("value"),
       returns: returns.optional(),
     }),
@@ -237,7 +332,7 @@ export const boolNode: z.ZodType<BoolNode> = z.lazy(() =>
       }),
       z.strictObject({
         node: z.literal("simulate"),
-        call: simulatedCall,
+        call: simulatedCall(functionSignature),
         yields: z.literal("reverted"),
       }),
       z.strictObject({
@@ -277,6 +372,23 @@ export const onTrip = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("trip_function"),
     function: functionSignature,
+    cooldown_seconds: cooldown,
+  }),
+  z.strictObject({
+    action: z.literal("call"),
+    call: z.strictObject({
+      /** Defaults to the rule's contract. */
+      address: address.nullable().optional(),
+      function: functionSignature,
+      args: z.array(z.string()),
+      /** Wei sent along; defaults to "0". */
+      value: z
+        .string()
+        .regex(/^\d+$/, "must be a whole number of wei")
+        .optional(),
+      /** States that the call's effect is in place, such as paused() reading true. */
+      verify: boolNode.optional(),
+    }),
     cooldown_seconds: cooldown,
   }),
 ]);
@@ -323,6 +435,139 @@ function walk(
   for (const child of children(n)) walk(child, visit, depth + 1);
 }
 
+type Path = (string | number)[];
+type Report = (path: Path, message: string) => void;
+
+interface Checking {
+  issue: Report;
+  /** The trigger event's parameters and their types; null for every_block. */
+  events: Record<string, string> | null;
+  /** Checking `call.verify`, which must be readable at any block. */
+  verify: boolean;
+}
+
+/** Arguments must match the signature's parameters, each a literal of its type. */
+function checkArgs(fn: string, args: string[], path: Path, issue: Report) {
+  const { params } = parseSignature(fn);
+  if (args.length !== params.length) {
+    issue(
+      [...path, "args"],
+      `needs ${params.length} argument${params.length === 1 ? "" : "s"} for ${shortSignature(fn)}`,
+    );
+    return;
+  }
+  params.forEach((type, i) => {
+    const problem = literalProblem(type, args[i]!);
+    if (problem) issue([...path, "args", i], problem);
+  });
+}
+
+/** The value a read selects from what its signature declares it returns. */
+function readType(
+  fn: string,
+  index: number | undefined,
+  path: Path,
+  issue: Report,
+): ValueType | "any" {
+  const declared = parseSignature(fn).returns;
+  const selected = declared[index ?? 0];
+  if (!selected) {
+    issue([...path, "returns"], `is beyond what ${shortSignature(fn)} returns`);
+    return "any";
+  }
+  return valueTypeOf(selected);
+}
+
+/** A value node's type; literals take the type their position expects. */
+function checkValue(n: ValueNode, path: Path, c: Checking): ValueType | "any" {
+  const numeric = (child: ValueNode, at: Path) => {
+    const type = checkValue(child, at, c);
+    if (type !== "any" && type !== "numeric") {
+      c.issue(at, `must be a number, not ${type}`);
+    }
+  };
+  switch (n.node) {
+    case "view_call":
+      checkArgs(n.function, n.args, path, c.issue);
+      return readType(n.function, n.returns, path, c.issue);
+    case "simulate":
+      checkArgs(n.call.function, n.call.args, [...path, "call"], c.issue);
+      return readType(n.call.function, n.returns, path, c.issue);
+    case "literal":
+      return "any";
+    case "event_arg": {
+      if (c.verify) {
+        c.issue(path, "cannot read an event argument here");
+        return "any";
+      }
+      if (!c.events) {
+        c.issue(path, "reads an event argument without an event trigger");
+        return "any";
+      }
+      const type = c.events[n.arg];
+      if (!type) {
+        c.issue(path, `reads "${n.arg}", which the event does not have`);
+        return "any";
+      }
+      return valueTypeOf(type);
+    }
+    case "now":
+      return "numeric";
+    case "arithmetic":
+      numeric(n.left, [...path, "left"]);
+      numeric(n.right, [...path, "right"]);
+      return "numeric";
+    case "sum":
+      n.terms.forEach((t, i) => numeric(t, [...path, "terms", i]));
+      return "numeric";
+    case "scale":
+      numeric(n.expr, [...path, "expr"]);
+      return "numeric";
+    case "metric":
+      if (c.verify) c.issue(path, "cannot use a metric here");
+      numeric(n.of, [...path, "of"]);
+      return "numeric";
+  }
+}
+
+function checkBool(n: BoolNode, path: Path, c: Checking) {
+  if (n === true) return;
+  const numeric = (child: ValueNode, at: Path) => {
+    const type = checkValue(child, at, c);
+    if (type !== "any" && type !== "numeric") {
+      c.issue(at, `must be a number, not ${type}`);
+    }
+  };
+  switch (n.node) {
+    case "compare":
+      if (n.op === "eq" || n.op === "ne") {
+        const left = checkValue(n.left, [...path, "left"], c);
+        const right = checkValue(n.right, [...path, "right"], c);
+        if (left !== "any" && right !== "any" && left !== right) {
+          c.issue(path, `compares ${left} with ${right}`);
+        }
+      } else {
+        numeric(n.left, [...path, "left"]);
+        numeric(n.right, [...path, "right"]);
+      }
+      return;
+    case "deviation_band":
+      numeric(n.value, [...path, "value"]);
+      numeric(n.center, [...path, "center"]);
+      return;
+    case "simulate":
+      checkArgs(n.call.function, n.call.args, [...path, "call"], c.issue);
+      return;
+    case "and":
+    case "or":
+      n.terms.forEach((t, i) => checkBool(t, [...path, "terms", i], c));
+      return;
+    case "not":
+      checkBool(n.expr, [...path, "expr"], c);
+      return;
+  }
+}
+
 export const rule = z
   .strictObject({
     version: z.literal(1),
@@ -338,15 +583,14 @@ export const rule = z
     let depth = 0;
     let nodes = 0;
     let calls = 0;
-    const args: string[] = [];
     walk(r.trip_when, (n, d) => {
       depth = Math.max(depth, d);
       nodes += 1;
-      if (n === true) return;
-      if (n.node === "view_call" || n.node === "simulate") calls += 1;
-      if (n.node === "event_arg") args.push(n.arg);
+      if (n !== true && (n.node === "view_call" || n.node === "simulate")) {
+        calls += 1;
+      }
     });
-    const issue = (path: (string | number)[], message: string) =>
+    const issue: Report = (path, message) =>
       ctx.addIssue({ code: "custom", path, message });
     if (depth > MAX_DEPTH) issue(["trip_when"], `is deeper than ${MAX_DEPTH}`);
     if (nodes > MAX_NODES) {
@@ -356,29 +600,31 @@ export const rule = z
       issue(["trip_when"], `makes more than ${MAX_CALLS} calls`);
     }
 
-    if (r.when === "every_block") {
-      if (args.length) {
-        issue(
-          ["trip_when"],
-          "reads an event argument without an event trigger",
-        );
-      }
-      return;
+    const events = r.when === "every_block" ? null : eventParams(r.when.event);
+    checkBool(r.trip_when, ["trip_when"], { issue, events, verify: false });
+
+    if (r.when !== "every_block") {
+      r.when.filters?.forEach((filter, i) => {
+        if (!(filter.arg in events!)) {
+          issue(
+            ["when", "filters", i, "arg"],
+            `"${filter.arg}" is not an argument of the event`,
+          );
+        }
+      });
     }
-    const names = eventArgNames(r.when.event);
-    for (const arg of args) {
-      if (!names.includes(arg)) {
-        issue(["trip_when"], `reads "${arg}", which the event does not have`);
+
+    if (r.on_trip.action === "call") {
+      const call = r.on_trip.call;
+      checkArgs(call.function, call.args, ["on_trip", "call"], issue);
+      if (call.verify !== undefined) {
+        checkBool(call.verify, ["on_trip", "call", "verify"], {
+          issue,
+          events: null,
+          verify: true,
+        });
       }
     }
-    r.when.filters?.forEach((filter, i) => {
-      if (!names.includes(filter.arg)) {
-        issue(
-          ["when", "filters", i, "arg"],
-          `"${filter.arg}" is not an argument of the event`,
-        );
-      }
-    });
   });
 export type Rule = z.infer<typeof rule>;
 

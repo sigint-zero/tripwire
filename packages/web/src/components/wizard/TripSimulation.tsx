@@ -79,6 +79,42 @@ function stepsFor(
     },
   ];
   if (onTrip.action === "notify") return steps;
+  if (onTrip.action === "call") {
+    // A call names the function it calls, with its arguments.
+    const { function: fn, args } = onTrip.call;
+    const call = `${fn.slice(0, fn.indexOf("("))}(${args.join(", ")})`;
+    steps.push(
+      ...(responseMode === "prepare"
+        ? ([
+            {
+              title: "Call prepared",
+              detail: `A transaction calling ${call} is ready.`,
+              tone: "amber",
+            },
+            {
+              title: "Waiting for you",
+              detail: "Approve or dismiss it in Responses.",
+              tone: "amber",
+            },
+          ] as const)
+        : responseMode === "send"
+          ? ([
+              {
+                title: "Call sent",
+                detail: `Tripwire calls ${call} without waiting.`,
+                tone: "red",
+              },
+            ] as const)
+          : ([
+              {
+                title: "Call skipped",
+                detail: "On-chain response is off for this installation.",
+                tone: "gray",
+              },
+            ] as const)),
+    );
+    return steps;
+  }
   if (responseMode === "prepare") {
     steps.push(
       {

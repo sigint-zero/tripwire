@@ -2,8 +2,9 @@ import { isSupportedAbiType } from "@tripwire/shared";
 import { toFunctionSelector } from "viem";
 
 // Picks out of an ABI what the wizard can offer: numbers it can read, events
-// it can watch, and functions it can pause. Anything with an array or tuple
-// parameter is left out, because rules cannot reference it.
+// it can watch, and functions a trip can pause or call. Anything with an
+// array or tuple parameter or return is left out, because rules cannot
+// reference it.
 
 interface AbiParam {
   name?: string;
@@ -21,8 +22,9 @@ interface AbiEntry {
 
 /** A number the contract exposes through a view function with no arguments. */
 export interface Readable {
-  /** The function, with the output's index when it returns several: "latestRoundData()#3". */
+  /** The read, with the output's index when it returns several: "getReserves() returns (…)#2". */
   id: string;
+  /** Declares what it returns, as rules name reads: "totalSupply() returns (uint256)". */
   method: string;
   /** Which output, for a function that returns several; rules must name it. */
   returns?: number;
@@ -38,6 +40,8 @@ export interface ContractEvent {
 export interface WriteFunction {
   signature: string;
   selector: string;
+  /** Its parameters, for giving a call its arguments. */
+  inputs: { name: string; type: string }[];
 }
 
 export interface ContractSurface {
@@ -93,24 +97,31 @@ export function describeAbi(abi: unknown[]): ContractSurface {
         surface.writes.push({
           signature,
           selector: toFunctionSelector(signature),
+          inputs: (entry.inputs ?? []).map((p) => ({
+            name: p.name ?? "",
+            type: p.type,
+          })),
         });
       }
       continue;
     }
     if ((entry.inputs ?? []).length > 0) continue;
     const outputs = entry.outputs ?? [];
+    // A read declares everything it returns, so every output must be one
+    // rules can describe.
+    if (!outputs.length || !outputs.every((o) => isSupportedAbiType(o.type))) {
+      continue;
+    }
     const several = outputs.length > 1;
+    const method = `${entry.name}() returns (${outputs.map((o) => o.type).join(",")})`;
     outputs.forEach((output, index) => {
       if (!/^u?int\d*$/.test(output.type)) return;
-      const method = `${entry.name}()`;
       const returns = several ? index : undefined;
       surface.reads.push({
         id: readableId(method, returns),
         method,
         ...(several ? { returns: index } : {}),
-        label: several
-          ? `${entry.name}.${output.name || index}`
-          : (entry.name ?? method),
+        label: several ? `${entry.name}.${output.name || index}` : entry.name!,
       });
     });
   }

@@ -9,11 +9,13 @@ import {
 } from "./rule";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
-const read = (fn: string): ViewCall => ({
+/** A read declaring what it returns, a uint256 unless given. */
+const read = (fn: string, returns = "uint256"): ViewCall => ({
   node: "view_call",
-  function: fn,
+  function: `${fn} returns (${returns})`,
   args: [],
 });
+const PAIR = "uint112,uint112,uint32";
 
 const floor: Rule = {
   version: 1,
@@ -183,6 +185,79 @@ describe("rule schema", () => {
     ).toMatch(/does not have/);
   });
 
+  it("needs reads to declare what they return", () => {
+    const bare = withCondition({
+      ...(floor.trip_when as object),
+      left: { node: "view_call", function: "totalAssets()", args: [] },
+    });
+    expect(issues(bare)[0]).toMatchObject({
+      path: "/trip_when/left/function",
+      message: expect.stringMatching(/must declare what it returns/) as string,
+    });
+  });
+
+  it("keeps a read's output within what it declares", () => {
+    const beyond = withCondition({
+      ...(floor.trip_when as object),
+      left: { ...read("getReserves()", PAIR), returns: 3 },
+    });
+    expect(issues(beyond)[0]?.path).toBe("/trip_when/left/returns");
+  });
+
+  it("orders only numbers", () => {
+    const owner = withCondition({
+      ...(floor.trip_when as object),
+      left: read("owner()", "address"),
+    });
+    expect(issues(owner)).toEqual([
+      expect.objectContaining({
+        path: "/trip_when/left",
+        message: "must be a number, not address",
+      }),
+    ]);
+  });
+
+  it("compares equality between values of one type", () => {
+    const paused = (right: object) =>
+      withCondition({
+        node: "compare",
+        op: "eq",
+        left: read("paused()", "bool"),
+        right,
+      });
+    expect(issues(paused(read("owner()", "address")))[0]?.message).toBe(
+      "compares bool with address",
+    );
+    expect(issues(paused(read("stopped()", "bool")))).toEqual([]);
+  });
+
+  it("averages only numbers", () => {
+    const band = withCondition({
+      node: "deviation_band",
+      value: read("chi()"),
+      center: {
+        node: "metric",
+        metric: "twap",
+        of: read("owner()", "address"),
+        window: { seconds: 600 },
+      },
+      tolerance_percent: "5",
+      sides: "both",
+    });
+    expect(issues(band)[0]?.path).toBe("/trip_when/center/of");
+  });
+
+  it("checks a read's arguments against its parameters", () => {
+    const balance = (args: string[]) =>
+      withCondition({
+        ...(floor.trip_when as object),
+        left: { ...read("balanceOf(address)"), args },
+      });
+    expect(issues(balance([]))[0]?.path).toBe("/trip_when/left/args");
+    expect(issues(balance(["0x12"]))[0]?.path).toBe("/trip_when/left/args/0");
+    expect(issues(balance([vault]))).toEqual([]);
+  });
+
   it("rejects event signatures without parameter names", () => {
     const event = {
       ...floor,
@@ -190,6 +265,63 @@ describe("rule schema", () => {
       trip_when: true,
     };
     expect(issues(event)[0]?.path).toBe("/when/event");
+  });
+});
+
+describe("calling a function when a rule trips", () => {
+  const call = (fields: object) => ({
+    ...floor,
+    on_trip: {
+      action: "call",
+      call: { function: "pause()", args: [], ...fields },
+      cooldown_seconds: 300,
+    },
+  });
+
+  it("accepts a call to the contract's own function", () => {
+    expect(issues(call({}))).toEqual([]);
+    expect(issues(call({ address: null, value: "0" }))).toEqual([]);
+  });
+
+  it("checks the call's arguments against its signature", () => {
+    const setCap = call({ function: "setCap(uint8)", args: ["300"] });
+    expect(issues(setCap)).toEqual([
+      expect.objectContaining({
+        path: "/on_trip/call/args/0",
+        message: "is out of range for uint8",
+      }),
+    ]);
+  });
+
+  it("sends a whole number of wei", () => {
+    expect(issues(call({ value: "0.5" }))[0]?.path).toBe("/on_trip/call/value");
+  });
+
+  it("verifies the effect with state readable at any block", () => {
+    const paused = {
+      node: "compare",
+      op: "eq",
+      left: read("paused()", "bool"),
+      right: read("stopped()", "bool"),
+    };
+    expect(issues(call({ verify: paused }))).toEqual([]);
+    const warming = {
+      node: "compare",
+      op: "gt",
+      left: { node: "metric", metric: "ath", of: read("totalAssets()") },
+      right: { node: "literal", value: "0" },
+    };
+    expect(issues(call({ verify: warming }))[0]?.path).toBe(
+      "/on_trip/call/verify/left",
+    );
+  });
+
+  it("reads the call back in the sentence", () => {
+    expect(
+      describeRule(call({ function: "setCap(uint256)", args: ["0"] }) as Rule),
+    ).toBe(
+      "On every block, call setCap(0) when totalAssets() falls below totalSupply() (critical, 5m cooldown).",
+    );
   });
 });
 
@@ -230,13 +362,14 @@ describe("describeRule", () => {
     const pair: Rule = withCondition({
       node: "compare",
       op: "lt",
-      left: { ...read("getReserves()"), returns: 2 },
+      left: { ...read("getReserves()", PAIR), returns: 2 },
       right: read("totalSupply()"),
     }) as Rule;
     expect(describeRule(pair)).toMatch(/getReserves\(\)\[2\] falls below/);
     expect(
       describeRule(pair, (call) =>
-        call.function === "getReserves()" && call.returns === 2
+        call.function === `getReserves() returns (${PAIR})` &&
+        call.returns === 2
           ? "getReserves._blockTimestampLast"
           : undefined,
       ),

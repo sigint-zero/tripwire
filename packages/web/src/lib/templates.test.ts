@@ -11,6 +11,13 @@ import {
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
 
+// Reads as rules name them: declaring what they return.
+const ASSETS = "totalAssets() returns (uint256)";
+const SUPPLY = "totalSupply() returns (uint256)";
+const ROUND =
+  "latestRoundData() returns (uint80,int256,uint256,uint256,uint80)";
+const RESERVES = "getReserves() returns (uint112,uint112,uint32)";
+
 const abi = [
   {
     type: "function",
@@ -112,7 +119,14 @@ describe("describeAbi", () => {
 
   it("computes selectors for functions that can be paused", () => {
     expect(surface.writes).toEqual([
-      { signature: "transfer(address,uint256)", selector: "0xa9059cbb" },
+      {
+        signature: "transfer(address,uint256)",
+        selector: "0xa9059cbb",
+        inputs: [
+          { name: "", type: "address" },
+          { name: "", type: "uint256" },
+        ],
+      },
     ]);
   });
 
@@ -124,6 +138,31 @@ describe("describeAbi", () => {
         name: "OwnershipTransferred",
       },
     ]);
+  });
+
+  it("names reads with what they return", () => {
+    expect(surface.reads.find((r) => r.label === "totalAssets")?.id).toBe(
+      ASSETS,
+    );
+    expect(
+      surface.reads.find((r) => r.label === "latestRoundData.updatedAt"),
+    ).toMatchObject({ method: ROUND, returns: 3 });
+  });
+
+  it("leaves out reads whose outputs cannot all be declared", () => {
+    const withStruct = describeAbi([
+      {
+        type: "function",
+        name: "position",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [
+          { name: "size", type: "uint256" },
+          { name: "owners", type: "address[]" },
+        ],
+      },
+    ]);
+    expect(withStruct.reads).toEqual([]);
   });
 
   it("leaves out what a rule cannot reference", () => {
@@ -162,16 +201,16 @@ describe("templates", () => {
 
   it("states the violation: a floor trips when the value falls below it", () => {
     const watch = byId("floor").build({
-      value: "totalAssets()",
-      floor: "totalSupply()",
+      value: ASSETS,
+      floor: SUPPLY,
     });
     expect(watch).toEqual({
       when: "every_block",
       trip_when: {
         node: "compare",
         op: "lt",
-        left: { node: "view_call", function: "totalAssets()", args: [] },
-        right: { node: "view_call", function: "totalSupply()", args: [] },
+        left: { node: "view_call", function: ASSETS, args: [] },
+        right: { node: "view_call", function: SUPPLY, args: [] },
       },
     });
   });
@@ -185,7 +224,7 @@ describe("templates", () => {
     ["ne", "eq"],
   ])("trips a custom comparison stated as %s when %s", (op, trips) => {
     const watch = byId("compare").build({
-      left: "totalAssets()",
+      left: ASSETS,
       op,
       right: `${NUMBER_PREFIX}5`,
     });
@@ -194,7 +233,7 @@ describe("templates", () => {
 
   it("limits growth to a share of the value", () => {
     const watch = byId("growth").build({
-      value: "totalSupply()",
+      value: SUPPLY,
       percent: "5",
       window: "86400",
     });
@@ -218,15 +257,15 @@ describe("templates", () => {
       const template = templates.find((t) => t.id === id)!;
       return initialValues(template, surface)[key];
     };
-    expect(pick("floor", "value")).toBe("totalAssets()");
-    expect(pick("floor", "floor")).toBe("totalSupply()");
-    expect(pick("fresh", "timestamp")).toBe("latestRoundData()#3");
-    expect(pick("compare", "left")).not.toBe("decimals()");
+    expect(pick("floor", "value")).toBe(ASSETS);
+    expect(pick("floor", "floor")).toBe(SUPPLY);
+    expect(pick("fresh", "timestamp")).toBe(`${ROUND}#3`);
+    expect(pick("compare", "left")).not.toBe("decimals() returns (uint8)");
   });
 
   it("returns nothing until every blank is filled", () => {
     expect(
-      byId("floor").build({ value: "totalAssets()", floor: NUMBER_PREFIX }),
+      byId("floor").build({ value: ASSETS, floor: NUMBER_PREFIX }),
     ).toBeNull();
   });
 });
@@ -296,18 +335,18 @@ describe("a Uniswap V2 pair", () => {
   it("names the output it reads, even the first", () => {
     const watch = templates
       .find((t) => t.id === "floor")!
-      .build({ value: "getReserves()#0", floor: "totalSupply()" });
+      .build({ value: `${RESERVES}#0`, floor: SUPPLY });
     expect(watch?.trip_when).toMatchObject({
-      left: { function: "getReserves()", returns: 0 },
-      right: { function: "totalSupply()" },
+      left: { function: RESERVES, returns: 0 },
+      right: { function: SUPPLY },
     });
     expect(watch?.trip_when).not.toHaveProperty("right.returns");
   });
 
   it("matches output names, not the function they come from", () => {
-    expect(pick("floor", "value")).toBe("getReserves()#0");
-    expect(pick("outflow", "value")).toBe("getReserves()#0");
-    expect(pick("fresh", "timestamp")).toBe("getReserves()#2");
+    expect(pick("floor", "value")).toBe(`${RESERVES}#0`);
+    expect(pick("outflow", "value")).toBe(`${RESERVES}#0`);
+    expect(pick("fresh", "timestamp")).toBe(`${RESERVES}#2`);
   });
 
   it("does not treat a cumulative price accumulator as a price", () => {
