@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { ContractSurface } from "../../lib/abi";
 import { templates } from "../../lib/templates";
-import { CornerBrackets } from "../ui";
 
 const line = "fill-none stroke-current stroke-2";
 const limit =
@@ -85,7 +84,6 @@ export function TemplateGallery({
                 : "border-white/5 bg-canvas hover:border-emerald-500/30"
             }`}
           >
-            {active && <CornerBrackets tone="border-emerald-400" />}
             <svg
               viewBox="0 0 64 38"
               aria-hidden

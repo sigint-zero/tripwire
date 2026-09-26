@@ -189,17 +189,19 @@ it shows the contract; once the rule is valid it shows the sentence as
 filled in, the rule as an equation (`totalAssets ≥ totalSupply`), and a
 dry run.
 
-The dashboard dry-runs the current rule every 2 seconds for as long as
+The dashboard dry-runs the current rule every second for as long as
 the rule stays the same, and starts over when it changes. The panel
 shows:
 
 - the two values being compared, with their labels;
-- a sparkline of both over the last 40 dry runs;
+- a sparkline of both over the last 60 dry runs;
 - **Holds** or **Would trip**, with one line of detail: the margin to
   the limit, the distance from a band's center, or for an event rule
-  whether it was seen recently;
-- **Simulated** while values come from the stand-in rather than the
-  chain.
+  whether it was seen recently.
+
+The panel is titled **Simulated preview**, in amber, while values come
+from the stand-in rather than the chain, and **Live preview**, in
+green, once the engine answers dry runs.
 
 A dry run is advisory. A rule that would trip right now can still be
 saved; the user may be writing the invariant for an incident in

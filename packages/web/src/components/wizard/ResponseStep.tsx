@@ -1,6 +1,5 @@
 import type { Response } from "@tripwire/shared";
 import type { WriteFunction } from "../../lib/abi";
-import { CornerBrackets } from "../ui";
 
 export const modes: {
   mode: Response["mode"];
@@ -73,7 +72,6 @@ export function ResponseStep({
                     : "border-white/5 bg-canvas hover:border-emerald-500/30"
                 }`}
               >
-                {active && <CornerBrackets tone="border-emerald-400" />}
                 <span className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
                   <span className={`size-2 ${m.dot}`} />
                   {m.title}

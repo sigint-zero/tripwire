@@ -73,9 +73,23 @@ export function ContractStep({
         <button
           type="button"
           onClick={() => onPasteOpen(!pasteOpen)}
-          className="text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-emerald-400"
+          aria-expanded={pasteOpen}
+          className="inline-flex items-center gap-2 border border-white/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-gray-400 uppercase transition-colors hover:border-emerald-500/40 hover:text-emerald-400"
         >
-          {pasteOpen ? "− Use the verified ABI" : "+ Paste an ABI instead"}
+          <svg viewBox="0 0 16 16" aria-hidden className="size-3">
+            {pasteOpen ? (
+              <path
+                d="M4 4 L12 12 M12 4 L4 12"
+                className="fill-none stroke-current stroke-2"
+              />
+            ) : (
+              <path
+                d="M6 3 H4 V13 H6 M10 3 H12 V13 H10"
+                className="fill-none stroke-current stroke-[1.5]"
+              />
+            )}
+          </svg>
+          {pasteOpen ? "Use the verified ABI" : "Paste an ABI instead"}
         </button>
         {pasteOpen && (
           <div className="mt-3 space-y-2">

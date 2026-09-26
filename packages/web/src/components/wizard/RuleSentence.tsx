@@ -70,7 +70,9 @@ export function RuleSentence({
   return (
     <p
       className={`font-display font-bold text-white ${
-        compact ? "text-xl leading-snug" : "text-2xl leading-[2.2] md:text-3xl"
+        compact
+          ? "text-xl leading-snug [overflow-wrap:anywhere]"
+          : "text-2xl leading-[2.2] md:text-3xl"
       }`}
     >
       {template.sentence.map((part, i) => {

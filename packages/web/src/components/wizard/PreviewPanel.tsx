@@ -1,6 +1,9 @@
 import {
   chainName,
+  comparedValues,
   describeRule,
+  describeValue,
+  type ReadNamer,
   type Rule,
   type RulePreview,
 } from "@tripwire/shared";
@@ -11,7 +14,7 @@ import { formatBig, shortAddress } from "../../lib/format";
 import { CornerBrackets } from "../ui";
 import type { LoadedContract } from "./useContract";
 
-const HISTORY = 40;
+const HISTORY = 60;
 
 interface PreviewData {
   preview: RulePreview;
@@ -23,7 +26,7 @@ function usePreview(rule: Rule | null) {
   return useQuery({
     queryKey: ["preview", rule],
     enabled: rule !== null,
-    refetchInterval: 2_000,
+    refetchInterval: 1_000,
     retry: false,
     queryFn: async ({ signal }): Promise<PreviewData> => {
       const preview = await api.preview(rule!, signal);
@@ -46,23 +49,37 @@ export function PreviewPanel({
   rule: Rule | null;
 }) {
   const { data, error } = usePreview(rule);
+  // Name reads the way the sentence does, from the ABI's output names.
+  const name: ReadNamer | undefined = contract
+    ? (method, index) =>
+        contract.surface.reads.find(
+          (r) => r.method === method && r.returnIndex === index,
+        )?.label
+    : undefined;
+  const labels =
+    rule?.kind === "expression"
+      ? comparedValues(rule.condition).map((v) => describeValue(v, name))
+      : [];
   const preview = data?.preview;
   const breaking = preview && !preview.holds;
 
   return (
-    <aside className="relative border border-emerald-500/20 bg-panel p-6">
+    <aside className="relative min-w-0 border border-emerald-500/20 bg-panel p-6">
       <CornerBrackets />
-      <p className="mb-5 flex items-center justify-between text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
-        Live preview
-        {preview?.simulated && (
-          <span
-            className="text-amber-400/80"
-            title="Values are simulated until the engine is connected."
-          >
-            Simulated
-          </span>
-        )}
-      </p>
+      {preview?.simulated === false ? (
+        <p className="mb-5 flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-emerald-400 uppercase">
+          <span className="size-1.5 bg-emerald-500" />
+          Live preview
+        </p>
+      ) : (
+        <p
+          className="mb-5 flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-amber-400 uppercase"
+          title="Values are simulated until the engine is connected."
+        >
+          <span className="size-1.5 bg-amber-400" />
+          Simulated preview
+        </p>
+      )}
 
       {contract ? (
         <p className="mb-4 font-mono text-xs text-gray-500">
@@ -77,7 +94,7 @@ export function PreviewPanel({
 
       {rule && (
         <p className="mb-6 border-l-2 border-emerald-500/40 pl-3 font-mono text-xs break-words text-gray-400">
-          {describeRule(rule)}
+          {describeRule(rule, name)}
         </p>
       )}
 
@@ -88,7 +105,7 @@ export function PreviewPanel({
               {preview.terms.map((term, i) => (
                 <div key={i} className="bg-canvas px-3 py-3">
                   <div className="truncate text-[10px] tracking-[0.2em] text-gray-500 uppercase">
-                    {term.label}
+                    {labels[i] ?? term.label}
                   </div>
                   <div className="mt-1 font-mono text-base text-white tabular-nums">
                     {formatBig(term.value)}

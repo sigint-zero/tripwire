@@ -126,6 +126,26 @@ describe("describeRule", () => {
     );
   });
 
+  it("uses names supplied for contract reads", () => {
+    const pair: Rule = {
+      kind: "expression",
+      condition: {
+        type: "compare",
+        op: "gte",
+        left: { ...read("getReserves()"), return_index: 2 },
+        right: read("totalSupply()"),
+      },
+    };
+    expect(describeRule(pair)).toBe("getReserves[2] ≥ totalSupply");
+    expect(
+      describeRule(pair, (method, index) =>
+        method === "getReserves()" && index === 2
+          ? "getReserves.blockTimestampLast"
+          : undefined,
+      ),
+    ).toBe("getReserves.blockTimestampLast ≥ totalSupply");
+  });
+
   it("names the event for log rules", () => {
     expect(
       describeRule({

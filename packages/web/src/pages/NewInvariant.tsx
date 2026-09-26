@@ -10,6 +10,7 @@ import {
   ResponseStep,
 } from "../components/wizard/ResponseStep";
 import { RuleSentence, sentenceText } from "../components/wizard/RuleSentence";
+import { Stepper } from "../components/wizard/Stepper";
 import { TemplateGallery } from "../components/wizard/TemplateGallery";
 import { useContract } from "../components/wizard/useContract";
 import { Button, Eyebrow } from "../components/ui";
@@ -108,50 +109,22 @@ export function NewInvariantPage() {
         <h1 className="mt-3 font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
           Create an invariant
         </h1>
-        <div className="mt-4 h-px w-full bg-linear-to-r from-emerald-500/50 to-transparent" />
       </header>
 
-      <ol className="mb-8 grid grid-cols-5 gap-px bg-white/5">
-        {steps.map((s, i) => {
-          const reachable = i <= step || ready.slice(0, i).every(Boolean);
-          return (
-            <li key={s.title}>
-              <button
-                type="button"
-                disabled={!reachable}
-                onClick={() => setStep(i)}
-                aria-current={i === step ? "step" : undefined}
-                className={`w-full border-t-2 bg-panel px-4 py-3 text-left transition-colors disabled:cursor-not-allowed ${
-                  i === step
-                    ? "border-emerald-400"
-                    : i < step
-                      ? "border-emerald-500/40 hover:bg-emerald-500/5"
-                      : "border-transparent"
-                }`}
-              >
-                <span className="block font-mono text-[10px] text-gray-600">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span
-                  className={`text-xs font-bold tracking-[0.2em] uppercase ${
-                    i === step
-                      ? "text-emerald-400"
-                      : i < step
-                        ? "text-gray-300"
-                        : "text-gray-600"
-                  }`}
-                >
-                  {s.title}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+      <div className="mb-8">
+        <Stepper
+          steps={steps.map((s) => s.title)}
+          current={step}
+          reachable={(i) => i <= step || ready.slice(0, i).every(Boolean)}
+          onSelect={setStep}
+        />
+      </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="border border-white/5 bg-panel p-6 md:p-8">
-          <p className="mb-6 text-sm text-gray-400">{steps[step]?.hint}</p>
+          <h2 className="mb-8 font-display text-xl font-bold text-white md:text-2xl">
+            {steps[step]?.hint}
+          </h2>
 
           {step === 0 && (
             <ContractStep

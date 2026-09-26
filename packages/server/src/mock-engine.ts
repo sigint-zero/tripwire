@@ -43,7 +43,7 @@ function read(call: Extract<ValueExpr, { type: "view_call" }>, clock: number) {
   const size = unit(call.contract.toLowerCase());
   const base = BigInt(Math.floor(1_000 + size * 9_000_000)) * WAD;
   const offset = (unit(seed) - 0.5) * 0.06;
-  const wobble = Math.sin(clock / 20_000 + unit(seed) * 6.28) * 0.005;
+  const wobble = Math.sin(clock / 6_000 + unit(seed) * 6.28) * 0.005;
   return times(base, 1 + offset + wobble);
 }
 
@@ -82,7 +82,7 @@ export function evaluate(value: ValueExpr, clock: number): bigint {
           return times(source, 0.9995);
         case "moving_avg":
         case "twap":
-          return times(source, 1 - Math.sin(clock / 20_000) * 0.004);
+          return times(source, 1 - Math.sin(clock / 6_000) * 0.004);
         case "windowed_delta":
           return times(source, 0.012);
         case "windowed_drop":

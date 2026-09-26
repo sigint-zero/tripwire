@@ -38,54 +38,81 @@ function metric(m: HistoricalMetric): string {
   }
 }
 
+/**
+ * Names a contract read, e.g. from the ABI's output names. Returning
+ * nothing falls back to the method name.
+ */
+export type ReadNamer = (
+  method: string,
+  returnIndex: number,
+) => string | undefined;
+
 /** A value expression as a short formula, e.g. "totalAssets − totalDebt". */
-export function describeValue(value: ValueExpr): string {
+export function describeValue(value: ValueExpr, name?: ReadNamer): string {
+  const inner = (v: ValueExpr) => describeValue(v, name);
   switch (value.type) {
     case "view_call": {
-      const name = value.method.replace(/\(\)$/, "");
-      return value.return_index ? `${name}[${value.return_index}]` : name;
+      const named = name?.(value.method, value.return_index ?? 0);
+      if (named) return named;
+      const method = value.method.replace(/\(\)$/, "");
+      return value.return_index ? `${method}[${value.return_index}]` : method;
     }
     case "literal":
       return formatUint(value.value);
     case "now":
       return "now";
     case "arithmetic":
-      return `${describeValue(value.left)} ${ARITH[value.op]} ${describeValue(value.right)}`;
+      return `${inner(value.left)} ${ARITH[value.op]} ${inner(value.right)}`;
     case "sum":
-      return value.operands.map(describeValue).join(" + ");
+      return value.operands.map(inner).join(" + ");
     case "scale":
       return value.denominator === 100
-        ? `${value.numerator}% of ${describeValue(value.value)}`
-        : `${describeValue(value.value)} × ${value.numerator}/${value.denominator}`;
+        ? `${value.numerator}% of ${inner(value.value)}`
+        : `${inner(value.value)} × ${value.numerator}/${value.denominator}`;
     case "historical":
-      return `${metric(value.metric)} of ${describeValue(value.source)}`;
+      return `${metric(value.metric)} of ${inner(value.source)}`;
   }
 }
 
-export function describeCondition(condition: Condition): string {
+export function describeCondition(
+  condition: Condition,
+  name?: ReadNamer,
+): string {
+  const value = (v: ValueExpr) => describeValue(v, name);
+  const nested = (c: Condition) => describeCondition(c, name);
   switch (condition.type) {
     case "compare":
-      return `${describeValue(condition.left)} ${OPS[condition.op]} ${describeValue(condition.right)}`;
+      return `${value(condition.left)} ${OPS[condition.op]} ${value(condition.right)}`;
     case "deviation_band": {
       const direction = condition.downward_only
         ? "below"
         : condition.upward_only
           ? "above"
           : "of";
-      return `${describeValue(condition.value)} within ${condition.band_percent}% ${direction} ${describeValue(condition.center)}`;
+      return `${value(condition.value)} within ${condition.band_percent}% ${direction} ${value(condition.center)}`;
     }
     case "and":
-      return condition.conditions.map(describeCondition).join(" AND ");
+      return condition.conditions.map(nested).join(" AND ");
     case "or":
-      return condition.conditions.map(describeCondition).join(" OR ");
+      return condition.conditions.map(nested).join(" OR ");
     case "not":
-      return `NOT (${describeCondition(condition.condition)})`;
+      return `NOT (${nested(condition.condition)})`;
   }
 }
 
+/** The values a condition compares, in the order a dry run reports them. */
+export function comparedValues(condition: Condition): ValueExpr[] {
+  if (condition.type === "compare") return [condition.left, condition.right];
+  if (condition.type === "deviation_band") {
+    return [condition.value, condition.center];
+  }
+  return [];
+}
+
 /** The rule as a one-line equation of what must stay true. */
-export function describeRule(rule: Rule): string {
-  if (rule.kind === "expression") return describeCondition(rule.condition);
+export function describeRule(rule: Rule, name?: ReadNamer): string {
+  if (rule.kind === "expression")
+    return describeCondition(rule.condition, name);
   const event = rule.event.replace(/\(.*$/, "");
   return rule.condition === "must_not_appear"
     ? `${event} never emitted`
