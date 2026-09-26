@@ -53,7 +53,7 @@ export function FirstRunPage() {
         />
       </label>
       <label className="block">
-        <span className={labelClass}>Again</span>
+        <span className={labelClass}>Confirm password</span>
         <input
           className={fieldClass}
           type="password"

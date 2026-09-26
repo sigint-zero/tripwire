@@ -164,11 +164,14 @@ function PasswordForm() {
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const mismatch = confirm !== "" && confirm !== next;
   const change = useMutation({
     mutationFn: () => auth.changePassword(current, next),
     onSuccess: async () => {
       setCurrent("");
       setNext("");
+      setConfirm("");
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
     },
   });
@@ -177,7 +180,7 @@ function PasswordForm() {
       className="flex flex-wrap items-end gap-3"
       onSubmit={(e) => {
         e.preventDefault();
-        change.mutate();
+        if (!mismatch) change.mutate();
       }}
     >
       <label className="w-56">
@@ -204,14 +207,30 @@ function PasswordForm() {
           required
         />
       </label>
+      <label className="w-56">
+        <span className={labelClass}>Confirm new password</span>
+        <input
+          className={fieldClass}
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+      </label>
       <Button
         type="submit"
         variant="ghost"
-        disabled={change.isPending}
+        disabled={mismatch || change.isPending}
         title="Ends your other sessions"
       >
         Change password
       </Button>
+      {mismatch && (
+        <p className="w-full text-xs text-amber-400">
+          The passwords do not match.
+        </p>
+      )}
       {change.isSuccess && (
         <p className="w-full text-xs text-emerald-400">
           Changed. Your other sessions have ended.
@@ -237,6 +256,8 @@ function Accounts() {
   });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const mismatch = confirm !== "" && confirm !== password;
   const [removing, setRemoving] = useState<string | null>(null);
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
@@ -245,6 +266,7 @@ function Accounts() {
     onSuccess: async () => {
       setUsername("");
       setPassword("");
+      setConfirm("");
       await refresh();
     },
   });
@@ -301,7 +323,7 @@ function Accounts() {
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          add.mutate();
+          if (!mismatch) add.mutate();
         }}
       >
         <label className="w-56">
@@ -327,9 +349,29 @@ function Accounts() {
             required
           />
         </label>
-        <Button type="submit" variant="ghost" disabled={add.isPending}>
+        <label className="w-56">
+          <span className={labelClass}>Confirm password</span>
+          <input
+            className={fieldClass}
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            required
+          />
+        </label>
+        <Button
+          type="submit"
+          variant="ghost"
+          disabled={mismatch || add.isPending}
+        >
           Add account
         </Button>
+        {mismatch && (
+          <p className="w-full text-xs text-amber-400">
+            The passwords do not match.
+          </p>
+        )}
         {(add.error ?? remove.error) && (
           <p className="w-full text-xs text-red-400">
             {(add.error ?? remove.error)!.message}
