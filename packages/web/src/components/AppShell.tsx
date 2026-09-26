@@ -1,6 +1,7 @@
 import { Link, Outlet } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ServerStatus } from "./ServerStatus";
+import { Wordmark } from "./Wordmark";
 
 const areas = [
   { to: "/", label: "Overview" },
@@ -25,9 +26,8 @@ export function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <nav className="flex w-60 shrink-0 flex-col border-r border-emerald-500/20 bg-panel p-4">
-        <Link to="/" className="mb-8 flex items-center gap-2 px-3 pt-2">
-          <span className="size-2 animate-pulse bg-red-500 motion-reduce:animate-none" />
-          <Wordmark className="text-xl" />
+        <Link to="/" className="mb-8 block px-3 pt-2">
+          <Wordmark className="h-7" />
         </Link>
         <ul className="space-y-1">
           {areas.map((area) => (
@@ -59,15 +59,5 @@ export function ShellLayout({ children }: { children: ReactNode }) {
       </nav>
       <main className="flex-1 px-10 py-10">{children}</main>
     </div>
-  );
-}
-
-export function Wordmark({ className = "" }: { className?: string }) {
-  return (
-    <span
-      className={`bg-linear-to-r from-emerald-400 to-emerald-600 bg-clip-text font-display font-bold tracking-tighter text-transparent uppercase ${className}`}
-    >
-      Tripwire
-    </span>
   );
 }
