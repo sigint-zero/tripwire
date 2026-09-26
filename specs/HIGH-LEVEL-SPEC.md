@@ -117,8 +117,8 @@ opens nothing else. `AUTHENTICATION.md` specifies both.
 | `RULE-WIZARD.md` | creating and editing rules |
 | `RULES.md` | the rule list, the rule page and its charts |
 | `VIOLATIONS.md` | violation history, evidence and acknowledgement |
-| `RESPONSES.md` | on-chain response: the mode, operator keys, the controller and the approval queue |
-| `ACTIVITY.md` | the controller's history and what is paused now |
+| `RESPONSES.md` | on-chain response: the mode, the calls rules make, keys, the approval queue, and the optional TripwireController |
+| `ACTIVITY.md` | what is paused now, and the on-chain history of pauses and resets |
 | `NOTIFICATIONS.md` | the in-app feed, alert channels and alerts about Tripwire itself |
 | `MCP-SERVER.md` | the server AI agents connect to |
 

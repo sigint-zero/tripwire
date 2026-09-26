@@ -25,12 +25,11 @@ When an invariant breaks, Tripwire:
 1. **Records it** with full evidence: the values, the block, the
    transaction that caused it.
 2. **Alerts you** on your channels: chat, paging, or your own systems.
-3. **Optionally responds on-chain**: it can pause the affected function
-   (or the whole contract) through the TripwireController, Tripwire's
-   on-chain circuit-breaker contract, before the damage is done. Each
-   rule chooses its on-chain action, and the installation runs in one
-   of three modes: alert only, hold for your approval, or fully
-   autonomous.
+3. **Optionally responds on-chain**: it can call your contract's own
+   pause function, or any admin function you choose, with a key you
+   give it, before the damage is done. Each rule chooses its on-chain
+   action, and the installation runs in one of three modes: alert
+   only, hold for your approval, or fully autonomous.
 
 Between violations you get a live dashboard: current values, historical
 charts, which rules are currently tripped, and the health of the monitor
@@ -43,8 +42,9 @@ itself.
 - **The engine** is the detection and response core. It ships as a signed
   native binary that is installed into the application.
 - **[The contracts](https://github.com/sigint-zero/tripwire-contracts)**
-  are the TripwireController circuit breaker, deployed and verified
-  on-chain.
+  are an optional on-chain circuit breaker, the TripwireController, for
+  contracts that want pause-only power they can hand to Tripwire.
+  Tripwire works without them.
 
 The application talks to the engine over a local connection.
 
@@ -57,24 +57,27 @@ Setup is a guided install: point Tripwire at an RPC endpoint, open the
 dashboard, add a contract, and create your first rule from a template.
 Monitoring needs no keys and no on-chain changes.
 
-On-chain response is a separate, deliberate step: you create an operator
-key, register your contract with the TripwireController, and authorise
-the operator from your own guardian wallet.
+On-chain response is a separate, deliberate step: you create a key in
+Tripwire, grant it the permission your contract's pause function needs,
+and choose the call each rule makes when it trips.
 
 Full installation instructions will land here with the first release.
 
 ## Security model
 
 - **Notify-only by default.** Tripwire holds no keys until you create one.
-- **Guardian versus operator.** You keep the guardian key that controls
-  the circuit breaker. Tripwire holds only an operator key, whose
-  on-chain power is limited to pausing and un-pausing, never moving
-  funds.
+- **Give it the least power that works.** Tripwire can do on-chain only
+  what its key is allowed to do. Grant a role that can pause and
+  nothing more, never an owner or admin key that could also upgrade
+  the contract or move funds; the dashboard warns when a key holds
+  more. A contract with no pause-only role can use the
+  TripwireController, where the key you hand Tripwire can pause and
+  un-pause and nothing else.
 - **Local by default.** The dashboard and interface are only reachable
   from your machine unless you deliberately expose them.
 
 ## Status
 
-Pre-release. The contracts are deployed and verified; the application and
-engine are under active development. Nothing here is audited for
+Pre-release. The application and engine are under active development;
+the optional contracts are deployed and verified. Nothing here is audited for
 third-party production use yet.

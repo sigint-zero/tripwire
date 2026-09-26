@@ -1,13 +1,14 @@
 # Responses
 
 How Tripwire acts on-chain when a rule trips, from the application's
-seat: how far it may go on its own, the operator keys it signs with,
-the controller it pauses through, the checklist that gets a contract
-ready, and the queue where a person approves what will be sent.
+seat: how far it may go on its own, the calls it makes, the keys it
+signs with, the checklist that gets a contract ready, the queue where
+a person approves what will be sent, and the optional TripwireController
+for contracts that want it.
 `HIGH-LEVEL-SPEC.md` places the area; `RULE-WIZARD.md` covers the
 action a rule carries; `ENGINE.md` covers how configuration reaches
 the engine; `NOTIFICATIONS.md` covers the alerts a response raises;
-`ACTIVITY.md` covers what the controller has done.
+`ACTIVITY.md` covers what is paused and the history of pauses.
 
 The engine builds, signs, submits and watches every transaction. The
 application never holds key material and never talks to the chain: it
@@ -20,9 +21,9 @@ person's approval.
 |-|-|
 | response | what the engine does about one violation whose rule carries an on-chain action: a transaction built, perhaps held, sent and watched to a final status |
 | response mode | how far the engine goes on its own, for the whole installation: `notify`, `prepare` or `send` |
-| operator key | a key the engine holds and signs responses with. Its on-chain power is whatever it has been granted: operator on the controller for a contract, or a role on the contract itself |
-| controller | the deployed Tripwire circuit breaker, one per chain, shared by every contract that uses it |
-| guardian | the owner's own wallet for a contract on the controller: it authorises operators and can pause and unpause. Tripwire never holds it |
+| key | a key the engine holds and signs responses with. Its on-chain power is whatever the owner granted it: normally a role on the contract that allows pausing |
+| controller | optional: the TripwireController, a deployed circuit breaker shared by every contract that chooses to use it (below) |
+| guardian | for a contract on the controller: the owner's own wallet, which authorises keys there and can pause and unpause. Tripwire never holds it |
 
 ## The mode ladder
 
@@ -53,7 +54,7 @@ the few seconds of the restart and resumes from the engine's cursor.
 | Move | What the application requires first |
 |-|-|
 | to `notify` | nothing |
-| to `prepare` | at least one operator key exists. It may be locked: the engine starts and warns, responses wait at `pending` with the problem recorded, and the dashboard asks for an unlock |
+| to `prepare` | at least one key exists. It may be locked: the engine starts and warns, responses wait at `pending` with the problem recorded, and the dashboard asks for an unlock |
 | to `send` | the account's password, entered again; `TRIPWIRE_KEYS_PASSPHRASE` set in the application's environment; the signing key (below) exists |
 
 `send` needs a signer the moment the engine starts, and the engine
@@ -99,7 +100,7 @@ Submission, explained where it is chosen:
 Whether a transaction seen in the mempool may start a response is a
 detection setting (`SETTINGS.md`, Detection).
 
-## Operator keys
+## Keys
 
 In Settings, Keys. The engine keeps keys as standard encrypted keystore
 files in `TRIPWIRE_HOME/engine/keys/`, one per key; any standard
@@ -107,9 +108,10 @@ Ethereum tool opens them, and a keystore made elsewhere can be
 imported.
 
 The list shows each key's address, whether it is unlocked, its balance
-(requirement R1), whether it is the signing key, and the contracts it
-is an authorised operator on (from the controller's events, below). A
-zero balance is flagged: a key that cannot pay for gas cannot respond.
+(requirement R1), whether it is the signing key and, for contracts
+that use the controller, the ones it is an authorised operator on (from
+the controller's events, below). A zero balance is flagged: a key that
+cannot pay for gas cannot respond.
 
 | Action | Does |
 |-|-|
@@ -144,9 +146,34 @@ application passes to the engine's environment and names in
 `config.json` or any other file the application creates. Settings says
 whether it is set, never what it is.
 
-## The controller
+## What a response calls
 
-The controller is one contract per chain. Every contract that uses it
+By default a response is a call to the protected contract itself: its
+own `pause()`, or whichever function the rule names, sent from the
+signing key (the rule's `call` action, `RULE-WIZARD.md`). This needs
+nothing deployed and nothing registered; it needs the key to hold
+whatever permission that function checks, which the owner grants on
+the contract in the usual way (a pauser role, a guardian slot, an
+allow-list).
+
+**Least power.** Tripwire can do only what its key is allowed to do, so
+the key should be allowed to pause and nothing more. Before a contract
+is marked ready, the server reads, through the engine's live read, the
+common ownership views the contract exposes (`owner()`, and
+`hasRole(DEFAULT_ADMIN_ROLE, key)` where the contract has roles) and
+warns when the signing key is the owner or an admin: such a key could
+also upgrade the contract, change its settings or move funds. The
+warning says what to grant instead. It is a warning, not a refusal:
+the owner decides.
+
+A contract with no pause-only permission to grant can use the
+controller instead, below: there the key Tripwire holds can pause and
+unpause and nothing else.
+
+## The controller (optional)
+
+The TripwireController is an optional integration for contracts built
+to use it. It is one contract per chain. Every contract that uses it
 has, on the controller, a guardian, a set of operators, a global pause
 flag and a pause flag per function. The contract itself checks the
 flags (a function asks whether it, or the whole contract, is paused)
@@ -172,8 +199,8 @@ data, with the address and the block it was deployed at:
 
 `chain.controllerAddress` empty means this table's entry for the
 installation's chain. A chain with no entry and no configured address
-runs with no controller: the engine monitors and can respond with
-`call` actions only, and the wizard does not offer the pause actions.
+runs with no controller: everything works through `call` actions, and
+the wizard does not offer the controller's pause actions.
 
 ### Registration
 
@@ -185,31 +212,31 @@ event for the contract's address in `api_v1.controller_events`, which
 names the guardian. Later guardianship transfers update who the
 guardian is.
 
-A contract that was not built to register is protected differently:
-its rules use a `call` action on the contract's own pause function,
-sent from the operator key, which must hold whatever role that function
-requires (`RULE-WIZARD.md`, Response). Nothing on the controller is
-involved.
+A contract that did not register simply does not use the controller;
+its rules call its own functions, as above.
 
 ## Readiness
 
 Each contract's page has a **Response readiness** checklist, and the
 Responses page summarises it across contracts. It is computed by the
-server from the keys, the configuration, the rules and the mirrored
-controller events:
+server from the keys, the configuration, the rules and, for contracts
+on the controller, its mirrored events:
 
 | Step | Done when | Otherwise |
 |-|-|-|
 | signing key | a key exists, is unlocked and has a balance | links to Keys |
-| registered | a `Registered` event exists for the contract; the guardian is shown | explains registration and the `call` alternative |
-| operator authorised | an `OperatorAdded` for this contract and the signing key, with no later `OperatorRemoved` | shows the guardian call, below |
 | rules that act | at least one enabled rule on the contract has an on-chain action | links to the rule wizard |
+| permission | **Test the response** passed for each of those rules: the key can make the call | shows the revert reason, which usually names the missing role |
+| least power | the key is not the contract's owner or admin (above) | a warning with what to grant instead; does not block |
 | mode | not `notify` | links to Settings, Response |
-| tested | the last **Test the response** passed | runs it |
 
-The two controller steps apply only when the contract has, or will
-have, pause rules; a contract whose on-chain rules are all `call`
-actions skips them.
+For a contract whose rules use the controller's pause actions, two
+steps join the list before **permission**:
+
+| Step | Done when | Otherwise |
+|-|-|-|
+| registered | a `Registered` event exists for the contract; the guardian is shown | explains that registration is done by the contract itself, and that calling its own functions needs none |
+| operator authorised | an `OperatorAdded` for this contract and the signing key, with no later `OperatorRemoved` | shows the guardian call, below |
 
 **The guardian call.** When the operator is not authorised, the step
 shows exactly what to send from the guardian wallet: the controller's
@@ -226,8 +253,8 @@ engine builds that rule's action from the signing key and simulates it
 at the current block, sending nothing (requirement R2). A pass shows
 the gas it would use and the most it could cost at the configured
 caps, and compares that with the key's balance. A failure shows the
-revert reason, for example that the key is not an operator for this
-contract, or lacks the role a `call` needs. The last result per rule
+revert reason, for example that the key lacks the role the call
+needs, or is not an operator on the controller. The last result per rule
 is kept in memory by the server and shown until the next test or
 restart.
 
@@ -296,21 +323,24 @@ a new response. To act sooner, a person pauses by hand, below.
 ## Pausing and unpausing by hand
 
 During an incident a person may need to pause before, or instead of,
-a rule. On a contract's page, when it is registered and the signing
-key is an authorised operator, a **Pause** control offers: pause the
-contract, pause one function (chosen from its functions), and, for
-whatever the mirror shows paused, unpause. Each opens a confirmation
-naming the call. The engine sends it through the same path as a
+a rule. On a contract's page, a **Pause** control offers the calls the
+contract's rules would make (its `pause()`, say) and any other function
+of the contract a person picks, with its arguments, such as
+`unpause()` afterwards. Each opens a confirmation naming the call. The
+engine sends it from the signing key through the same path as a
 response: pre-flight simulation, the fee caps, the one nonce lane, the
 receipt watch (requirement R4). The mode does not gate it, since a
 person is acting, not a rule.
 
-Unpausing says what it lifts: unpausing the contract leaves paused
-functions paused. A pause that a `call` action produced is lifted
-through the contract's own function, which is outside this control.
+For a contract on the controller, where the signing key is an
+authorised operator, the control also offers the controller's pause of
+the contract or of one function, and unpause for whatever the mirror
+shows paused. Unpausing there says what it lifts: unpausing the
+contract leaves paused functions paused.
 
-Until the engine offers manual actions, the same control shows the
-guardian-wallet call instead, as the readiness checklist does: the
+Until the engine offers manual actions, the control shows the call to
+make from a wallet instead: for the contract's own functions, the
+contract's address and the calldata; for the controller, the
 controller's address, value zero and the calldata for `tripGlobal`
 (`0x51dd019f`), `trip` (`0xe5ba719d`), `resetGlobal` (`0x326a8018`) or
 `reset` (`0x2de63ca2`) with the contract's address and, for a
@@ -347,8 +377,7 @@ the API's error envelope. No MCP tool reads or changes any of it.
 | POST | `/keys/:address/lock` | the key |
 | GET | `/readiness` | per contract: `{ address, name, steps: [{ step, state: done\|todo\|not_applicable, detail }], guardianCall? }` |
 | POST | `/readiness/:ruleId/test` | `{ ok, revertReason?, gasEstimate, maxCostWei, balanceWei }` |
-| POST | `/contracts/:address/pause` | `{ scope: contract\|function, selector? }`; the recorded action; `501 not_available` until the engine offers it |
-| POST | `/contracts/:address/unpause` | same shape |
+| POST | `/contracts/:address/actions` | `{ call: { function, args, value? } }` for one of the contract's own functions, or `{ controller: pause\|unpause, scope: contract\|function, selector? }` for a contract on the controller; the recorded action; `501 not_available` until the engine offers it |
 
 Key, approval, rejection, manual action and mode changes are logged at
 info with the username; passphrases and passwords never are.
@@ -385,7 +414,7 @@ stopped, each command says so and exits non-zero.
 | R1 | `GET /v1/keys` includes each key's native balance at the current block, in wei as a decimal string | the dashboard warns that a key cannot pay for gas without talking to the chain itself |
 | R2 | `POST /v1/responses/dry-run { rule_id }`: builds the rule's on-chain action from the signing key and simulates it at the current block, sending nothing, returning `{ ok, revert_reason?, gas_estimate, preview }` | **Test the response** in the readiness checklist: a missing operator grant or role shows before an incident, not during one |
 | R3 | The view reference documents the `responses.tx` object: target, function signature, decoded arguments, value, nonce, gas limit, maximum fee, maximum priority fee, hash, the attempts (each with hash, fees and the block it was submitted at) and whether approval rebuilt it | a person approves exactly what will be sent, and the application's types are generated from that file |
-| R4 | `POST /v1/actions { action: trip_function \| trip_global \| reset_function \| reset_global, target, selector?, note? }`, going through the same pre-flight, signing, submission and receipt watch as a response, with a record of its own in a view and a notification at its final status | pausing and unpausing from the dashboard during an incident, attributed to the person through `note` |
+| R4 | `POST /v1/actions { action: call \| trip_function \| trip_global \| reset_function \| reset_global, target, call?, selector?, note? }`, where `call` has the shape of a rule's call action, going through the same pre-flight, signing, submission and receipt watch as a response, with a record of its own in a view and a notification at its final status | pausing and unpausing from the dashboard during an incident, attributed to the person through `note` |
 
 ## Decisions
 
@@ -394,41 +423,47 @@ stopped, each command says so and exits non-zero.
 | RS1 | Where the mode lives | The installation, in the application's configuration, applied by restart. A per-rule mode would make "is anything sending on its own?" a question with a hundred answers |
 | RS2 | Guarding `send` | The account password again, and the passphrase in the environment. `send` is the one setting that lets Tripwire spend and act with no person in between, and without the passphrase it would stop protecting at the first restart |
 | RS3 | Passphrase for unattended starts | Environment only, never a file the application writes. A passphrase stored beside the keystore would make the encryption decorative |
-| RS4 | Readiness source | The engine's mirrored controller events, not live reads. They are reorg-consistent, carry who did what, and are already there for the Activity page |
+| RS4 | Readiness source | For the call a rule makes, a simulation from the key (R2): it answers "can this key do this?" for any permission scheme without the application knowing the scheme. For the controller steps, its mirrored events, which are reorg-consistent and carry who did what |
 | RS5 | Getting the operator authorised | Show the guardian call with its calldata; no wallet connection in the dashboard. Connecting a wallet would put chain access and a large dependency in the application for one call a person makes once per contract |
 | RS6 | Resending a failed response | Not offered. The engine keeps `failed` final; a person who needs to act now pauses by hand, which is the clearer action |
-| RS7 | Manual pause and unpause | Through the engine (R4), in any mode, behind a confirmation; the guardian call until then. It is a person's decision, and the dashboard is where they are during an incident |
-| RS8 | Controller address | Known deployments shipped as data, overridable in Settings. Owners should not have to look up an address to start |
+| RS7 | Manual pause and unpause | Through the engine (R4), in any mode, behind a confirmation; the call to make from a wallet until then. It is a person's decision, and the dashboard is where they are during an incident |
+| RS8 | Controller address | Known deployments shipped as data, overridable in Settings, for contracts that use the controller |
 | RS9 | Deleting and exporting keys | Neither, in the dashboard. The file is the key; a delete button next to the only copy of a funded key is a trap |
 | RS10 | Who may approve | Any account, logged with the username. Accounts are equal; a two-person rule can come later if owners ask |
+| RS11 | Default response | A call to the protected contract's own function from a key granted permission on it. It works with any contract that can be paused today, with nothing to deploy or register; the controller stays an option for contracts built for it |
+| RS12 | A key with too much power | Warned, not refused. The owner may have reasons, and a refusal would push them to work around it; the warning names the risk and what to grant instead |
 
 ## Checkpoint
 
 Responses are done when, provably and repeatably, against the engine
-on a public testnet with a contract that uses the controller:
+on a public testnet, with one pausable contract that grants a pauser
+role and one contract that uses the controller:
 
-1. From `notify`, a key is created and funded, the readiness checklist
-   shows the guardian call, and sending that call from the guardian
-   wallet ticks the step with no reload.
-2. **Test the response** passes for a pause rule; with the operator
-   removed, it fails naming the revert.
-3. Switching to `send` without `TRIPWIRE_KEYS_PASSPHRASE` is refused
+1. From `notify`, a key is created and funded; before the role is
+   granted, **Test the response** for a rule calling `pause()` fails
+   naming the missing role, and passes once the owner grants it.
+2. Made the contract's owner instead, the key is ready but carries the
+   least-power warning.
+3. On the controller contract, the checklist shows the guardian call;
+   sending it from the guardian wallet ticks the step with no reload,
+   and the test for a controller pause rule then passes.
+4. Switching to `send` without `TRIPWIRE_KEYS_PASSPHRASE` is refused
    naming the variable; with a wrong password it is refused; with a
    passphrase that does not open the key, the engine refuses, the
    previous mode is restored, and the engine's message is shown.
-4. In `prepare`, an induced violation appears under Waiting with the
+5. In `prepare`, an induced violation appears under Waiting with the
    decoded call, the key and the maximum cost; approving it confirms
    on chain, and the row moves through In flight to History.
-5. Two sessions approve the same response; one succeeds and the other
+6. Two sessions approve the same response; one succeeds and the other
    is told it was already approved.
-6. A rejected response is `abandoned` with its reason, and nothing is
+7. A rejected response is `abandoned` with its reason, and nothing is
    sent.
-7. A locked signing key leaves a new response in In flight with the
+8. A locked signing key leaves a new response in In flight with the
    problem and an **Unlock** link; unlocking lets it proceed.
-8. No passphrase appears in any log line, response body or file under
+9. No passphrase appears in any log line, response body or file under
    `TRIPWIRE_HOME` other than the engine's keystores, checked by a test
    that unlocks with a known passphrase and searches for it.
-9. With manual actions available, pausing a function from the
-   contract's page confirms on chain and shows in the pause state and
-   the Activity page; without them, the control shows the guardian
-   call instead.
+10. With manual actions available, calling the contract's `pause()`
+   from its page confirms on chain and shows in the pause state and
+   the Activity page; without them, the control shows the call to
+   make from a wallet instead.

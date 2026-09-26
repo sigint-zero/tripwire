@@ -77,13 +77,6 @@ Base (8453), not Ethereum (1)"). Continue is enabled only after a
 passing verification of the values as they stand; editing a field
 clears it.
 
-Under the chain, one line about the controller, the on-chain circuit
-breaker that response pauses through (`RESPONSES.md`): "Tripwire's
-controller is deployed on Ethereum" when the application knows a
-deployment for the chain, or "No controller is known on this chain:
-alerts and custom calls work; pausing through the controller needs
-one" when it does not. Nothing is asked here; it sets expectations.
-
 **Continue** saves the chain as `SETTINGS.md` applies any engine
 setting, then starts the engine and waits for it. The step shows the
 engine's state as it moves (`ENGINE.md`):
@@ -220,7 +213,7 @@ The step's engine progress is read from `GET /engine` and the
 | FR3 | Database in the web flow | Shown, not chosen. The server is already running on a database when the page loads; choosing belongs to the command line and the environment, before start |
 | FR4 | Redirect while unconfigured | Every page goes to the chain step. Nothing else works without an engine, and one form is clearer than every page explaining the same absence |
 | FR5 | Download timing | In the background from the first start, not at install time. Package-manager install scripts are often disabled, and starting early hides most of the wait behind the account step |
-| FR6 | Response in setup | Left out, with a pointer at the end. Response needs a key, funds and an action from the guardian wallet; it is a decision, not a setup step |
+| FR6 | Response in setup | Left out, with a pointer at the end. Response needs a key, funds, and a permission granted to that key on the contract; it is a decision, not a setup step |
 | FR7 | Headless setup | `tripwire setup` with prompts and matching flags, password from the environment. Servers and containers are where Tripwire runs longest, and they often have no browser until a tunnel is set up |
 | FR8 | Setup run twice | Refused once an account or chain exists. Changes after setup have their own commands and pages, which keep their own checks |
 

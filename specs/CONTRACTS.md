@@ -95,7 +95,7 @@ page.
 | verified source files | kept by the application when a contract is added (`app.contract_sources`), for agents and the contract's page |
 | live values | the engine reads values at the current block; the values tab can show them |
 | trip state | what is paused on the contract right now, by the controller or by a rule's confirmed call; the panel is specified in `ACTIVITY.md` |
-| response readiness | whether the contract can be paused through the controller (registered, guardian, operator authorised); the checklist is specified in `RESPONSES.md` |
+| response readiness | whether Tripwire's key can make the calls the contract's rules would make, and, for a contract that uses the optional TripwireController, whether it is set up there; specified in `RESPONSES.md` |
 | pause and unpause | a person pausing or unpausing the contract by hand during an incident; specified in `RESPONSES.md` |
 
 ## API

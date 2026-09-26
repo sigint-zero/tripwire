@@ -112,7 +112,7 @@ source.
 | Column | Shows |
 |-|-|
 | what | the contract's name, and the function's name for a function-level pause or "whole contract" for a global one |
-| how | "controller" or "confirmed call" (a rule's call whose confirmation reads as in effect) |
+| how | "confirmed call" (a rule's call whose confirmation reads as in effect) or, for a contract using the optional TripwireController, "controller" |
 | since | the block, and its time as "2 h ago" |
 | by | "Tripwire" with a link to the response when the pausing transaction was a Tripwire response, else the address that sent it; nothing for a confirmed call, whose state is observed rather than sent |
 

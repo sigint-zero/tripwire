@@ -1,16 +1,18 @@
 # Activity and trip state
 
 What has happened on chain around the contracts Tripwire watches, and
-what is paused right now. `HIGH-LEVEL-SPEC.md` places the area;
-`RESPONSES.md` covers the controller, operators and the responses that
-pause things; `CONTRACTS.md` and `OVERVIEW.md` host the trip state
+what is paused right now: first the calls Tripwire itself made, and,
+for contracts that use the optional TripwireController, that
+controller's history. `HIGH-LEVEL-SPEC.md` places the area;
+`RESPONSES.md` covers the responses that pause things and the
+controller; `CONTRACTS.md` and `OVERVIEW.md` host the trip state
 shown here; `LIVE-UPDATES.md` keeps both current.
 
 ## Terms
 
 | Term | Meaning |
 |-|-|
-| controller | the TripwireController deployed on the installation's chain: a registry of guarded contracts, each with a guardian, operators, and two kinds of pause (`RESPONSES.md`) |
+| controller | optional: the TripwireController deployed on the installation's chain, a registry of guarded contracts, each with a guardian, operators, and two kinds of pause (`RESPONSES.md`) |
 | guarded contract | a contract registered with the controller. It registered itself, naming its guardian |
 | trip | a pause: of one function (by its 4-byte selector) or of the whole contract (global) |
 | reset | lifting a trip |
@@ -18,10 +20,14 @@ shown here; `LIVE-UPDATES.md` keeps both current.
 
 ## Where it comes from
 
-The engine mirrors the controller into two views, and the application
-reads both:
+Three views:
 
-- `api_v1.controller_events`: every event the controller has emitted
+- `api_v1.responses`: every on-chain action Tripwire took for a rule,
+  with the call, its transaction and its final status, and the
+  actions a person took by hand (`RESPONSES.md`, ask R4). This is the
+  whole of the timeline for a contract that does not use the
+  controller.
+- `api_v1.controller_events`, for contracts on the controller: every event the controller has emitted
   since its deployment, in block order, with the block, transaction,
   log index, event name and decoded arguments. Events from a newer
   controller than the engine knows are kept undecoded, with their raw
@@ -34,15 +40,15 @@ reads both:
   and the row is tripped while it holds, with the called function's
   selector.
 
-Both are reorg-consistent: a trip on a block that is later rewound
+All are reorg-consistent: a trip on a block that is later rewound
 disappears from both, and the dashboard follows the views rather than
 remembering anything itself.
 
 ## Scope
 
-The controller is shared by every guarded contract on the chain, so
-most of its events concern other people's contracts. The application
-shows only:
+Tripwire's own actions are always this installation's. The controller
+is shared by every guarded contract on the chain, so most of its events
+concern other people's contracts; of those the application shows only:
 
 - events whose target is a registered contract;
 - operator events (`OperatorAdded`, `OperatorRemoved`) naming one of
@@ -66,6 +72,9 @@ chain; a chain without one shows the hash unlinked).
 
 | Event | Sentence |
 |-|-|
+| a response confirmed | Treasury vault: `pause()` called by Tripwire, responding to *rule* |
+| a response failed | Treasury vault: Tripwire's `pause()` failed: *reason* |
+| a manual action confirmed | Treasury vault: `unpause()` called by Tripwire, by *username* |
 | `FunctionTripped` | Treasury vault: `withdraw()` paused by *actor* |
 | `FunctionReset` | Treasury vault: `withdraw()` unpaused by *actor* |
 | `GlobalTripped` | Treasury vault: every function paused by *actor* |
@@ -108,16 +117,15 @@ order:
 Addresses show shortened, with the full address on hover and a copy
 button, and the installation's keys and registered contracts by name.
 
-**Filters**, kept in the URL: contract, and kind of event: pauses
-(`FunctionTripped`, `GlobalTripped`), unpauses (`FunctionReset`,
-`GlobalReset`), roles (registration, operators, guardianship), and
-unrecognised.
+**Filters**, kept in the URL: contract, and kind of event: Tripwire's
+own actions, pauses (`FunctionTripped`, `GlobalTripped`), unpauses
+(`FunctionReset`, `GlobalReset`), roles (registration, operators,
+guardianship), and unrecognised.
 
-**Paging** is by id, 100 events at a time, with **Older**. Ids follow
-block order: the engine scans the controller's history before it
-follows new blocks, and a reorg removes every event above the common
-ancestor before the replacement blocks add theirs, so a newer id is
-never an older block. After a reorg, ids have gaps; the page does not
+**Paging** is by an opaque cursor, 100 events at a time, with
+**Older**. The two sources are merged in block order (block, then log
+index or response id), and the cursor carries the position in both.
+After a reorg the rewound entries are simply gone; the page does not
 care.
 
 Controller events raise no notifications. A pause by the guardian or
@@ -139,7 +147,8 @@ Each paused row shows:
 
 - what is paused: every function, or the function's name resolved as
   above;
-- how: **controller**, or **the contract's own pause**, naming the
+- how: **the contract's own pause**, or **controller**; for the first,
+  naming the
   rule or rules whose confirmation reads true (enabled rules on that
   contract with a `call` action whose function has that selector);
 - since which block, with how long ago once block times are available;
@@ -157,12 +166,10 @@ where a person looks during an incident.
 
 ## Without a controller
 
-When the installation's chain has no known controller deployment and
-none is configured (`ENGINE.md`), the Activity page explains that
-pausing through the controller is not available on this chain and that
-rules can still pause a contract through its own function
-(`RULE-WIZARD.md`, the `call` action). Trip state then holds only
-`verify` rows. While the engine has not caught up with the
+When no contract uses the controller, or the chain has no known
+deployment and none is configured (`ENGINE.md`), the page shows
+Tripwire's own actions and nothing is missing: controller events simply
+do not appear, and trip state holds only `verify` rows. While the engine has not caught up with the
 controller's history (reported in its health), the page says the
 history is still being read.
 
@@ -173,14 +180,14 @@ the API's error envelope. No MCP tool reads either.
 
 | Method | Path | Purpose |
 |-|-|-|
-| GET | `/activity` | newest first: `?contract&kind&before&limit`; `kind` one of `pause`, `unpause`, `role`, `unrecognised`; `limit` 1 to 500, default 100; `before` an id |
+| GET | `/activity` | newest first: `?contract&kind&before&limit`; `kind` one of `tripwire`, `pause`, `unpause`, `role`, `unrecognised`; `limit` 1 to 500, default 100; `before` the cursor the previous page returned as `nextCursor` |
 | GET | `/trip-state` | the tripped rows for registered contracts |
 
 An activity item:
 
 ```json
 {
-  "id": "5521",
+  "id": "controller:5521",
   "event": "FunctionTripped",
   "blockNumber": 21000003,
   "blockTime": null,
@@ -199,6 +206,9 @@ An activity item:
 }
 ```
 
+`id` is `response:7` for Tripwire's own actions and `controller:5521`
+for controller events, and `event` is `response_confirmed`,
+`response_failed`, `manual_confirmed` or the controller event's name.
 `actor.is` is one of `tripwire_response`, `tripwire_manual`, `key`,
 `guardian`, `operator`, `unknown`. `subject` is the other address an
 event names: the operator added or removed, or the proposed or new
@@ -252,28 +262,34 @@ Both lists are read with bounded queries and a statement timeout, per
 | AC3 | Notifications for controller events | None for now. Tripwire's own pauses already notify through their responses, and a pause by someone else is visible here and on the Overview. Revisit once teams ask for it |
 | AC4 | History of confirmation pauses | Current state only, stated on the page. The engine keeps none, and inventing history from polling would disagree with the chain after a reorg |
 | AC5 | Function names | Resolved by the server from the stored ABI, so the dashboard, scripts and alerts all say `withdraw(uint256)` rather than a selector |
+| AC6 | Tripwire's own actions on the timeline | Yes, first. Most contracts are paused through their own functions, which leave no controller event; without them the page would be empty for the default setup |
 
 ## Checkpoint
 
-Activity and trip state are done when, provably and repeatably, against
-a controller on a public testnet:
+Activity and trip state are done when, provably and repeatably, on a
+public testnet with one pausable contract Tripwire calls directly and
+one contract on the controller:
 
-1. A function pause and a global pause sent by the guardian appear in
+1. A response calling the first contract's `pause()` appears as
+   Tripwire's action naming its rule, and, with a confirmation on the
+   rule, as paused in trip state on the Overview, the Contracts list
+   and the contract's page, within seconds, with no reload.
+2. A function pause and a global pause sent by the guardian appear in
    the timeline with the right sentences and the guardian named as
    such, and in trip state on the Overview, the Contracts list and
    the contract's page, within seconds, with no reload.
-2. `resetGlobal` shows the global pause lifted and the function pause
+3. `resetGlobal` shows the global pause lifted and the function pause
    still in place, in both the timeline and trip state.
-3. A pause sent by a response in `prepare` mode is attributed to
+4. A pause sent by a response in `prepare` mode is attributed to
    Tripwire and names its rule; the same key sending the same call
    from other tooling is attributed to the key, not to a response.
-4. Events for a guarded contract that is not registered here never
+5. Events for a guarded contract that is not registered here never
    appear; `OperatorAdded` for this installation's key on such a
    contract does.
-5. A rule with a `call` action and a confirmation shows a pause
+6. A rule with a `call` action and a confirmation shows a pause
    "through the contract's own pause" once the call lands, naming the
    rule, and the row goes when the contract is unpaused.
-6. A reorg that removes a pause removes it from the timeline and from
+7. A reorg that removes a pause removes it from the timeline and from
    trip state, with no reload.
-7. On a chain with no controller, the page explains and trip state
-   shows confirmation rows only.
+8. On a chain with no controller, the page shows Tripwire's own
+   actions, and trip state shows confirmation rows only.

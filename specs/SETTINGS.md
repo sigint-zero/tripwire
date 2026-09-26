@@ -30,7 +30,7 @@ section is specified where its subject is.
 | Chain and RPC | chain, RPC endpoints, polling interval | here |
 | Detection | pending-transaction watching | here |
 | Response | response mode, signing key, fee caps, submission route | `RESPONSES.md` |
-| Keys | operator keys: create, import, unlock, lock, where the files are | `RESPONSES.md` |
+| Keys | the keys Tripwire signs with: create, import, unlock, lock, where the files are | `RESPONSES.md` |
 | Notifications | alert channels, dashboard link, outside heartbeat | `NOTIFICATIONS.md` |
 | Retention | how long raw values and notifications are kept | here |
 | Database | mode, target, schema versions | here |

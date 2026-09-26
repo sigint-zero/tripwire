@@ -211,7 +211,7 @@ control; what each option means is shown on hover.
 
 | Choice | Values |
 |-|-|
-| action | notify only: record the violation and alert; pause the contract (`trip_global`); pause one function (`trip_function`), chosen from the contract's functions; or call a function (`call`): one the contract already exposes, such as an admin `pause()`, chosen from its functions, with a value for each argument |
+| action | notify only: record the violation and alert; or call a function (`call`): one the contract already exposes, such as its `pause()`, chosen from its functions, with a value for each argument. For a contract registered with the optional TripwireController, two more: pause the contract (`trip_global`) or pause one function (`trip_function`) through the controller |
 | severity | critical: loss of funds or control; warning: a condition that comes before a loss; info: hygiene. Starts at the starting point's default |
 | quiet period | `on_trip.cooldown_seconds`: none, 1 minute, 5 minutes (default), 1 hour. Trips inside it are still recorded, but not acted on again |
 
@@ -238,14 +238,14 @@ JSON-mode rules.
 The two kinds of on-chain action reach the contract differently, and
 the section says which applies where the action is picked:
 
-- **pause** (`trip_global`, `trip_function`) acts through the Tripwire
-  controller, so the contract must be registered with it for response.
-  The section shows a notice when it is not, read from the
-  contract's response readiness (`RESPONSES.md`).
-- **call** acts on the contract directly, with no controller
-  registration. The engine sends it from its operator key, which must
-  hold whatever role the called function requires; the section says
-  so, naming the function.
+- **call** acts on the contract directly and is the default. The engine
+  sends it from its key, which must hold whatever permission the called
+  function checks; the section says so, naming the function, and
+  links to the contract's response readiness (`RESPONSES.md`).
+- **pause through the controller** (`trip_global`, `trip_function`) is
+  offered only when the contract is registered with the optional
+  TripwireController (`RESPONSES.md`); the key must then be an
+  authorised operator there.
 
 A call also takes an optional confirmation: a view function and the
 value it reads once the action has taken effect (a `paused()` that
