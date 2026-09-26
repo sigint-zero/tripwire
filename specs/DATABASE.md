@@ -17,8 +17,9 @@ why accounts are not in here.
   ships inside the server package.
 - The application reads `api_v1`, writes `app`, and touches nothing
   else. Every identifier it sends is schema-qualified.
-- Accounts, sessions and MCP tokens stay in files (`AUTHENTICATION.md`).
-  Everything else the application remembers lives in `app`.
+- Accounts, sessions, MCP tokens and alert-channel secrets stay in
+  files (`AUTHENTICATION.md`, `NOTIFICATIONS.md`). Everything else the
+  application remembers lives in `app`.
 
 ## The engine's side of the contract
 
@@ -84,7 +85,7 @@ view reference the engine publishes with each release.
 | `series`, `series_points` | Rule detail charts, Overview mini charts | recorded values by series and time range |
 | `trip_state` | Overview, Contracts, Contract detail | the mirrored controller state |
 | `responses` | Responses | the approval queue and response history |
-| `notifications` | Notifications | the outbox and its delivery status |
+| `notifications` | Notifications, the notification dispatcher | the engine's notification record: the feed, and what the application delivers (`NOTIFICATIONS.md`) |
 | `engine_status` | health strip, Settings, `tripwire db status` | one row per cursor with `updated_at`; readable while the engine is down, which is how the dashboard tells "stale" from "stopped" |
 
 Rule documents come back as `jsonb`. The application never rewrites a
@@ -318,6 +319,9 @@ Keys defined so far:
 |-|-|-|
 | `dashboard.pinned_rules` | ordered array of rule ids | Overview mini charts |
 | `mcp.submissions_per_hour` | integer, default 50 | the MCP volume guard |
+| `notifications.dashboard_url` | text, unset by default | links in alert messages |
+| `notifications.heartbeat_url` | text, unset by default | the outside heartbeat |
+| `notifications.dispatch_since` | timestamp, set on first start | notifications before it are shown, never sent |
 
 `app.rule_prefs`: how a rule is shown, which the engine has no reason
 to know.
@@ -346,8 +350,13 @@ marked read; one state shared by all accounts, which are equal
 
 | Column | Type | Notes |
 |-|-|-|
-| notification_id | bigint PK | an `api_v1.notifications` id |
+| source | text | `engine` for an `api_v1.notifications` row, `app` for an `app.local_notifications` row; PK with notification_id |
+| notification_id | bigint | |
 | read_at | timestamptz | |
+
+Four more tables carry notification delivery and are specified with it
+in `NOTIFICATIONS.md`: `app.channels`, `app.local_notifications`,
+`app.dispatches` and `app.deliveries`.
 
 `app.violation_acks`: violations a person has acknowledged; the
 Overview's "open violations" is `api_v1.violations` minus this table.
@@ -392,8 +401,9 @@ engine object they name. Once a day and at start, the application
 deletes `rule_prefs` and `rule_submissions` rows whose `rule_id` is
 absent from `api_v1.rules`, `violation_acks` rows absent from
 `api_v1.violations`, `contract_disables` rows absent from
-`api_v1.contracts`, `notification_reads` rows absent from
-`api_v1.notifications`, and `contract_sources` rows absent from
+`api_v1.contracts`, `notification_reads` and `dispatches` rows whose
+notification is absent from `api_v1.notifications` or
+`app.local_notifications`, and `contract_sources` rows absent from
 `api_v1.contracts`, and prunes `dashboard.pinned_rules` the same way.
 The volume guard is unaffected: it counts the trailing hour, and a
 rule deleted within the hour still counted when it was stored.
@@ -466,7 +476,7 @@ the URL and the views above.
 | DB1 | Local database engine | PGlite over its socket server. It installs with the package, needs no download and no child binary, and the engine already guarantees correctness at one connection for exactly this case. The fallback, taken only if the checkpoint's isolation proof fails, is an embedded PostgreSQL server; the provisioning module is the only code that changes |
 | DB2 | One URL for both processes | Yes. The application holds one credential and hands the same one to the engine. A split into a writer and a read-only role is documented for owners who want it, and the application does not need it to keep to its schema: the boundary is enforced by code review and by the test that rejects any query text naming `engine.` |
 | DB3 | Where credentials live | Files, per `AUTHENTICATION.md` AU4. Login must work with the database down, and a CLI command must be able to add a user beside a running server without contending for the local database's one session |
-| DB4 | Own migration runner | A hundred lines of SQL-file runner instead of a migration library. The schema is nine tables; a library would be the largest dependency in the server for the least work |
+| DB4 | Own migration runner | A hundred lines of SQL-file runner instead of a migration library. The schema is thirteen tables; a library would be the largest dependency in the server for the least work |
 | DB5 | Cross-schema foreign keys | None. A key from `app` into `engine` would tie the application's schema to the engine's private tables and block the engine's cascades. Orphans are swept instead |
 | DB6 | Where the ABI lives | With the engine, once, at registration; the application keeps verified source only. The engine decodes evidence and needs the ABI; the application does not need a second copy |
 | DB7 | Unix socket versus loopback in local mode | Unix socket where the platform has one: protected by the directory mode, unreachable from other users, and the socket server offers no TLS or password. Loopback only on Windows, documented as reachable by local processes |

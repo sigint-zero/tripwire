@@ -389,8 +389,10 @@ contract is a proxy, the server also fetches the first
 implementation's ABI and merges the two, so the implementation's
 functions are offered alongside the proxy's. Results are cached in
 memory for the life of the process; a verified ABI does not change.
-This is the application's only outbound request that is not to the
-engine, and it carries nothing but a chain ID and an address.
+Apart from the alert channels and heartbeat a person configures
+(`NOTIFICATIONS.md`), this is the application's only outbound request
+that is not to the engine, and it carries nothing but a chain ID and an
+address.
 
 ## Engine boundary
 

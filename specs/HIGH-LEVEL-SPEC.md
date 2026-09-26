@@ -27,7 +27,7 @@ One repository, one workspace, six packages:
 | Package | Role |
 |-|-|
 | `cli` | the `tripwire` command: guided setup, starting and supervising the engine and server together, and utilities (rule export/import, key and token management, database status and backup) |
-| `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine |
+| `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine, delivers notifications to alert channels |
 | `web` | the dashboard: a single-page app built to static files, served by the server |
 | `shared` | types and validation schemas used by all packages |
 | `engine-stub` | development stand-in for the engine: same interface, fixture data, scripted scenarios. Lets the whole application run with no engine present |
@@ -46,6 +46,10 @@ One repository, one workspace, six packages:
   schema of its own.
 - **Live updates**: the server relays the engine's event stream to the
   dashboard, so violations, trip state and health appear without refresh.
+- **Notifications**: the engine records every event worth telling a
+  person about; the server delivers them to the in-app feed and to the
+  alert channels people connect, and raises its own alerts when the
+  engine or the database stops. `NOTIFICATIONS.md` specifies it.
 
 ## The dashboard
 
