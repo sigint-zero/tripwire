@@ -12,6 +12,7 @@ import {
   type RuleRow,
   type RuleSeriesRow,
   type SeriesRow,
+  type TripStateRow,
   type ViolationRow,
 } from "./types";
 
@@ -182,6 +183,18 @@ export class ViewReads implements EngineReads {
          FROM ${this.#schema}.responses`,
     );
     return { waiting: row?.waiting ?? 0, inFlight: row?.in_flight ?? 0 };
+  }
+
+  tripState() {
+    return this.#read<TripStateRow>(
+      `SELECT c.address AS contract_address, c.name AS contract_name, c.abi,
+              t.selector, t.source, t.since_block::int, t.tx_hash
+         FROM ${this.#schema}.trip_state t
+         JOIN ${this.#schema}.contracts c
+           ON lower(c.address) = lower(t.contract_address)
+        WHERE t.tripped
+        ORDER BY t.since_block DESC, c.address, t.selector LIMIT ${LIMIT}`,
+    );
   }
 
   engineStatus() {

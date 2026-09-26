@@ -8,6 +8,7 @@ import {
   type ViewCall,
 } from "@tripwire/shared";
 import type pg from "pg";
+import { toFunctionSelector } from "viem";
 import type { EngineEvents, EngineListener } from "../events/types";
 import {
   actsOnChain,
@@ -126,6 +127,16 @@ CREATE TABLE IF NOT EXISTS stub.rule_series (
   path text NOT NULL,
   PRIMARY KEY (rule_id, series_id, path)
 );
+CREATE TABLE IF NOT EXISTS stub.trip_state (
+  contract_address text NOT NULL,
+  selector text NOT NULL,
+  source text NOT NULL,
+  tripped boolean NOT NULL,
+  since_block bigint NOT NULL,
+  tx_hash text,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (contract_address, selector, source)
+);
 CREATE TABLE IF NOT EXISTS stub.cursors (
   name text PRIMARY KEY,
   block_number bigint NOT NULL,
@@ -170,6 +181,9 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
     JOIN stub.contracts c ON c.id = r.contract_id;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.rule_series AS
   SELECT rule_id, series_id, role, path FROM stub.rule_series;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.trip_state AS
+  SELECT contract_address, selector, source, tripped, since_block, tx_hash, updated_at
+    FROM stub.trip_state;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.engine_status AS
   SELECT name AS cursor, block_number, block_hash, updated_at,
          NULL::text AS instance_id, 'stand-in' AS engine_version,
@@ -679,9 +693,14 @@ export class StubEngine implements EngineCommands, EngineEvents {
       rule_id: string;
       status: string;
       tx: StubTx;
+      address: string;
+      document: Rule;
     }>(
-      `SELECT p.id::text, v.rule_id::text, p.status, p.tx
-         FROM stub.responses p JOIN stub.violations v ON v.id = p.violation_id
+      `SELECT p.id::text, v.rule_id::text, p.status, p.tx, c.address, r.document
+         FROM stub.responses p
+         JOIN stub.violations v ON v.id = p.violation_id
+         JOIN stub.rules r ON r.id = v.rule_id
+         JOIN stub.contracts c ON c.id = r.contract_id
         WHERE p.status IN ('approved', 'submitted')`,
     );
     for (const r of rows) {
@@ -698,7 +717,66 @@ export class StubEngine implements EngineCommands, EngineEvents {
         [r.id, next.status, JSON.stringify(next.tx), time],
       );
       this.#emitResponse(r.id, r.rule_id, next.status);
+      if (next.status === "confirmed") {
+        await this.#paused(
+          r.document.on_trip,
+          r.address,
+          r.tx.hash,
+          block,
+          time,
+        );
+      }
     }
+  }
+
+  /**
+   * What a confirmed response left paused, as the engine records it: the
+   * controller's pause under `controller`, a call whose confirmation now
+   * holds under `verify`. A call without one changes nothing observed.
+   */
+  async #paused(
+    onTrip: Rule["on_trip"],
+    address: string,
+    hash: string,
+    block: number,
+    time: string,
+  ) {
+    const row =
+      onTrip.action === "trip_global"
+        ? { selector: "", source: "controller", tx: hash }
+        : onTrip.action === "trip_function"
+          ? {
+              selector: toFunctionSelector(onTrip.function),
+              source: "controller",
+              tx: hash,
+            }
+          : onTrip.action === "call" && onTrip.call.verify
+            ? {
+                selector: toFunctionSelector(onTrip.call.function),
+                source: "verify",
+                tx: null,
+              }
+            : null;
+    if (!row) return;
+    const at = (
+      (onTrip.action === "call" && onTrip.call.address) ||
+      address
+    ).toLowerCase();
+    await this.#pool.query(
+      `INSERT INTO stub.trip_state
+         (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
+       VALUES ($1, $2, $3, true, $4, $5, $6)
+       ON CONFLICT (contract_address, selector, source) DO NOTHING`,
+      [at, row.selector, row.source, block, row.tx, time],
+    );
+    this.#emit("trip_state", {
+      contract_address: at,
+      selector: row.selector,
+      source: row.source,
+      tripped: true,
+      since_block: block,
+      tx_hash: row.tx,
+    });
   }
 
   #emitResponse(id: string, ruleId: string, status: string) {

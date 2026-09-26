@@ -353,3 +353,41 @@ export interface McpTokenSummary {
   lastUsedAt: string | null;
   expiresAt: string | null;
 }
+
+/** `GET /trip-state`: something paused now on a registered contract. */
+export interface TripStateItem {
+  contract: { address: string; name: string };
+  scope: "global" | "function";
+  /** The paused function's selector; null for the whole contract. */
+  selector: string | null;
+  /** The function's signature, when the contract's ABI names it. */
+  function: string | null;
+  /** `controller` for the controller's pause, `verify` for a call whose confirmation holds. */
+  source: "controller" | "verify";
+  sinceBlock: number;
+  /** The block's time, once the view carries it. */
+  sinceTime: string | null;
+  /** The pausing transaction; none for a confirmed call, whose state is observed. */
+  txHash: string | null;
+  /** Who sent it, when that is known: Tripwire's own response. */
+  actor: {
+    address: string | null;
+    is: "tripwire_response";
+    responseId: string;
+    rule: { id: string; name: string };
+  } | null;
+  /** For a confirmed call: the rules whose confirmation reads true. */
+  rules: { id: string; name: string }[];
+}
+
+/** `GET /setup`: which first-run steps are done, and whether the checklist was dismissed. */
+export interface SetupState {
+  steps: {
+    account: boolean;
+    chain: boolean;
+    contract: boolean;
+    rule: boolean;
+    channel: boolean;
+  };
+  dismissed: boolean;
+}

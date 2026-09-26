@@ -153,6 +153,14 @@ export class AppStore {
     return rows[0]?.value ?? fallback;
   }
 
+  async setSetting(key: string, value: unknown) {
+    await this.#pool.query(
+      `INSERT INTO app.settings (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()`,
+      [key, JSON.stringify(value)],
+    );
+  }
+
   /** The token that submitted each rule, for rules an agent stored. */
   async submitters(ruleIds: string[]): Promise<Map<string, string>> {
     if (ruleIds.length === 0) return new Map();

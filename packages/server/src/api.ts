@@ -13,9 +13,11 @@ import { eventRoutes } from "./events/route";
 import { refuse } from "./refuse";
 import { responseRoutes } from "./responses";
 import { seriesRoutes } from "./series";
+import { setupRoutes } from "./setup";
 import { RuleService } from "./rule-service";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
+import { tripStateRoutes } from "./trip-state";
 import { violationRoutes } from "./violations";
 
 /** What the API serves from: the shared database and the engine. */
@@ -74,6 +76,8 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   app.register(violationRoutes, { reads, store });
   app.register(responseRoutes, { commands, reads });
   app.register(seriesRoutes, { reads });
+  app.register(tripStateRoutes, { reads });
+  app.register(setupRoutes, { reads, store });
   if (auth) {
     // The engine's own events, and the monitor's word on whether it runs.
     const events: EngineEvents = {

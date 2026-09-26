@@ -158,6 +158,19 @@ export function headOf(health: EngineHealth): number | null {
   return health.evaluated_block ?? health.observed_head;
 }
 
+/** A tripped row of `api_v1.trip_state`, for a registered contract. */
+export interface TripStateRow {
+  contract_address: string;
+  contract_name: string;
+  abi: unknown[] | null;
+  /** `''` for the whole contract, else the paused function's selector. */
+  selector: string;
+  /** `controller` for the controller's pause, `verify` for a confirmed call. */
+  source: "controller" | "verify";
+  since_block: number;
+  tx_hash: string | null;
+}
+
 /** A row of `api_v1.engine_status`: one cursor, as the engine last recorded it. */
 export interface CursorRow {
   cursor: string;
@@ -296,6 +309,8 @@ export interface EngineReads {
   }): Promise<ResponseRow[]>;
   response(id: string): Promise<ResponseRow | null>;
   responseCounts(): Promise<{ waiting: number; inFlight: number }>;
+  /** What is paused now, on registered contracts. */
+  tripState(): Promise<TripStateRow[]>;
   /** Where the engine's cursors stand; readable while the engine is down. */
   engineStatus(): Promise<CursorRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
