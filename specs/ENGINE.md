@@ -36,19 +36,24 @@ The CLI package ships `engine.json` beside the executable:
 ```json
 {
   "version": "0.1.0",
-  "publicKey": "RWQ…",
-  "releases": "https://<the release location>/{version}/{asset}"
+  "publicKey": "RWSoM+vf95ORaF6HNTzIuR3dLJTdGRkZtNA+Knh6VeqT57s6rMkL25db",
+  "releases": "https://github.com/sigint-zero/tripwire/releases/download/engine-v{version}/{asset}"
 }
 ```
 
 | Field | Meaning |
 |-|-|
 | `version` | the exact engine release this application is built against: its control interface, views and rule schema are the ones in that release's contract files |
-| `publicKey` | the minisign public key the engine's releases are signed with |
+| `publicKey` | the minisign public key the engine's releases are signed with (key id `689193F7DFEB33A8`) |
 | `releases` | a URL template for release assets; `{version}` and `{asset}` are substituted |
 
-The release location and its tag scheme are the engine's to publish;
-the application only substitutes into the template it ships. Besides
+Engine releases are published on this repository's releases, tagged
+`engine-v<version>` so they never collide with the application's own
+tags, and never marked "latest": the application always fetches its
+pinned version by name, never whatever is newest. A published release
+is never replaced; a bad one is superseded by the next version. The
+assets are fetched anonymously, so the repository's releases must be
+publicly readable. Besides
 the executables, each release's `SHA256SUMS` covers the contract files
 (`openapi.json`, `views.json`, `rule.schema.json`) and
 `rule-examples.tar.gz`, a set of valid example rule documents; the
@@ -68,11 +73,11 @@ Each release carries one executable per target, named
 |-|-|
 | Linux, x86-64 | `x86_64-unknown-linux-musl` |
 | Linux, ARM64 | `aarch64-unknown-linux-musl` |
-| macOS, Apple silicon | `aarch64-apple-darwin` |
 
-Any other platform puts the engine in the `failed` state with: "The
+The engine is built for Linux only for now. Any other platform,
+macOS included, puts the engine in the `failed` state with: "The
 engine is not built for <platform>/<arch>. Run Tripwire on Linux (a
-container or WSL works) or on an Apple silicon Mac." The server still
+container or WSL works)." The server still
 starts and serves the dashboard, which says the same. On such a
 platform the application runs only with the stand-in or an attached
 engine (Development, below); this includes Windows, where
@@ -316,12 +321,12 @@ the full start is:
 9. Spawn `tripwire-engine run --config engine.toml` in its own process
    group, with stdout and stderr piped to the log, and write
    `engine.pid`. State `starting`.
-10. Wait until `TRIPWIRE_HOME/engine/interface-secret` holds 64
-    hexadecimal characters, read it, and poll `GET /v1/health`: every
-    second while starting, every five seconds after. The engine creates
-    the file and then writes it, so a read in between finds it empty;
-    waiting for the full secret rather than for the file closes that
-    gap.
+10. Wait until `TRIPWIRE_HOME/engine/interface-secret` exists, read
+    it, and poll `GET /v1/health`: every second while starting, every
+    five seconds after. The engine writes the file beside its final
+    name and renames it into place, so it appears whole or not at all;
+    the application still refuses a secret that is not 64 hexadecimal
+    characters, as a crash.
 
 The engine gets its own process group so a Ctrl+C in the terminal
 reaches the application only, which then stops the engine in the order
@@ -571,7 +576,7 @@ application depends on them and tests them in its checkpoint.
 | G1 | The engine refuses to run while another engine holds the same database. The guard is a lease row in the database, renewed every 10 seconds, released on a clean stop and taken over only when 60 seconds stale; it is not session-scoped, so it holds under the transaction pooler (`DATABASE.md`). A refused start exits `70` | two engines on one database would evaluate and respond twice; the application's own locks cannot see an engine from another installation |
 | G2 | `tripwire-engine verify --config <file>` loads the configuration, connects to the RPC and runs the startup checks without a database: the chain id, the receipts method, and, whenever `[chain] rpc_ws` is present, the pending-transaction subscription. It prints one JSON line `{ ok, chain_id, head, receipts, ws, problems: [{ code, message }] }` and exits 0, or `69` with problems. `chain_id` is the configured id; a node serving another chain is the problem `wrong_chain`, whose message names both ids. `head` is a block number with no time. `receipts` is `block_receipts` or `per_transaction`. `ws` is null without `rpc_ws`, else `{ ok, pending }`. A configuration the engine cannot load prints no JSON: it exits `78` with the reason on stderr | first run and Settings check an RPC endpoint before committing it; the application never talks to the chain itself. The application leaves `rpc_ws` out of the verify configuration when it does not want the WebSocket checked |
 | G3 | Exit codes: `0` clean stop, `78` configuration refused (unknown key, invalid value, send mode without an unlocked signer), `65` database schema newer than this engine, `75` database unreachable, `69` RPC verification failed, `70` another engine holds the database; anything else, including `1`, is a crash | the supervisor restarts on what can recover by itself, waits on what will clear by itself, and stops on what needs a person, instead of looping on a bad configuration |
-| G4 | The interface secret is written and the control interface bound before the engine touches the database or the chain, and `GET /v1/health` answers `starting` until it is ready | the application reads the secret right after spawning and polls health from the first second |
+| G4 | The interface secret is written, atomically (staged and renamed, mode `0600`, reused across starts), and the control interface bound before the engine touches the database or the chain, and `GET /v1/health` answers `starting` until it is ready | the application reads the secret right after spawning and polls health from the first second |
 | G5 | `--version` prints exactly the version the release is named by | the installer confirms the binary it verified is the version it pinned |
 
 ## Decisions
@@ -589,7 +594,7 @@ application depends on them and tests them in its checkpoint.
 | EN9 | Orphans and doubles | `run.lock`, `engine.pid` and the engine's own guard. Two engines on one database is the worst failure available, so it gets three independent guards |
 | EN10 | The stand-in | Opt-in only. A production install with no engine says so instead of simulating |
 | EN11 | Applying configuration | Restart with an automatic return to the previous configuration. The engine only reads configuration at start, and a change it refuses must never leave an installation unprotected |
-| EN12 | Unsupported platforms | Fail clearly and keep serving the dashboard. The engine publishes three targets; guessing at others would run untested code |
+| EN12 | Unsupported platforms | Fail clearly and keep serving the dashboard. The engine publishes two Linux targets for now; guessing at others would run untested code |
 
 ## Checkpoint
 

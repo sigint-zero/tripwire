@@ -56,8 +56,8 @@ feed's kinds, which are what channels filter on:
 | `response` | a response reached `failed` | critical |
 | `response` | a response reached `abandoned` (for example, already paused) | warning |
 | `response` | a response is parked at `pending` on a problem, such as a locked signing key; once per problem | critical |
-| `response` | a response is waiting for approval, once the engine records it (requirement N1) | critical |
-| `response` | a pause or unpause by hand settled (engine kind `action`): confirmed, or failed | info, or critical |
+| `response` | a response is waiting for approval (engine status `awaiting_approval`, recorded with the hold) | critical |
+| `response` | an action by hand settled (engine kind `action`: a call to the contract's own function, or the controller's pause or unpause): confirmed, or failed | info, or critical |
 | `health` | the engine became degraded, with its cause: the RPC failing, evaluation lagging the chain, the mode `send` with no key unlocked, or the mempool subscription down | warning |
 | `health` | the engine is starting, or ready again | info |
 
@@ -316,12 +316,8 @@ secrets never appear in logs.
 The engine's view reference lists each kind's payload fields, and its
 `[retention] notifications_days` accepts any whole number of days from
 1; the application never writes less than 7, so the dispatcher's
-seven-day window stays inside what the engine keeps. One requirement
-is open:
-
-| # | Requirement | Why |
-|-|-|-|
-| N1 | A `response` notification when a response enters `awaiting_approval`, not only when it is parked or settles | in prepare mode the approval is the moment a person must act; a notification only at the end arrives after it no longer helps |
+seven-day window stays inside what the engine keeps. No requirement is
+open.
 
 The application does not depend on notification ids committing in
 order: dispatch looks for rows it has not dispatched rather than

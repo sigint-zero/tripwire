@@ -342,32 +342,38 @@ a rule. On a contract's page, a **Pause** control offers the calls the
 contract's rules would make (its `pause()`, say) and any other function
 of the contract a person picks, with its arguments, such as
 `unpause()` afterwards. Each opens a confirmation naming the call.
+The confirmation also shows the encoded call (the contract's address
+and the calldata, each with a copy button), so a person can send the
+same call from a wallet of their own if Tripwire cannot.
 
-The engine does not yet make a call to a contract's own function by
-hand (requirement R4), so for these the server encodes the call and
-answers with what to send from a wallet that holds the permission: the
-contract's address, the value and the calldata, each with a copy
-button.
+The engine sends the call itself (`POST /v1/actions`, kind `call`,
+with the function in signature form and its arguments as literal
+strings, encoded exactly as a rule's call action) from the signing
+key. A manual call carries no value.
 
 For a contract on the controller, where the signing key is an
 authorised operator, the control also offers the controller's pause of
 the contract or of one function, and unpause for whatever the mirror
-shows paused. The engine sends these itself (`POST /v1/actions`) from
-the signing key through the same path as a response: pre-flight
-simulation, the fee caps, the one nonce lane, the receipt watch. The
-mode does not gate them, since a person is acting, not a rule. Each
-is recorded in `api_v1.actions` with the person's username and note,
-and notifies at its final status. A contract not registered with the
-controller is refused before anything is sent. Unpausing says what it
-lifts: unpausing the contract leaves paused functions paused.
+shows paused (kinds `trip_global`, `trip_function`, `reset_global`,
+`reset_function`). A contract not registered with the controller is
+refused before anything is sent.
+
+Every kind goes through the same path as a response: pre-flight
+simulation, which is the guard for a direct call, the fee caps, the one
+nonce lane, the receipt watch. The mode does not gate them, since a
+person is acting, not a rule, and a problem with the signing key fails
+the request at once instead of parking it. Each is recorded in
+`api_v1.actions` (with `function` and `args` for a call) with the
+person's username and note, and notifies at its final status.
+Unpausing says what it lifts: unpausing the contract through the
+controller leaves paused functions paused.
 
 ## Notifications
 
 A response raises notifications through the engine's record
-(`NOTIFICATIONS.md`): confirmed, failed and abandoned, and, once the
-engine records it, waiting for approval, which is the moment a person
-must act (requirement N1 there; until then the navigation's waiting
-count and the stream carry it). A response parked on a locked signing
+(`NOTIFICATIONS.md`): confirmed, failed and abandoned, and waiting for
+approval, which the engine records in the same transaction as the hold
+because it is the moment a person must act. A response parked on a locked signing
 key raises one `response` notification with status `pending` and the
 problem. The engine itself becomes degraded, a `health` notification,
 only when the mode is `send` and no key at all is unlocked. A manual
@@ -397,7 +403,7 @@ the API's error envelope. No MCP tool reads or changes any of it.
 | POST | `/keys/:address/lock` | the key |
 | GET | `/readiness` | `?contract`; per contract: `{ address, name, steps: [{ step, state: done\|todo\|not_applicable, detail }], guardianCall: { to, value, data, from } \| null, rules: [{ id, name, action, test }] }`; `step` one of `signing_key`, `rules`, `registered`, `operator`, `permission`, `least_power`, `mode` |
 | POST | `/readiness/:ruleId/test` | `{ ok, revertReason, gasEstimate, sender, balanceWei, function, args, testedAt }` |
-| POST | `/contracts/:address/actions` | `{ controller: pause\|unpause, scope: contract\|function, selector?, note? }`: `201` the recorded action `{ id, kind, target, selector, note, status, error, txHash, createdAt }`, `409 not_on_controller` when the contract is not registered with it. `{ call: { function, args, value? }, note? }` for one of the contract's own functions: `501 not_available` carrying `wallet: { to, value, data }`, the call to send from a wallet, until the engine makes calls by hand (R4). `400 invalid_action` for a malformed request or a function selector missing |
+| POST | `/contracts/:address/actions` | `{ call: { function, args }, note? }` for one of the contract's own functions, or `{ controller: pause\|unpause, scope: contract\|function, selector?, note? }` for the controller: `201` the recorded action `{ id, kind, target, selector, function, args, note, status, error, txHash, createdAt }`; `409 not_on_controller` when a controller action names a contract not registered with it; the engine's refusal (a failed pre-flight, no usable signing key) passed through with its message; `400 invalid_action` for a malformed request or a function selector missing |
 
 Key, approval, rejection, manual action and mode changes are logged at
 info with the username; passphrases and passwords never are.
@@ -429,19 +435,16 @@ stopped, each command says so and exits non-zero.
 
 ## What the application requires of the engine
 
-The engine's published interface already carries most of what this
+The engine's published interface carries everything this
 spec needs: each key's native balance at the current block in
 `GET /v1/keys` (field `balance`, wei as a decimal string), the
 simulation behind **Test the response** in
 `POST /v1/responses/dry-run { rule_id }` (`{ ok, revert_reason,
 gas_estimate, preview }`), the `responses.tx` object documented in the
-view reference, and manual pauses and unpauses through the controller
-in `POST /v1/actions`, recorded in `api_v1.actions`. One requirement
-is open:
-
-| # | Requirement | Why |
-|-|-|-|
-| R4 | `POST /v1/actions` accepts a `call` kind, `{ action: call, target, call, note? }` where `call` has the shape of a rule's call action, for any watched contract whether or not it is on the controller, going through the same pre-flight, signing, submission and receipt watch as the controller kinds | pausing and unpausing a contract through its own functions from the dashboard, which is the default setup; until then the dashboard hands a person the call to send from a wallet |
+view reference, and actions by hand in `POST /v1/actions`, recorded
+in `api_v1.actions`: the controller's pauses and unpauses, and a `call`
+of any declared function on a watched contract, whether or not it is
+on the controller. No requirement is open.
 
 ## Decisions
 
@@ -453,7 +456,7 @@ is open:
 | RS4 | Readiness source | For the call a rule makes, a simulation from the key (the engine's response dry run): it answers "can this key do this?" for any permission scheme without the application knowing the scheme. For the controller steps, its mirrored events, which are reorg-consistent and carry who did what |
 | RS5 | Getting the operator authorised | Show the guardian call with its calldata; no wallet connection in the dashboard. Connecting a wallet would put chain access and a large dependency in the application for one call a person makes once per contract |
 | RS6 | Resending a failed response | Not offered. The engine keeps `failed` final; a person who needs to act now pauses by hand, which is the clearer action |
-| RS7 | Manual pause and unpause | Through the engine, in any mode, behind a confirmation: the controller's pauses now, a contract's own functions once the engine makes calls by hand (R4), and the call to send from a wallet until then. It is a person's decision, and the dashboard is where they are during an incident |
+| RS7 | Manual pause and unpause | Through the engine, in any mode, behind a confirmation: a contract's own functions by default, the controller's pauses for a contract registered with it, and the encoded call shown alongside in case a person must send it from a wallet. It is a person's decision, and the dashboard is where they are during an incident |
 | RS8 | Controller address | Known deployments shipped as data, overridable in Settings, for contracts that use the controller |
 | RS9 | Deleting and exporting keys | Neither, in the dashboard. The file is the key; a delete button next to the only copy of a funded key is a trap |
 | RS10 | Who may approve | Any account, logged with the username. Accounts are equal; a two-person rule can come later if owners ask |
@@ -499,5 +502,7 @@ role and one contract that uses the controller:
    confirms on chain and shows in trip state and on Activity, naming
    the person; on a contract not registered with the controller the
    same request is refused. On the pausable contract, the **Pause**
-   control for `pause()` returns the address and calldata to send, and
-   sending them from the wallet that holds the role pauses it.
+   control for `pause()` sends it from the signing key, confirms on
+   chain and shows on Activity naming the person; with the key locked
+   the request fails at once, and the confirmation's calldata sent from
+   the wallet that holds the role pauses it instead.

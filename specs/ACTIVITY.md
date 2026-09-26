@@ -26,13 +26,15 @@ Four views:
   with the call, its transaction and its final status. This is the
   whole of the timeline for a contract that does not use the
   controller.
-- `api_v1.actions`: the pauses and unpauses a person asked Tripwire to
-  send by hand (`RESPONSES.md`, Pausing and unpausing by hand), each
-  with its kind, target, selector, note, status and transaction (the
-  same `tx` shape as a response's). They are numbered on their own,
-  apart from responses. A call to a contract's own function that a
-  person sends from a wallet is not Tripwire's and is not recorded
-  here; it shows in trip state when a confirmation reads it.
+- `api_v1.actions`: what a person asked Tripwire to send by hand
+  (`RESPONSES.md`, Pausing and unpausing by hand): a call to the
+  contract's own function (kind `call`, with `function` and `args`) or
+  the controller's pause and unpause, each with its kind, target,
+  selector, note, status and transaction (the same `tx` shape as a
+  response's). They are numbered on their own, apart from responses.
+  A call a person sends from a wallet of their own is not Tripwire's
+  and is not recorded here; it shows in trip state when a confirmation
+  reads it.
 - `api_v1.controller_events`, for contracts on the controller: every
   event the controller has emitted since its deployment, in block
   order, with the block, its time, the transaction, log index, event
@@ -82,7 +84,8 @@ chain; a chain without one shows the hash unlinked).
 |-|-|
 | a response confirmed | Treasury vault: `pause()` called by Tripwire, responding to *rule* |
 | a response failed | Treasury vault: Tripwire's `pause()` failed: *reason* |
-| a manual action confirmed | Treasury vault: paused through the controller by Tripwire, by *username* |
+| a manual call confirmed | Treasury vault: `pause()` called by Tripwire, by *username* |
+| a manual controller action confirmed | Treasury vault: paused through the controller by Tripwire, by *username* |
 | a manual action failed | Treasury vault: Tripwire's pause by hand failed: *reason* |
 | `FunctionTripped` | Treasury vault: `withdraw()` paused by *actor* |
 | `FunctionReset` | Treasury vault: `withdraw()` unpaused by *actor* |
@@ -313,8 +316,9 @@ one contract on the controller:
 6. A rule with a `call` action and a confirmation shows a
    "confirmed call" pause once the call lands, naming the rule, and
    the row goes when the contract is unpaused.
-7. A pause by hand through the controller appears as Tripwire's,
-   naming the person, and one that fails appears with its reason.
+7. A pause by hand, as a call to the contract's own `pause()` or
+   through the controller, appears as Tripwire's, naming the person
+   and the function, and one that fails appears with its reason.
 8. A reorg that removes a pause removes it from the timeline and from
    trip state, with no reload.
 9. On a chain with no controller, the page shows Tripwire's own
