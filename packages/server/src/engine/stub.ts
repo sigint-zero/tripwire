@@ -973,13 +973,20 @@ export class StubEngine implements EngineCommands, EngineEvents {
     );
   }
 
+  /** Records a notification in the engine's envelope, and streams its row. */
   async #notify(kind: string, payload: object, time: string) {
+    const complete = { ...payload, chain_id: 1, engine_version: "stand-in" };
     const { rows } = await this.#pool.query<{ id: string }>(
       `INSERT INTO stub.notifications (kind, payload, created_at)
        VALUES ($1, $2, $3) RETURNING id::text`,
-      [kind, JSON.stringify(payload), time],
+      [kind, JSON.stringify(complete), time],
     );
-    this.#emit("notification", { id: rows[0]!.id, kind, payload });
+    this.#emit("notification", {
+      id: rows[0]!.id,
+      kind,
+      payload: complete,
+      created_at: time,
+    });
   }
 
   async approveResponse(id: string): Promise<void> {

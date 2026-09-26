@@ -18,6 +18,10 @@ export interface Rendered {
 const str = (v: unknown) =>
   typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
 
+/** The engine's clause as a sentence: capitalised, one full stop. */
+const sentence = (text: string) =>
+  `${text[0]!.toUpperCase()}${text.slice(1).replace(/\.$/, "")}.`;
+
 const statusWords: Record<string, string> = {
   pending: "held up",
   awaiting_approval: "waiting for approval",
@@ -47,6 +51,13 @@ export function render(
       const block = str(p.block_number);
       const tx = str(p.tx_hash);
       const description = str(p.description);
+      // An evaluation error carries what failed, and where, as its evidence.
+      const evidence =
+        typeof p.evidence === "object" && p.evidence !== null
+          ? (p.evidence as Record<string, unknown>)
+          : {};
+      const error = str(evidence.error) ?? str(p.error);
+      const path = str(evidence.path);
       return {
         id,
         title: `${contractName(p.contract, names)}: ${rule} ${
@@ -56,7 +67,8 @@ export function render(
           description && `${description.replace(/\.$/, "")}.`,
           block && `Block ${block}.`,
           tx && `Transaction ${tx}.`,
-          str(p.error) && `${str(p.error)}.`,
+          error &&
+            sentence(`${error.replace(/\.$/, "")}${path ? ` at ${path}` : ""}`),
         ),
         link: str(p.rule_id) ? `/violations?rule=${str(p.rule_id)}` : null,
       };
@@ -64,11 +76,9 @@ export function render(
     case "response": {
       const status = str(p.status) ?? "";
       const words = statusWords[status] ?? status;
-      // The engine's detail is a clause: it reads as a sentence here.
       const detail = str(p.detail) ?? str(p.error);
       const tail = [
-        detail &&
-          `${detail[0]!.toUpperCase()}${detail.slice(1).replace(/\.$/, "")}.`,
+        detail && sentence(detail),
         str(p.tx_hash) && `Transaction ${str(p.tx_hash)}.`,
         str(p.block_number) && `Block ${str(p.block_number)}.`,
       ];
@@ -100,14 +110,25 @@ export function render(
       };
     }
     case "health": {
-      const ready = str(p.status) === "ready";
+      const status = str(p.status);
       const cause = str(p.cause);
+      const back = str(p.previous) === "degraded";
       return {
         id,
-        title: ready
-          ? "Engine ready"
-          : `Engine degraded${cause ? `: ${cause}` : ""}`,
-        text: ready ? "Tripwire is watching again." : (cause ?? ""),
+        title:
+          status === "ready"
+            ? back
+              ? "Engine caught up"
+              : "Engine ready"
+            : status === "starting"
+              ? "Engine starting"
+              : `Engine degraded${cause ? `: ${cause}` : ""}`,
+        text:
+          status === "ready"
+            ? "Tripwire is watching."
+            : status === "starting"
+              ? "It is catching up with the chain before it evaluates."
+              : (cause ?? ""),
         link: "/",
       };
     }

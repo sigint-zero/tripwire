@@ -155,6 +155,8 @@ export interface EngineHealth {
   controller?: { address: string; mirrored_block?: number | null } | null;
   /** The signer summary; absent while starting. */
   keys?: { known: number; unlocked: number } | null;
+  /** What degrades the engine, when something does. */
+  cause?: string | null;
 }
 
 /** The block the engine's answers are true at: the last it evaluated. */

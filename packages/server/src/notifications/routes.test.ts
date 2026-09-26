@@ -222,6 +222,50 @@ describe("the feed", () => {
     });
   });
 
+  it("reads the engine's health and a broken rule as it records them", async () => {
+    const record = (kind: string, payload: object) =>
+      pool.query(
+        "INSERT INTO stub.notifications (kind, payload) VALUES ($1, $2)",
+        [kind, JSON.stringify(payload)],
+      );
+    await record("health", { status: "starting", cause: null, previous: null });
+    await record("health", {
+      status: "degraded",
+      cause: "the RPC stopped answering",
+      previous: "ready",
+    });
+    await record("health", {
+      status: "ready",
+      cause: null,
+      previous: "degraded",
+    });
+    await record("violation", {
+      violation_id: 99,
+      rule_id: 1,
+      rule: "Pause it",
+      contract: token,
+      severity: "critical",
+      kind: "evaluation_error",
+      block_number: 12,
+      tx_hash: null,
+      evidence: { path: "/trip_when/left", error: "execution reverted" },
+    });
+    const health = (await get<NotificationPage>("/notifications?kind=health"))
+      .items;
+    expect(health.map((i) => [i.title, i.severity]).sort()).toEqual([
+      ["Engine caught up", "info"],
+      ["Engine degraded: the RPC stopped answering", "warning"],
+      ["Engine starting", "info"],
+    ]);
+    const [broken] = (
+      await get<NotificationPage>("/notifications?kind=evaluation_error")
+    ).items;
+    expect(broken).toMatchObject({
+      title: "Token: Pause it could not be evaluated",
+      text: "Block 12. Execution reverted at /trip_when/left.",
+    });
+  });
+
   it("pages with a cursor, and filters by severity and unread", async () => {
     const first = await get<NotificationPage>("/notifications?limit=1");
     expect(first.items).toHaveLength(1);

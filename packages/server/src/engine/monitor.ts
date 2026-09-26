@@ -95,7 +95,10 @@ export class EngineMonitor implements EngineEvents {
       ]);
       this.#answer = answer;
       this.#answeredAt = this.#clock();
-      this.#problem = null;
+      // What degrades it, in the engine's own words.
+      this.#problem = answer.cause
+        ? { code: "degraded", message: answer.cause }
+        : null;
       this.#enter(this.#runner === "stand-in" ? "stand-in" : answer.status);
     } catch (error) {
       this.#answer = null;

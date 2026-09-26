@@ -67,6 +67,7 @@ describe("the engine monitor", () => {
         last_success_unix_ms: 0,
         last_failure_unix_ms: 1,
       },
+      cause: "RPC failing: connection refused",
     });
     now = 1_000_000;
     await monitor.poll();
@@ -81,7 +82,8 @@ describe("the engine monitor", () => {
         lagBlocks: 38,
         rpc: "failing",
       },
-      problem: null,
+      // The engine names what degrades it.
+      problem: { code: "degraded", message: "RPC failing: connection refused" },
     });
   });
 

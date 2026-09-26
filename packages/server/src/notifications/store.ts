@@ -105,7 +105,8 @@ export class NotificationStore {
                                            WHEN 'abandoned' THEN 'warning'
                                            ELSE 'critical' END
                WHEN n.kind = 'health' THEN
-                 CASE WHEN n.payload->>'status' = 'ready' THEN 'info' ELSE 'warning' END
+                 CASE WHEN n.payload->>'status' IN ('ready', 'starting') THEN 'info'
+                      ELSE 'warning' END
                ELSE 'info' END AS severity,
              CASE
                WHEN r.id IS NOT NULL THEN jsonb_build_object(
