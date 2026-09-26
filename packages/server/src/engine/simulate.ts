@@ -42,11 +42,18 @@ export function simulatedRead(
   if (/^decimals\(/.test(fn)) return 18n;
   if (/chainid/i.test(fn)) return 1n;
   // Everything else: a token-sized amount. Reads from one contract sit
-  // within a few percent of each other and wobble by up to ±0.5%.
+  // within a few percent of each other. They drift over hours, ripple
+  // over minutes and jitter a little from block to block, within ±0.5%,
+  // so a chart of them looks like a market rather than noise.
   const size = unit(contract.toLowerCase());
   const base = BigInt(Math.floor(1_000 + size * 9_000_000)) * WAD;
   const offset = (unit(seed) - 0.5) * 0.06;
-  const wobble = Math.sin(clock / 6_000 + unit(seed) * 6.28) * 0.005;
+  const phase = unit(seed) * 6.28;
+  const block = Math.floor(clock / 12_000);
+  const wobble =
+    Math.sin(clock / 2_700_000 + phase) * 0.0032 +
+    Math.sin(clock / 190_000 + phase * 2) * 0.001 +
+    (unit(`${seed}:${block}`) - 0.5) * 0.0006;
   return times(base, 1 + offset + wobble);
 }
 
