@@ -37,10 +37,10 @@ export const cooldowns = [
 const heading =
   "mb-3 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
 const choice = (active: boolean) =>
-  `border px-4 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
+  `px-4 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
     active
-      ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
-      : "border-white/10 text-gray-500 hover:text-emerald-400"
+      ? "bg-emerald-500/10 text-emerald-400"
+      : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
   }`;
 
 export function ResponseStep({
@@ -56,8 +56,8 @@ export function ResponseStep({
   return (
     <div className="space-y-8">
       <section>
-        <h3 className={heading}>When it breaks</h3>
-        <div className="grid gap-3 md:grid-cols-3">
+        <h3 className={heading}>Action</h3>
+        <div className="grid gap-3">
           {modes.map((m) => {
             const active = value.mode === m.mode;
             return (
@@ -66,10 +66,8 @@ export function ResponseStep({
                 type="button"
                 aria-pressed={active}
                 onClick={() => onChange({ ...value, mode: m.mode })}
-                className={`relative border p-5 text-left transition-colors ${
-                  active
-                    ? "border-emerald-500/60 bg-emerald-500/10"
-                    : "border-white/5 bg-canvas hover:border-emerald-500/30"
+                className={`relative p-5 text-left transition-colors ${
+                  active ? "bg-emerald-500/10" : "bg-white/3 hover:bg-white/5"
                 }`}
               >
                 <span className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
@@ -121,7 +119,7 @@ export function ResponseStep({
             {scope.type === "function" && (
               <select
                 aria-label="Function to pause"
-                className="border border-white/10 bg-canvas px-3 py-2 font-mono text-xs text-white focus:border-emerald-500/60 focus:outline-none"
+                className="bg-white/4 px-3 py-2 font-mono text-xs text-white transition-colors hover:bg-white/6 focus:bg-white/6"
                 value={scope.signature}
                 onChange={(e) => {
                   const fn = writes.find((w) => w.signature === e.target.value);

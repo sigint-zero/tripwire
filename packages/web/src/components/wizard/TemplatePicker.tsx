@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import type { ContractSurface } from "../../lib/abi";
-import { templates } from "../../lib/templates";
+import type { RankedTemplate } from "../../lib/templates";
 
 const line = "fill-none stroke-current stroke-2";
 const limit =
@@ -54,22 +53,19 @@ const glyphs: Record<string, ReactNode> = {
   ),
 };
 
-export function TemplateGallery({
-  surface,
+/** The template presets as tiles; the chosen one's sentence sits below. */
+export function TemplatePicker({
+  ranked,
   selected,
   onSelect,
 }: {
-  surface: ContractSurface;
+  ranked: RankedTemplate[];
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {templates.map((template) => {
-        const available =
-          template.needs === "reads"
-            ? surface.reads.length > 0
-            : surface.events.length > 0;
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {ranked.map(({ template, available, suggested }) => {
         const active = template.id === selected;
         return (
           <button
@@ -78,19 +74,24 @@ export function TemplateGallery({
             disabled={!available}
             onClick={() => onSelect(template.id)}
             aria-pressed={active}
-            className={`group relative flex flex-col gap-3 border p-5 text-left transition-colors disabled:opacity-30 ${
-              active
-                ? "border-emerald-500/60 bg-emerald-500/10"
-                : "border-white/5 bg-canvas hover:border-emerald-500/30"
+            className={`group flex flex-col gap-3 p-4 text-left transition-colors disabled:opacity-30 ${
+              active ? "bg-emerald-500/10" : "bg-white/3 hover:bg-white/5"
             }`}
           >
-            <svg
-              viewBox="0 0 64 38"
-              aria-hidden
-              className={`h-10 w-16 ${active ? "text-emerald-400" : "text-emerald-600 group-hover:text-emerald-400"}`}
-            >
-              {glyphs[template.id]}
-            </svg>
+            <span className="flex items-start justify-between gap-2">
+              <svg
+                viewBox="0 0 64 38"
+                aria-hidden
+                className={`h-8 w-14 ${active ? "text-emerald-400" : "text-emerald-600 group-hover:text-emerald-400"}`}
+              >
+                {glyphs[template.id]}
+              </svg>
+              {suggested && (
+                <span className="text-[9px] font-bold tracking-[0.2em] text-emerald-400 uppercase">
+                  Suggested
+                </span>
+              )}
+            </span>
             <span className="text-sm font-bold tracking-wider text-white uppercase">
               {template.title}
             </span>

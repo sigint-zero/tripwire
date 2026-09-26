@@ -18,7 +18,7 @@ export function blankLabel(
   value: string | undefined,
   surface: ContractSurface,
 ): string {
-  if (!value) return "…";
+  if (!value) return `‹${field.label}›`;
   switch (field.kind) {
     case "read":
     case "readOrNumber":
@@ -59,34 +59,19 @@ export function RuleSentence({
   values,
   surface,
   onChange,
-  compact = false,
 }: {
   template: Template;
   values: Values;
   surface: ContractSurface;
-  onChange?: (key: string, value: string) => void;
-  compact?: boolean;
+  onChange: (key: string, value: string) => void;
 }) {
   return (
-    <p
-      className={`font-display font-bold text-white ${
-        compact
-          ? "text-xl leading-snug [overflow-wrap:anywhere]"
-          : "text-2xl leading-[2.2] md:text-3xl"
-      }`}
-    >
+    <p className="font-display text-3xl leading-[1.9] font-bold tracking-tight text-white md:text-4xl">
       {template.sentence.map((part, i) => {
         if (typeof part === "string") return <span key={i}>{part}</span>;
         const field = template.fields.find((f) => f.key === part.field);
         if (!field) return null;
         const value = values[field.key];
-        if (!onChange) {
-          return (
-            <span key={i} className="text-emerald-400">
-              {blankLabel(field, value, surface)}
-            </span>
-          );
-        }
         return (
           <Blank
             key={i}
@@ -164,6 +149,11 @@ function Blank({
           value={value}
           onChange={(e) => onChange(e.target.value)}
         >
+          {!value && (
+            <option value="" disabled>
+              choose {field.label}…
+            </option>
+          )}
           {surface.events.map((e) => (
             <option key={e.signature} value={e.signature}>
               {e.name}
@@ -173,42 +163,57 @@ function Blank({
       );
     case "read":
     case "readOrNumber": {
-      const isNumber = value.startsWith(NUMBER_PREFIX);
-      return (
-        <>
-          <select
-            {...aria}
-            className={blank}
-            value={isNumber ? NUMBER_PREFIX : value}
-            onChange={(e) =>
-              onChange(
-                e.target.value === NUMBER_PREFIX
-                  ? `${NUMBER_PREFIX}0`
-                  : e.target.value,
-              )
-            }
-          >
-            {surface.reads.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-              </option>
-            ))}
-            {field.kind === "readOrNumber" && (
-              <option value={NUMBER_PREFIX}>a fixed number…</option>
-            )}
-          </select>
-          {isNumber && (
+      // A typed number replaces the dropdown; a small switch goes back.
+      if (value.startsWith(NUMBER_PREFIX)) {
+        return (
+          <span className="inline-flex items-baseline">
             <input
               aria-label={`${field.label} number`}
-              className={`${blank} min-w-[4ch]`}
+              className={`${blank} mr-0 min-w-[2ch] tabular-nums`}
               inputMode="numeric"
+              placeholder="0"
               value={value.slice(NUMBER_PREFIX.length)}
               onChange={(e) =>
                 onChange(`${NUMBER_PREFIX}${e.target.value.replace(/\D/g, "")}`)
               }
             />
+            <button
+              type="button"
+              title="Compare with a value from the contract instead"
+              aria-label={`Use a contract value for ${field.label}`}
+              onClick={() => onChange(surface.reads[0]?.id ?? "")}
+              className="ml-1 self-center font-mono text-xs text-gray-600 transition-colors hover:text-emerald-400"
+            >
+              ⇄
+            </button>
+          </span>
+        );
+      }
+      return (
+        <select
+          {...aria}
+          className={blank}
+          value={value}
+          onChange={(e) =>
+            onChange(
+              e.target.value === NUMBER_PREFIX ? NUMBER_PREFIX : e.target.value,
+            )
+          }
+        >
+          {!value && (
+            <option value="" disabled>
+              choose {field.label}…
+            </option>
           )}
-        </>
+          {surface.reads.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+          {field.kind === "readOrNumber" && (
+            <option value={NUMBER_PREFIX}>a fixed number…</option>
+          )}
+        </select>
       );
     }
   }

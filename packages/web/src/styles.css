@@ -10,6 +10,15 @@
 
   --color-canvas: #050505;
   --color-panel: #070707;
+
+  --animate-reveal: reveal 350ms ease-out both;
+
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
 }
 
 @layer base {

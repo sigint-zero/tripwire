@@ -1,38 +1,43 @@
+/** Section markers for the invariant page: where you are, what is done. */
 export function Stepper({
   steps,
-  current,
-  reachable,
+  active,
+  done,
+  unlocked,
   onSelect,
 }: {
   steps: string[];
-  current: number;
-  reachable: (index: number) => boolean;
+  active: number;
+  done: boolean[];
+  unlocked: boolean[];
   onSelect: (index: number) => void;
 }) {
   return (
     <ol className="flex items-center">
       {steps.map((title, i) => {
-        const done = i < current;
-        const active = i === current;
+        const isActive = i === active;
+        const isDone = !!done[i] && !isActive;
         return (
           <li key={title} className="flex flex-1 items-center last:flex-none">
             <button
               type="button"
-              disabled={!reachable(i)}
+              disabled={!unlocked[i]}
               onClick={() => onSelect(i)}
-              aria-current={active ? "step" : undefined}
+              aria-current={isActive ? "step" : undefined}
               className="group flex items-center gap-3 disabled:cursor-not-allowed"
             >
               <span
                 className={`flex size-8 shrink-0 items-center justify-center border font-mono text-xs font-bold transition-colors ${
-                  done
-                    ? "border-emerald-500 bg-emerald-500 text-black group-hover:bg-emerald-400"
-                    : active
-                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.35)]"
-                      : "border-white/15 text-gray-600"
+                  isActive
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.35)]"
+                    : isDone
+                      ? "border-emerald-500 bg-emerald-500 text-black group-hover:bg-emerald-400"
+                      : unlocked[i]
+                        ? "border-white/30 text-gray-400 group-hover:border-emerald-500/60"
+                        : "border-white/10 text-gray-700"
                 }`}
               >
-                {done ? (
+                {isDone ? (
                   <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
                     <path
                       d="M3 8.5 L6.5 12 L13 4.5"
@@ -44,12 +49,12 @@ export function Stepper({
                 )}
               </span>
               <span
-                className={`text-xs font-bold tracking-[0.2em] uppercase ${active ? "inline" : "hidden xl:inline"} ${
-                  active
+                className={`text-xs font-bold tracking-[0.2em] uppercase ${isActive ? "inline" : "hidden xl:inline"} ${
+                  isActive
                     ? "text-emerald-400"
-                    : done
+                    : unlocked[i]
                       ? "text-gray-300 group-hover:text-emerald-400"
-                      : "text-gray-600"
+                      : "text-gray-700"
                 }`}
               >
                 {title}
@@ -58,7 +63,7 @@ export function Stepper({
             {i < steps.length - 1 && (
               <span
                 aria-hidden
-                className={`mx-3 h-px min-w-4 flex-1 ${done ? "bg-emerald-500" : "bg-white/10"}`}
+                className={`mx-3 h-px min-w-4 flex-1 transition-colors ${done[i] ? "bg-emerald-500" : "bg-white/10"}`}
               />
             )}
           </li>

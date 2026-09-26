@@ -45,29 +45,46 @@ not evaluate.
 
 ## Flow
 
-A full page at `/invariants/new`, inside the navigation shell. Five
-steps on the left, the live preview on the right. Steps already
-completed can be revisited; a later step opens only when every step
-before it is complete.
+One continuous page at `/invariants/new`, inside the navigation shell,
+read top to bottom so the invariant is understood as a whole. It is
+built from four sections. Only the first is shown at the start. The
+invariant section opens as soon as the contract loads, with no template
+chosen: the user picks one. Each later section ends with **Continue**,
+which is enabled once the section is complete and opens the next
+section and scrolls to it. Opened sections
+stay open and editable, and later sections update as earlier ones
+change.
 
-| Step | Asks | Complete when |
+A stepper stays pinned to the top of the page. It highlights the
+section in view, marks completed sections done, and scrolls to a
+section when clicked. Sections not yet opened cannot be selected.
+
+| Section | Asks | Complete when |
 |-|-|-|
 | 1 Contract | chain and address, or a pasted ABI | an ABI is loaded |
-| 2 Template | which kind of invariant | a template is picked (picking one moves to step 3) |
-| 3 Rule | the blanks in the template's sentence | the built rule passes the schema |
-| 4 Response | what happens when it breaks | function scope, if chosen, names a function |
-| 5 Review | a name | the name is not empty; submitting creates the invariant |
+| 2 Invariant | a template, and the blanks in its sentence | the built rule passes the schema |
+| 3 Response | what happens when it breaks | function scope, if chosen, names a function |
+| 4 Review | a name | the name is not empty; submitting creates the invariant |
 
-Changing the contract clears the template, the blanks and the name.
-Picking another template resets the blanks to that template's defaults.
+Changing the contract clears the template, the blanks and the name,
+and closes every section after it.
+Blanks are kept per template, so trying another template and coming
+back does not lose what was filled in.
 
 ## Contract
 
 The user picks a chain and pastes an address. As soon as the address
 is valid, the server looks up the contract's verified ABI (see
 [ABI lookup](#abi-lookup)). The step then shows the contract's name,
-whether it is a proxy and which implementation it points to, and how
-many values, events and functions the wizard can offer.
+whether it is a proxy and which implementation it points to, and the
+contract itself in three tabs, so the user sees what can be watched
+before choosing how:
+
+| Tab | Shows |
+|-|-|
+| Values | every value the wizard can read, by name |
+| Events | every event, by name with its parameter types |
+| Functions | every function that can be paused, with its selector |
 
 When there is no verified source, or the user prefers, the ABI can be
 pasted instead: a bare JSON array or any object with an `abi` field (a
@@ -84,12 +101,28 @@ From the ABI the wizard extracts:
 ## Templates
 
 Each template is a sentence with typed blanks and a builder that turns
-the filled blanks into a rule. Blanks are pre-filled when the wizard
-opens a template: values by preferred names (`totalAssets` for a
+the filled blanks into a rule. The invariant section shows the
+templates as tiles with the chosen template's sentence below them, so
+the user can try each one against this contract and see the statement
+change at once. No template is chosen until the user picks one;
+suggested templates come first.
+
+Blanks are pre-filled when a template is first opened: values by
+preferred names (`totalAssets` for a
 balance, `updatedAt` for a timestamp), skipping constants such as
 `decimals` and `version`; numbers with a sensible default. A template
 the contract cannot support (no readable values, or no events) is
 shown disabled with the reason.
+
+Templates also name the values that make them a strong fit: a timestamp such as `updatedAt` for
+"Stays fresh", a price or rate for "Stays near its average", a balance
+beside a supply for "Never drops below". When the contract has every
+such value, the template is marked **Suggested** and listed first. A
+blank that needs such a value is left empty when the contract has no
+clear match (*"choose timestamp… is never more than 1 hour old"*)
+rather than filled with a poor guess. Names are matched on the output's
+own name, so `getReserves._blockTimestampLast` counts as a timestamp,
+not a reserve.
 
 | Template | Sentence | Rule |
 |-|-|-|
@@ -182,30 +215,35 @@ belong to the engine and to response-mode onboarding in Settings. The
 wizard shows a notice when a pausing mode is chosen for a contract that
 is not yet registered for response, once that state is readable.
 
-## Live preview
+## Dry runs
 
-The preview panel is visible on every step. Once a contract is loaded
-it shows the contract; once the rule is valid it shows the sentence as
-filled in, the rule as an equation (`totalAssets ≥ totalSupply`), and a
-dry run.
+The API can dry-run a rule against current values (see [API](#api));
+it is how agents over MCP check a draft before proposing it. The
+invariant section itself shows only the statement: what happens when
+it breaks is shown in the response section.
 
-The dashboard dry-runs the current rule every second for as long as
-the rule stays the same, and starts over when it changes. The panel
-shows:
+## Simulated trip
 
-- the two values being compared, with their labels;
-- a sparkline of both over the last 60 dry runs;
-- **Holds** or **Would trip**, with one line of detail: the margin to
-  the limit, the distance from a band's center, or for an event rule
-  whether it was seen recently.
+The response section shows, beside its options, what happens when the
+invariant trips with the response chosen, as a still picture rather
+than an animation. A chart shows a scripted breach: the value crossing
+its limit, leaving its band, or the event appearing, with the limit's
+name written on its line. The time axis runs from three minutes before
+the breach to it, marked **0**, and on through the quiet period, which
+is shaded. The actions that follow the breach are numbered markers on
+the chart, matched by a numbered list below it:
 
-The panel is titled **Simulated preview**, in amber, while values come
-from the stand-in rather than the chain, and **Live preview**, in
-green, once the engine answers dry runs.
+| Mode | Actions |
+|-|-|
+| alert only | invariant breaks, violation recorded, alert sent |
+| hold for approval | as above, then pause prepared, waiting for approval in Responses |
+| autonomous | as above, then pause sent, paused |
 
-A dry run is advisory. A rule that would trip right now can still be
-saved; the user may be writing the invariant for an incident in
-progress.
+The list ends with the quiet period. The pause names its target, the
+whole contract or the chosen function. The picture updates as the
+response changes. It is labelled **Simulated trip**: it illustrates
+the response, and makes no prediction about when or whether the
+invariant will break.
 
 ## Review and create
 
@@ -221,14 +259,14 @@ a person enables it.
 
 ## Editing
 
-Not built yet. Opening an existing invariant starts the wizard at step
-3 with its contract, rule, response and name loaded. The template is
+Not built yet. Opening an existing invariant starts the wizard at the
+invariant step with its contract, rule, response and name loaded. The template is
 recovered by asking each template whether it can read the rule back
 into blanks; a rule no template recognises opens in JSON mode.
 Saving an edit replaces the rule and response and keeps the
 invariant's identity and history.
 
-**JSON mode.** A step-3 alternative to the sentence: the rule as
+**JSON mode.** An alternative to the sentence on the invariant step: the rule as
 editable JSON, validated as it is typed with errors shown against
 their path. It is how rules outside the templates are written, and how
 a rule exported from one installation is pasted into another.
@@ -317,7 +355,7 @@ Every dry run from the stand-in is marked `simulated`.
 | `packages/server/src/mock-engine.ts` | the stand-in store and simulated dry runs |
 | `packages/web/src/lib/abi.ts` | extracting values, events and functions from an ABI |
 | `packages/web/src/lib/templates.ts` | the templates and their defaults |
-| `packages/web/src/components/wizard/` | the steps, the sentence with blanks, the preview panel |
+| `packages/web/src/components/wizard/` | the sections, the sentence with blanks, the pinned stepper, the simulated trip |
 | `packages/web/src/pages/NewInvariant.tsx` | the wizard page and its state |
 
 Tests: the schema accepts every template's output and nested trees,

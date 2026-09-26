@@ -1,11 +1,12 @@
 import { chains } from "@tripwire/shared";
 import { shortAddress } from "../../lib/format";
+import { ContractExplorer } from "./ContractExplorer";
 import type { useContract } from "./useContract";
 
 const input =
-  "w-full border border-white/10 bg-canvas px-3 py-2.5 font-mono text-sm text-white placeholder:text-gray-600 focus:border-emerald-500/60 focus:outline-none";
+  "w-full bg-white/4 px-3 py-2.5 font-mono text-sm text-white transition-colors placeholder:text-gray-600 hover:bg-white/6 focus:bg-white/6";
 const label =
-  "mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+  "mb-2 block text-[10px] font-bold tracking-[0.2em] whitespace-nowrap text-gray-500 uppercase";
 
 export function ContractStep({
   chainId,
@@ -31,7 +32,7 @@ export function ContractStep({
   const { contract } = state;
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
+      <div className="grid items-end gap-4 sm:grid-cols-[160px_1fr_auto]">
         <label>
           <span className={label}>Chain</span>
           <select
@@ -57,24 +58,15 @@ export function ContractStep({
             autoComplete="off"
           />
         </label>
-      </div>
-
-      <LookupStatus state={state} address={address} />
-
-      {contract && (
-        <div className="grid grid-cols-3 gap-px bg-white/5">
-          <Stat value={contract.surface.reads.length} label="values to watch" />
-          <Stat value={contract.surface.events.length} label="events" />
-          <Stat value={contract.surface.writes.length} label="functions" />
-        </div>
-      )}
-
-      <div>
         <button
           type="button"
           onClick={() => onPasteOpen(!pasteOpen)}
           aria-expanded={pasteOpen}
-          className="inline-flex items-center gap-2 border border-white/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-gray-400 uppercase transition-colors hover:border-emerald-500/40 hover:text-emerald-400"
+          className={`inline-flex h-10 items-center justify-center gap-2 px-4 text-[10px] font-bold tracking-[0.2em] whitespace-nowrap uppercase transition-colors ${
+            pasteOpen
+              ? "bg-emerald-500/10 text-emerald-400"
+              : "bg-white/4 text-gray-400 hover:bg-white/6 hover:text-emerald-400"
+          }`}
         >
           <svg viewBox="0 0 16 16" aria-hidden className="size-3">
             {pasteOpen ? (
@@ -89,24 +81,29 @@ export function ContractStep({
               />
             )}
           </svg>
-          {pasteOpen ? "Use the verified ABI" : "Paste an ABI instead"}
+          Paste ABI
         </button>
-        {pasteOpen && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              aria-label="Contract ABI"
-              className={`${input} h-40 resize-y text-xs`}
-              value={pasted}
-              onChange={(e) => onPasted(e.target.value)}
-              placeholder='[{"type":"function","name":"totalAssets", …}]'
-              spellCheck={false}
-            />
-            {state.pasteError && (
-              <p className="text-xs text-red-400">{state.pasteError}</p>
-            )}
-          </div>
-        )}
       </div>
+
+      {pasteOpen && (
+        <div className="space-y-2">
+          <textarea
+            aria-label="Contract ABI"
+            className={`${input} h-40 resize-y text-xs`}
+            value={pasted}
+            onChange={(e) => onPasted(e.target.value)}
+            placeholder='[{"type":"function","name":"totalAssets", …}]'
+            spellCheck={false}
+          />
+          {state.pasteError && (
+            <p className="text-xs text-red-400">{state.pasteError}</p>
+          )}
+        </div>
+      )}
+
+      <LookupStatus state={state} address={address} />
+
+      {contract && <ContractExplorer contract={contract} />}
     </div>
   );
 }
@@ -143,13 +140,14 @@ function LookupStatus({
   if (lookupError) {
     return (
       <p className="text-sm text-amber-400">
-        {lookupError.message} Paste the ABI below to continue.
+        {lookupError.message} Paste its ABI to continue.
       </p>
     );
   }
   if (!contract) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-emerald-500 bg-emerald-500/5 px-4 py-3 text-sm">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+      <span className="size-1.5 bg-emerald-500" />
       <span className="font-bold text-white">
         {contract.name ?? shortAddress(contract.address)}
       </span>
@@ -162,17 +160,6 @@ function LookupStatus({
           {shortAddress(contract.implementation.address)}
         </span>
       )}
-    </div>
-  );
-}
-
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="bg-panel px-4 py-3">
-      <div className="font-display text-2xl font-bold text-white">{value}</div>
-      <div className="text-[10px] tracking-[0.2em] text-gray-500 uppercase">
-        {label}
-      </div>
     </div>
   );
 }
