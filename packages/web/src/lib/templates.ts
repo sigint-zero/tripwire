@@ -87,10 +87,52 @@ function whole(value: string | undefined): number | null {
   return value && /^\d+$/.test(value) ? Number(value) : null;
 }
 
-/** A whole percentage as a fraction: 5 → "0.05". */
-function fraction(percent: number): string {
-  const digits = String(percent).padStart(3, "0");
-  return `${digits.slice(0, -2)}.${digits.slice(-2)}`.replace(/\.?0+$/, "");
+/** "007.50" → "7.5": no leading zeros, no trailing fractional zeros. */
+function tidy(decimal: string): string {
+  const [whole, part = ""] = decimal.split(".");
+  const int = whole!.replace(/^0+(?=\d)/, "") || "0";
+  const frac = part.replace(/0+$/, "");
+  return frac ? `${int}.${frac}` : int;
+}
+
+/** A percentage as the sentence takes it: 0.01 to 999.99. */
+function percent(value: string | undefined): string | null {
+  if (!value || !/^\d{0,3}(\.\d{1,2})?$/.test(value)) return null;
+  const tidied = tidy(value);
+  return tidied === "0" ? null : tidied;
+}
+
+/** What a percent blank keeps of what was typed: up to 999.99. */
+export function percentTyped(typed: string): string {
+  const [whole = "", ...rest] = typed
+    .replace(/,/g, ".")
+    .replace(/[^\d.]/g, "")
+    .split(".");
+  const int = whole.slice(0, 3);
+  return rest.length === 0 ? int : `${int}.${rest.join("").slice(0, 2)}`;
+}
+
+/** A percentage as a fraction, on the digits: 5 → "0.05", 0.5 → "0.005". */
+function fraction(share: string): string {
+  const [whole, part = ""] = share.split(".");
+  const digits = whole! + part;
+  const point = whole!.length - 2;
+  return tidy(
+    point > 0
+      ? `${digits.slice(0, point)}.${digits.slice(point)}`
+      : `0.${"0".repeat(-point)}${digits}`,
+  );
+}
+
+/** A fraction as a percentage, the other way: "0.005" → "0.5". */
+function percentOf(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d+(\.\d+)?$/.test(value)) {
+    return null;
+  }
+  const [whole, part = ""] = value.split(".");
+  const padded = part.padEnd(2, "0");
+  const rest = padded.slice(2);
+  return tidy(`${whole}${padded.slice(0, 2)}${rest ? `.${rest}` : ""}`);
 }
 
 /** A read's blank: "totalSupply() returns (uint256)", with "#1" for an output. */
@@ -198,7 +240,7 @@ export const templates: Template[] = [
     ],
     build(v) {
       const value = call(v.value);
-      const band = whole(v.percent);
+      const band = percent(v.percent);
       const window = whole(v.window);
       if (!value || band === null || !window) return null;
       return {
@@ -212,7 +254,7 @@ export const templates: Template[] = [
             of: value,
             window: { seconds: window },
           },
-          tolerance_percent: String(band),
+          tolerance_percent: band,
           sides: "both",
         },
       };
@@ -253,7 +295,7 @@ export const templates: Template[] = [
     ],
     build(v) {
       const value = call(v.value);
-      const limit = whole(v.percent);
+      const limit = percent(v.percent);
       const window = whole(v.window);
       if (!value || limit === null || !window) return null;
       return {
@@ -279,11 +321,11 @@ export const templates: Template[] = [
     readBack({ trip_when }) {
       const t = asNode(trip_when);
       const left = asNode(t.left);
-      const limit =
-        Math.round(Number(asNode(asNode(t.right).right).value) * 10_000) / 100;
       return only({
         value: callId(left.of),
-        percent: Number.isInteger(limit) ? String(limit) : null,
+        percent: percent(
+          percentOf(asNode(asNode(t.right).right).value) ?? undefined,
+        ),
         window: seconds(left.window),
       });
     },
@@ -315,7 +357,7 @@ export const templates: Template[] = [
     ],
     build(v) {
       const value = call(v.value);
-      const limit = whole(v.percent);
+      const limit = percent(v.percent);
       const window = whole(v.window);
       if (!value || limit === null || !window) return null;
       // windowed_drop is already a percentage: the fall from the window's high.
@@ -330,7 +372,7 @@ export const templates: Template[] = [
             of: value,
             window: { seconds: window },
           },
-          right: { node: "literal", value: String(limit) },
+          right: { node: "literal", value: limit },
         },
       };
     },

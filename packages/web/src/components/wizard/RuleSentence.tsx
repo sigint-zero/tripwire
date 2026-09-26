@@ -14,6 +14,7 @@ import { formatBig } from "../../lib/format";
 import {
   compareOps,
   NUMBER_PREFIX,
+  percentTyped,
   type Field,
   type Template,
   type Values,
@@ -112,11 +113,9 @@ function Blank({
         <input
           {...aria}
           className={`${blank} min-w-[2ch] text-center`}
-          inputMode="numeric"
+          inputMode="decimal"
           value={value}
-          onChange={(e) =>
-            onChange(e.target.value.replace(/\D/g, "").slice(0, 3))
-          }
+          onChange={(e) => onChange(percentTyped(e.target.value))}
         />
       );
     case "duration":

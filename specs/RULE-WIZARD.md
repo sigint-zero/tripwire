@@ -152,7 +152,7 @@ Blank types:
 |-|-|-|
 | value | a dropdown of the contract's values | a `view_call` whose signature declares what it returns (`totalSupply() returns (uint256)`), with `returns` selecting the output when there are several |
 | value or number | the same dropdown plus "a fixed number…", which opens a number field | a `view_call` or a `literal` |
-| percent | whole number, 1 to 999 | `tolerance_percent`, a literal, or a fraction in a `mul` |
+| percent | 0.01 to 999.99, up to two decimals (`0.5`); a comma is taken as the decimal point | `tolerance_percent`, a literal, or a fraction in a `mul`, converted on the digits so nothing is rounded |
 | window | 5 minutes, 15 minutes, 20 minutes, 1 hour, 6 hours, 24 hours, 7 days | `{ "seconds": n }` |
 | comparison | is at least, is above, is at most, is below, equals, never equals | the opposite of `ge`, `gt`, `le`, `lt`, `eq`, `ne` |
 | event | a dropdown of the contract's events | the declaration-style signature |
@@ -471,7 +471,7 @@ Every answer from the stand-in is marked `simulated`.
 | WZ2 | Polarity | The user states what must hold; the document states the violation. The engine's language puts the bad condition in `trip_when` so that an unknown never trips; the wizard keeps the invariant's reading in its sentences, and each starting point writes the negation |
 | WZ3 | Where starting points live | The dashboard. They are wording and defaults, the engine ships no catalogue, and a stored rule does not reference them, so they can change without touching rules |
 | WZ4 | ABI source | Sourcify by default, pasted ABI as the fallback. No API key to configure, and proxies resolve automatically |
-| WZ5 | Percentages | Whole numbers in the sentence. The language takes decimals, so finer control is a JSON-mode rule |
+| WZ5 | Percentages | Up to two decimals in the sentence. A peg or a tight band needs less than 1% (a stablecoin within 0.5%); finer than 0.01% is a JSON-mode rule |
 | WZ6 | Windows | A fixed list of durations, all inside the engine's 60 seconds to 30 days. Arbitrary seconds invite mistakes, and the list covers the cases the starting points target |
 | WZ7 | Storing a rule that would trip now | Allowed, with Review saying so. Refusing it blocks writing a rule during an incident |
 | WZ8 | Simulation conditions (`simulate`) | Left out of the starting points. They need calldata and fit neither a sentence nor a check at the head |

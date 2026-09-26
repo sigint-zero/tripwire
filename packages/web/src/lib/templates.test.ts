@@ -5,6 +5,7 @@ import {
   initialValues,
   isSuggested,
   NUMBER_PREFIX,
+  percentTyped,
   recoverTemplate,
   templates,
   type Watch,
@@ -273,6 +274,59 @@ describe("templates", () => {
       window: "86400",
     })!;
     expect(template.readBack(watch)).toMatchObject({ percent: "7" });
+  });
+
+  it.each([
+    ["0.5", "0.005"],
+    ["0.01", "0.0001"],
+    ["12.75", "0.1275"],
+    ["100", "1"],
+    ["999.99", "9.9999"],
+  ])("limits growth to %s%%, as the fraction %s", (share, fraction) => {
+    const template = byId("growth");
+    const watch = template.build({
+      value: SUPPLY,
+      percent: share,
+      window: "60",
+    })!;
+    expect(watch.trip_when).toMatchObject({
+      right: { right: { value: fraction } },
+    });
+    expect(template.readBack(watch)).toMatchObject({ percent: share });
+  });
+
+  it("takes decimal percentages for a band and an outflow", () => {
+    const band = byId("band").build({
+      value: ASSETS,
+      percent: "0.25",
+      window: "1200",
+    });
+    expect(band?.trip_when).toMatchObject({ tolerance_percent: "0.25" });
+    const outflow = byId("outflow").build({
+      value: ASSETS,
+      percent: "2.50",
+      window: "3600",
+    });
+    expect(outflow?.trip_when).toMatchObject({ right: { value: "2.5" } });
+  });
+
+  it.each(["0", "0.00", "1000", "1.234", ".", "5."])(
+    "leaves the rule unbuilt for the percentage %s",
+    (share) => {
+      expect(
+        byId("outflow").build({ value: ASSETS, percent: share, window: "60" }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    ["12.345", "12.34"],
+    ["1234", "123"],
+    ["1.2.3", "1.23"],
+    ["5,5%", "5.5"],
+    [".5", ".5"],
+  ])("keeps %s typed in a percent blank as %s", (typed, kept) => {
+    expect(percentTyped(typed)).toBe(kept);
   });
 
   it("fires an event rule on the event alone", () => {
