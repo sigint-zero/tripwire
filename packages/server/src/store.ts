@@ -107,6 +107,52 @@ export class AppStore {
     );
   }
 
+  /** The verified source kept for a contract, with its files. */
+  async source(address: string): Promise<{
+    verified: boolean;
+    compiler: string | null;
+    files: { path: string; content: string }[];
+  } | null> {
+    const { rows } = await this.#pool.query<{
+      verified: boolean;
+      compiler: string | null;
+      files: { path: string; content: string }[];
+    }>(
+      "SELECT verified, compiler, files FROM app.contract_sources WHERE address = $1",
+      [address.toLowerCase()],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Records which agent stored a rule: its badge and its volume guard. */
+  async recordSubmission(ruleId: string, token: { id: string; label: string }) {
+    await this.#pool.query(
+      `INSERT INTO app.rule_submissions (rule_id, token_id, token_label)
+       VALUES ($1, $2, $3)`,
+      [ruleId, token.id, token.label],
+    );
+  }
+
+  /** A token's submissions in the trailing hour, oldest first. */
+  async submissionsInLastHour(tokenId: string): Promise<Date[]> {
+    const { rows } = await this.#pool.query<{ submitted_at: Date }>(
+      `SELECT submitted_at FROM app.rule_submissions
+        WHERE token_id = $1 AND submitted_at > now() - interval '1 hour'
+        ORDER BY submitted_at LIMIT 10000`,
+      [tokenId],
+    );
+    return rows.map((r) => r.submitted_at);
+  }
+
+  /** A setting's value, or `fallback` while it is unset. */
+  async setting<T>(key: string, fallback: T): Promise<T> {
+    const { rows } = await this.#pool.query<{ value: T }>(
+      "SELECT value FROM app.settings WHERE key = $1",
+      [key],
+    );
+    return rows[0]?.value ?? fallback;
+  }
+
   /** The token that submitted each rule, for rules an agent stored. */
   async submitters(ruleIds: string[]): Promise<Map<string, string>> {
     if (ruleIds.length === 0) return new Map();

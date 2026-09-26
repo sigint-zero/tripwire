@@ -1,5 +1,5 @@
 {
-  "name": "@tripwire/server",
+  "name": "@tripwire/mcp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,28 +7,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx watch --clear-screen=false --exclude \"../web/**\" src/dev.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.8",
-    "@fastify/static": "^10.1.4",
-    "@tripwire/mcp": "workspace:*",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@tripwire/shared": "workspace:*",
-    "fastify": "^5.12.5",
-    "pg": "^8.23.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@fastify/middie": "^9.3.4",
     "@modelcontextprotocol/client": "^2.1.0",
-    "@types/connect": "^3.4.38",
     "@types/node": "^22.20.4",
-    "@types/pg": "^8.23.1",
-    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vite": "^8.3.1",
     "vitest": "^5.0.2"
   }
 }

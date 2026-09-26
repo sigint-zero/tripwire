@@ -49,6 +49,14 @@ export function RuleList({
                       Off
                     </span>
                   )}
+                  {typeof saved.origin === "object" && (
+                    <span
+                      className="text-[10px] tracking-[0.2em] text-violet-300"
+                      title="Proposed by an AI agent through the MCP server"
+                    >
+                      Via {saved.origin.mcp}
+                    </span>
+                  )}
                   {isNew && (
                     <span className="text-[10px] tracking-[0.2em] text-emerald-400">
                       New

@@ -1,4 +1,5 @@
 import type { BoolNode, ValueNode } from "@tripwire/shared";
+import { createHash } from "node:crypto";
 import type { Evidence } from "./types";
 
 // Simulated chain values for the stand-in: every read returns a plausible
@@ -47,6 +48,24 @@ export function simulatedRead(
   const offset = (unit(seed) - 0.5) * 0.06;
   const wobble = Math.sin(clock / 6_000 + unit(seed) * 6.28) * 0.005;
   return times(base, 1 + offset + wobble);
+}
+
+/** A simulated read of one output, in the form its ABI type takes. */
+export function simulatedValue(
+  contract: string,
+  fn: string,
+  returns: number,
+  type: string,
+  clock: number,
+): string {
+  const seed = `${contract.toLowerCase()}:${fn}:${returns}`;
+  if (type === "address") {
+    return `0x${createHash("sha256").update(seed).digest("hex").slice(0, 40)}`;
+  }
+  if (type === "bool") return "false";
+  if (type === "string") return "simulated";
+  if (type.startsWith("bytes")) return "0x";
+  return simulatedRead(contract, fn, returns, clock).toString();
 }
 
 /** The block the stand-in pretends the chain is at: one every 12 seconds. */

@@ -30,6 +30,8 @@ await build({
 });
 
 await cp(here("../web/dist"), here("./dist/web"), { recursive: true });
+// The MCP server's teaching content, read by the server at start.
+await cp(here("../mcp/content"), here("./dist/mcp"), { recursive: true });
 // The app schema's migrations, read by the server at start.
 await cp(here("../server/migrations"), here("./dist/migrations"), {
   recursive: true,

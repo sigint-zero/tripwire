@@ -1,6 +1,7 @@
 import {
   describeRule,
   issuesOf,
+  parseSignature,
   rule as ruleSchema,
   type Rule,
 } from "@tripwire/shared";
@@ -8,7 +9,7 @@ import type pg from "pg";
 import {
   blockAt,
   evaluateTrip,
-  simulatedRead,
+  simulatedValue,
   warmupSeconds,
 } from "./simulate";
 import {
@@ -388,12 +389,17 @@ export class StubEngine implements EngineCommands {
     };
   }
 
-  read(calls: ReadCall[]): Promise<string[]> {
+  /** One value per call; a function with several outputs gives a list. */
+  read(calls: ReadCall[]): Promise<(string | string[])[]> {
     const clock = this.#clock();
     return Promise.resolve(
-      calls.map((call) =>
-        simulatedRead(call.address, call.function, 0, clock).toString(),
-      ),
+      calls.map((call) => {
+        const outputs = parseSignature(call.function).returns;
+        const values = outputs.map((type, i) =>
+          simulatedValue(call.address, call.function, i, type, clock),
+        );
+        return values.length === 1 ? values[0]! : values;
+      }),
     );
   }
 }

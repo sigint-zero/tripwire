@@ -14,11 +14,13 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error(`Invalid PORT: ${process.env.PORT}`);
 }
 
-const database = await startDatabase({ home: tripwireHome() });
+const home = tripwireHome();
+const database = await startDatabase({ home });
 const engine = await connectEngine(database.pool);
 const app = await createServer({
   allowedHosts: [host],
   backend: { pool: database.pool, engine },
+  home,
 });
 
 const vite = await createVite({
