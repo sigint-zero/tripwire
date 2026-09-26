@@ -234,6 +234,13 @@ the section says which applies where the action is picked:
   hold whatever role the called function requires; the section says
   so, naming the function.
 
+A call also takes an optional confirmation: a view function and the
+value it reads once the action has taken effect (a `paused()` that
+reads `true`), saved as the language's `call.verify` condition. With
+it the engine watches the effect every block and shows it beside
+controller trip state, skips a send whose effect already holds, and
+alerts when a confirmed call did not produce its effect.
+
 Whether a pause or a call waits for a person's approval or is sent at
 once is not part of the rule. It is the installation's response mode
 (notify, prepare or send), set for every rule in Settings. When an
