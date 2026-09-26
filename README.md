@@ -47,7 +47,7 @@ itself.
 
 The application talks to the engine over a local connection.
 
-See [HIGH-LEVEL-SPEC.md](HIGH-LEVEL-SPEC.md) for the application's
+See [specs/HIGH-LEVEL-SPEC.md](specs/HIGH-LEVEL-SPEC.md) for the application's
 components and design.
 
 ## Getting started

@@ -2,7 +2,7 @@
 
 The `tripwire` application: the command line, local server, and web
 dashboard for operating a Tripwire engine. This document is the top-level
-map; detailed specs land alongside the code they describe.
+map; detailed specs land in this folder.
 
 ## Overview
 
