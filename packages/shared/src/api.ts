@@ -77,6 +77,10 @@ export interface EngineHealth {
   /** The RPC's state in the engine's words, such as "ok" or "retrying". */
   rpc: string | null;
   cursors: { name: string; block: number; ageSeconds: number }[];
+  /** The TripwireController the engine mirrors, when one is configured. */
+  controller: { address: string; mirroredBlock: number | null } | null;
+  /** The engine's signing keys: how many exist, and how many can sign now. */
+  keys: { known: number; unlocked: number } | null;
 }
 
 /** `GET /engine`: how it is set up, and whether it is watching. */

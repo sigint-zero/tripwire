@@ -6,6 +6,8 @@ import {
   type DryRun,
   type EngineCommands,
   type EngineHealth,
+  type KeyChange,
+  type KeyRow,
   type ReadCall,
   type RuleRow,
 } from "./types";
@@ -112,6 +114,36 @@ export class HttpEngine implements EngineCommands {
       "POST",
       `/v1/responses/${responseId(id)}/reject`,
       reason ? { reason } : {},
+    );
+  }
+
+  keys() {
+    return this.#call<KeyRow[]>("GET", "/v1/keys");
+  }
+
+  createKey(passphrase: string) {
+    return this.#call<KeyChange>("POST", "/v1/keys", { passphrase });
+  }
+
+  importKey(keystore: object, passphrase: string) {
+    return this.#call<KeyChange>("POST", "/v1/keys/import", {
+      keystore,
+      passphrase,
+    });
+  }
+
+  unlockKey(address: string, passphrase: string) {
+    return this.#call<KeyChange>(
+      "POST",
+      `/v1/keys/${encodeURIComponent(address)}/unlock`,
+      { passphrase },
+    );
+  }
+
+  lockKey(address: string) {
+    return this.#call<KeyChange>(
+      "POST",
+      `/v1/keys/${encodeURIComponent(address)}/lock`,
     );
   }
 

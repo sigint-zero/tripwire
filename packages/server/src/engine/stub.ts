@@ -32,9 +32,12 @@ import {
   type DryRun,
   type EngineCommands,
   type EngineHealth,
+  type KeyChange,
+  type KeyRow,
   type ReadCall,
   type RuleRow,
 } from "./types";
+import { KeystoreError, newKeystore, openKeystore } from "./keystore";
 
 /**
  * The development stand-in for the engine. It answers the engine's
@@ -143,6 +146,22 @@ CREATE TABLE IF NOT EXISTS stub.notifications (
   payload jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS stub.controller_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  block_number bigint NOT NULL,
+  block_hash text NOT NULL,
+  block_time timestamptz NOT NULL,
+  address text NOT NULL,
+  tx_hash text NOT NULL,
+  log_index integer NOT NULL,
+  event_name text NOT NULL,
+  payload jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stub.keys (
+  address text PRIMARY KEY,
+  keystore jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS stub.cursors (
   name text PRIMARY KEY,
   block_number bigint NOT NULL,
@@ -192,6 +211,10 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.trip_state AS
     FROM stub.trip_state;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.notifications AS
   SELECT id, kind, payload, created_at FROM stub.notifications;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.controller_events AS
+  SELECT id, block_number, block_hash, block_time, address, tx_hash, log_index,
+         event_name, payload
+    FROM stub.controller_events;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.engine_status AS
   SELECT name AS cursor, block_number, block_hash, updated_at,
          NULL::text AS instance_id, 'stand-in' AS engine_version,
@@ -212,6 +235,8 @@ export class StubEngine implements EngineCommands, EngineEvents {
   readonly #clock: () => number;
   readonly #listeners = new Set<EngineListener>();
   readonly #mode: ResponseMode;
+  /** Keys that can sign: in memory only, so a restart locks them, as it does the engine's. */
+  readonly #unlocked = new Set<string>();
   #lastBlock = 0;
 
   private constructor(pool: pg.Pool, clock: () => number, mode: ResponseMode) {
@@ -244,10 +269,13 @@ export class StubEngine implements EngineCommands, EngineEvents {
     for (const l of this.#listeners) l.event({ event, data });
   }
 
-  health(): Promise<EngineHealth> {
+  async health(): Promise<EngineHealth> {
     const clock = this.#clock();
     const head = blockAt(clock);
-    return Promise.resolve({
+    const { rows } = await this.#pool.query<{ address: string }>(
+      "SELECT address FROM stub.keys",
+    );
+    return {
       status: "ready",
       version: "stand-in",
       chain_id: 1,
@@ -267,7 +295,13 @@ export class StubEngine implements EngineCommands, EngineEvents {
         last_success_unix_ms: clock,
         last_failure_unix_ms: null,
       },
-    });
+      // No chain, so no controller to mirror.
+      controller: null,
+      keys: {
+        known: rows.length,
+        unlocked: rows.filter((r) => this.#unlocked.has(r.address)).length,
+      },
+    };
   }
 
   // Contracts
@@ -785,6 +819,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
       tripped: true,
       since_block: block,
       tx_hash: row.tx,
+      updated_at: time,
     });
   }
 
@@ -920,6 +955,64 @@ export class StubEngine implements EngineCommands, EngineEvents {
     );
   }
 
+  // Keys: kept in the stand-in's database rather than files, as keystores
+  // any Ethereum tool opens. With no chain, every balance is zero.
+
+  async keys(): Promise<KeyRow[]> {
+    const { rows } = await this.#pool.query<{ address: string }>(
+      "SELECT address FROM stub.keys ORDER BY created_at, address",
+    );
+    return rows.map((r) => ({
+      address: r.address,
+      unlocked: this.#unlocked.has(r.address),
+      balance: "0",
+    }));
+  }
+
+  async createKey(passphrase: string): Promise<KeyChange> {
+    const { address, keystore } = await newKeystore(passphrase);
+    await this.#pool.query(
+      "INSERT INTO stub.keys (address, keystore) VALUES ($1, $2)",
+      [address, JSON.stringify(keystore)],
+    );
+    this.#unlocked.add(address);
+    return { address, unlocked: true };
+  }
+
+  async importKey(keystore: object, passphrase: string): Promise<KeyChange> {
+    const address = await opened(keystore, passphrase);
+    // Stored carrying its address, so listing never needs the passphrase.
+    await this.#pool.query(
+      `INSERT INTO stub.keys (address, keystore) VALUES ($1, $2)
+       ON CONFLICT (address) DO UPDATE SET keystore = excluded.keystore`,
+      [address, JSON.stringify({ ...keystore, address: address.slice(2) })],
+    );
+    return { address, unlocked: this.#unlocked.has(address) };
+  }
+
+  async unlockKey(address: string, passphrase: string): Promise<KeyChange> {
+    const key = address.toLowerCase();
+    const { rows } = await this.#pool.query<{ keystore: object }>(
+      "SELECT keystore FROM stub.keys WHERE address = $1",
+      [key],
+    );
+    if (!rows[0]) throw noKey(key);
+    await opened(rows[0].keystore, passphrase);
+    this.#unlocked.add(key);
+    return { address: key, unlocked: true };
+  }
+
+  async lockKey(address: string): Promise<KeyChange> {
+    const key = address.toLowerCase();
+    const { rows } = await this.#pool.query(
+      "SELECT 1 FROM stub.keys WHERE address = $1",
+      [key],
+    );
+    if (!rows[0]) throw noKey(key);
+    this.#unlocked.delete(key);
+    return { address: key, unlocked: false };
+  }
+
   read(calls: ReadCall[]): Promise<(string | string[])[]> {
     const clock = this.#clock();
     return Promise.resolve(
@@ -987,6 +1080,20 @@ function nameTaken() {
     "name_taken",
     "Another rule on this contract has that name.",
   );
+}
+
+/** A keystore's address once it opens, refused in the engine's words when not. */
+async function opened(keystore: unknown, passphrase: string) {
+  try {
+    return await openKeystore(keystore, passphrase);
+  } catch (error) {
+    if (!(error instanceof KeystoreError)) throw error;
+    throw new EngineError(400, error.code, error.message);
+  }
+}
+
+function noKey(address: string) {
+  return new EngineError(404, "not_found", `No key with address ${address}.`);
 }
 
 function notFound(what: "contract" | "rule" | "response") {

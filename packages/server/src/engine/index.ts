@@ -1,5 +1,6 @@
 import type { EngineInfo } from "@tripwire/shared";
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type pg from "pg";
 import { EngineStream } from "../events/upstream";
 import type { EngineEvents } from "../events/types";
@@ -15,6 +16,8 @@ export interface EngineBackend {
   /** What changed, as it happens. */
   events: EngineEvents;
   info: EngineInfo;
+  /** Where the engine keeps its keystore files; none for the stand-in. */
+  keysDirectory?: string | null;
   /** Stops whatever the backend runs on its own. */
   close(): Promise<void>;
 }
@@ -33,6 +36,7 @@ export async function stubBackend(
     reads: new ViewReads(pool, STUB_VIEWS),
     events: stub,
     info: { chainId: 1, responseMode: "prepare", simulated: true },
+    keysDirectory: null,
     close: ticking ? stub.ticking() : () => Promise.resolve(),
   };
 }
@@ -47,6 +51,7 @@ export function engineBackend(
     readSecret?: () => Promise<string>;
     chainId: number;
     responseMode: EngineInfo["responseMode"];
+    keysDirectory?: string | null;
   },
 ): EngineBackend {
   return {
@@ -61,6 +66,7 @@ export function engineBackend(
       responseMode: options.responseMode,
       simulated: false,
     },
+    keysDirectory: options.keysDirectory ?? null,
     close: () => Promise.resolve(),
   };
 }
@@ -92,5 +98,7 @@ export async function connectEngine(
     readSecret: () => readFile(secretFile, "utf8"),
     chainId: Number(env.TRIPWIRE_CHAIN_ID ?? 1),
     responseMode: mode,
+    // The secret sits in the engine's data directory, beside its keys.
+    keysDirectory: join(dirname(secretFile), "keys"),
   });
 }

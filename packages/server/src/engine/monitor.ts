@@ -165,6 +165,8 @@ export class EngineMonitor implements EngineEvents {
       headTime: ingest.updated_at.toISOString(),
       lagBlocks: null,
       rpc: null,
+      controller: null,
+      keys: null,
       cursors: rows.map((r) => ({
         name: r.cursor,
         block: Number(r.block_number),
@@ -200,5 +202,12 @@ function fromAnswer(answer: HealthAnswer, now: number): EngineHealth {
         : null,
     rpc: answer.rpc.state,
     cursors,
+    controller: answer.controller
+      ? {
+          address: answer.controller.address,
+          mirroredBlock: answer.controller.mirrored_block ?? null,
+        }
+      : null,
+    keys: answer.keys ?? null,
   };
 }

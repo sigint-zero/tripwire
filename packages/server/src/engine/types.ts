@@ -151,6 +151,10 @@ export interface EngineHealth {
     last_success_unix_ms: number | null;
     last_failure_unix_ms: number | null;
   };
+  /** The mirrored TripwireController; absent when none is configured, or while starting. */
+  controller?: { address: string; mirrored_block?: number | null } | null;
+  /** The signer summary; absent while starting. */
+  keys?: { known: number; unlocked: number } | null;
 }
 
 /** The block the engine's answers are true at: the last it evaluated. */
@@ -169,6 +173,29 @@ export interface TripStateRow {
   source: "controller" | "verify";
   since_block: number;
   tx_hash: string | null;
+}
+
+/** An operator the controller names on a registered contract, from its events. */
+export interface OperatorRow {
+  /** The contract as registered. */
+  contract_address: string;
+  /** Lowercase `0x` address. */
+  operator: string;
+}
+
+/** `KeyOut`: a keystore on disk, whether it can sign, and its native balance. */
+export interface KeyRow {
+  /** Lowercase `0x` address. */
+  address: string;
+  unlocked: boolean;
+  /** Wei, as a decimal string. */
+  balance: string;
+}
+
+/** `KeyAddress`: a key after a change. */
+export interface KeyChange {
+  address: string;
+  unlocked: boolean;
 }
 
 /** A row of `api_v1.engine_status`: one cursor, as the engine last recorded it. */
@@ -281,6 +308,14 @@ export interface EngineCommands {
   approveResponse(id: string): Promise<void>;
   /** Abandons a held response; `409` when it is no longer waiting. */
   rejectResponse(id: string, reason: string | null): Promise<void>;
+  keys(): Promise<KeyRow[]>;
+  /** Generates a key in the engine; it starts unlocked. */
+  createKey(passphrase: string): Promise<KeyChange>;
+  /** Stores a keystore made elsewhere, once it opens; it starts locked. */
+  importKey(keystore: object, passphrase: string): Promise<KeyChange>;
+  /** `400 wrong_passphrase` naming nothing further; `404` for an unknown key. */
+  unlockKey(address: string, passphrase: string): Promise<KeyChange>;
+  lockKey(address: string): Promise<KeyChange>;
 }
 
 /** Every read of the engine's state comes from its views. */
@@ -315,6 +350,8 @@ export interface EngineReads {
   tripState(): Promise<TripStateRow[]>;
   /** Where the engine's cursors stand; readable while the engine is down. */
   engineStatus(): Promise<CursorRow[]>;
+  /** Operators granted on registered contracts and not since removed. */
+  operators(): Promise<OperatorRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
   /** The series each rule draws from, in document order. */

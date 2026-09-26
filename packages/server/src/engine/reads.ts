@@ -6,6 +6,7 @@ import {
   type CursorRow,
   type EngineReads,
   type BucketRow,
+  type OperatorRow,
   type PointRow,
   type ResponseRow,
   type RuleActivity,
@@ -206,6 +207,24 @@ export class ViewReads implements EngineReads {
     return this.#read<CursorRow>(
       `SELECT cursor, block_number::text, updated_at, engine_version
          FROM ${this.#schema}.engine_status ORDER BY cursor`,
+    );
+  }
+
+  operators() {
+    // Each (contract, operator) pair's latest word decides: added, or removed.
+    return this.#read<OperatorRow>(
+      `SELECT c.address AS contract_address, g.operator
+         FROM (
+           SELECT DISTINCT ON (1, 2)
+                  lower(e.payload->>'guardedContract') AS contract,
+                  lower(e.payload->>'operator') AS operator, e.event_name
+             FROM ${this.#schema}.controller_events e
+            WHERE e.event_name IN ('OperatorAdded', 'OperatorRemoved')
+            ORDER BY 1, 2, e.block_number DESC, e.log_index DESC
+         ) g
+         JOIN ${this.#schema}.contracts c ON lower(c.address) = g.contract
+        WHERE g.event_name = 'OperatorAdded'
+        ORDER BY c.address, g.operator LIMIT ${LIMIT}`,
     );
   }
 

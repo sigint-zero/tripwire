@@ -151,6 +151,32 @@ describe("HttpEngine", () => {
     ]);
   });
 
+  it("sends each key command to its M7 path, the passphrase in the body", async () => {
+    const e = engine();
+    const key = "0x5555555555555555555555555555555555555555";
+    answer = { status: 200, body: [] };
+    await e.keys();
+    answer = { status: 201, body: { address: key, unlocked: true } };
+    await e.createKey("correct horse battery");
+    await e.importKey({ version: 3, crypto: {} }, "carried");
+    answer = { status: 200, body: { address: key, unlocked: true } };
+    await e.unlockKey(key, "carried");
+    await e.lockKey(key);
+    expect(seen.map((s) => `${s.method} ${s.url}`)).toEqual([
+      "GET /v1/keys",
+      "POST /v1/keys",
+      "POST /v1/keys/import",
+      `POST /v1/keys/${key}/unlock`,
+      `POST /v1/keys/${key}/lock`,
+    ]);
+    expect(seen[1]?.body).toEqual({ passphrase: "correct horse battery" });
+    expect(seen[2]?.body).toEqual({
+      keystore: { version: 3, crypto: {} },
+      passphrase: "carried",
+    });
+    expect(seen[3]?.body).toEqual({ passphrase: "carried" });
+  });
+
   it("sends nothing for an empty batch", async () => {
     await engine().setRulesEnabled([], true);
     expect(seen).toEqual([]);

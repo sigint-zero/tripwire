@@ -10,6 +10,7 @@ import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
 import type { EngineEvents } from "./events/types";
 import { eventRoutes } from "./events/route";
+import { keyRoutes } from "./keys";
 import { notificationRoutes } from "./notifications/routes";
 import { ChannelSecrets } from "./notifications/secrets";
 import { NotificationStore } from "./notifications/store";
@@ -83,6 +84,11 @@ export const api: FastifyPluginCallback<{
   app.register(seriesRoutes, { reads });
   app.register(tripStateRoutes, { reads });
   app.register(setupRoutes, { reads, store });
+  app.register(keyRoutes, {
+    commands,
+    reads,
+    directory: backend.engine.keysDirectory ?? null,
+  });
   if (auth && home) {
     const notifications = new NotificationStore(backend.pool, reads.views);
     const secrets = new ChannelSecrets(home);
