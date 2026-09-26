@@ -228,17 +228,18 @@ export function RulePage({ id }: { id: string }) {
         </Fact>
       </dl>
 
-      <RuleValues rule={rule} violations={violations} />
-
-      <section className="mb-12">
-        <h2 className={heading}>Number format</h2>
-        <DisplayForm
-          key={`${rule.display.decimals}:${rule.display.unit}`}
-          display={rule.display}
-          onSave={changed}
-          id={id}
-        />
-      </section>
+      <RuleValues
+        rule={rule}
+        violations={violations}
+        format={
+          <DisplayForm
+            key={`${rule.display.decimals}:${rule.display.unit}`}
+            display={rule.display}
+            onSave={changed}
+            id={id}
+          />
+        }
+      />
 
       <section>
         <div className="flex items-baseline justify-between gap-4">

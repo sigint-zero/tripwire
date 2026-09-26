@@ -1,5 +1,5 @@
 import type { CheckNow, SavedRule, Violation } from "@tripwire/shared";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { formatBig, showValue, timeAgo } from "../lib/format";
@@ -10,14 +10,21 @@ import { Button } from "./ui";
 const heading =
   "mb-4 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
 
-/** What a rule reads now, its values over time, and a check at the head. */
+/**
+ * What a rule reads now, its values over time, and a check at the head.
+ * `format` is how its numbers read, opened from beside the values it
+ * changes.
+ */
 export function RuleValues({
   rule,
   violations,
+  format,
 }: {
   rule: SavedRule;
   violations?: Violation[];
+  format?: ReactNode;
 }) {
+  const [formatting, setFormatting] = useState(false);
   const { data: series } = useQuery({
     queryKey: ["rule-series", rule.id],
     queryFn: ({ signal }) => api.ruleSeries(rule.id, signal),
@@ -37,7 +44,19 @@ export function RuleValues({
   return (
     <>
       <section className="mb-12">
-        <h2 className={heading}>Now</h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className={heading}>Now</h2>
+          {format && series && series.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFormatting(!formatting)}
+              className="cursor-pointer text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-emerald-400"
+            >
+              {formatting ? "Done" : "Number format"}
+            </button>
+          )}
+        </div>
+        {formatting && <div className="mb-6">{format}</div>}
         {series?.length === 0 && (
           <p className="bg-white/3 px-5 py-4 text-sm text-gray-500">
             The engine records no values for this rule's reads yet, so there is
