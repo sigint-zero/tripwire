@@ -1,11 +1,11 @@
 import {
   describeRule,
-  documentReads,
   type EngineInfo,
   issuesOf,
   parseSignature,
   rule as ruleSchema,
   type Rule,
+  type ViewCall,
 } from "@tripwire/shared";
 import type pg from "pg";
 import type { EngineEvents, EngineListener } from "../events/types";
@@ -119,6 +119,13 @@ CREATE TABLE IF NOT EXISTS stub.responses (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS stub.rule_series (
+  rule_id bigint NOT NULL REFERENCES stub.rules (id) ON DELETE CASCADE,
+  series_id bigint NOT NULL REFERENCES stub.series (id),
+  role text NOT NULL,
+  path text NOT NULL,
+  PRIMARY KEY (rule_id, series_id, path)
+);
 CREATE TABLE IF NOT EXISTS stub.cursors (
   name text PRIMARY KEY,
   block_number bigint NOT NULL,
@@ -161,6 +168,8 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
     JOIN stub.violations v ON v.id = p.violation_id
     JOIN stub.rules r ON r.id = v.rule_id
     JOIN stub.contracts c ON c.id = r.contract_id;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.rule_series AS
+  SELECT rule_id, series_id, role, path FROM stub.rule_series;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.engine_status AS
   SELECT name AS cursor, block_number, block_hash, updated_at,
          NULL::text AS instance_id, 'stand-in' AS engine_version,
@@ -546,11 +555,11 @@ export class StubEngine implements EngineCommands, EngineEvents {
    * something to show from the start.
    */
   async #record(
-    rule: { address: string; document: Rule },
+    rule: { id: string; address: string; document: Rule },
     block: number,
     clock: number,
   ) {
-    for (const read of documentReads(rule.document)) {
+    for (const { read, path } of recordedReads(rule.document)) {
       const address = (read.address ?? rule.address).toLowerCase();
       const returns = read.returns ?? 0;
       const type = parseSignature(read.function).returns[returns] ?? "";
@@ -570,6 +579,11 @@ export class StubEngine implements EngineCommands, EngineEvents {
             [key],
           )
         ).rows[0]!.id;
+      await this.#pool.query(
+        `INSERT INTO stub.rule_series (rule_id, series_id, role, path)
+         VALUES ($1, $2, 'read', $3) ON CONFLICT DO NOTHING`,
+        [rule.id, id, path],
+      );
       const value = (t: number) =>
         simulatedValue(address, read.function, returns, type, t);
       const times = created.rows[0]
@@ -723,6 +737,35 @@ export class StubEngine implements EngineCommands, EngineEvents {
       }),
     );
   }
+}
+
+/**
+ * The reads a rule records, each where the document first makes it: every
+ * `view_call` in `trip_when` outside a metric, which samples its own base.
+ */
+function recordedReads(rule: Rule): { read: ViewCall; path: string }[] {
+  const found = new Map<string, { read: ViewCall; path: string }>();
+  const walk = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { node?: string };
+    if (n.node === "metric") return;
+    if (n.node === "view_call") {
+      const read = node as ViewCall;
+      const key = JSON.stringify([
+        (read.address ?? rule.contract).toLowerCase(),
+        read.function,
+        read.args,
+        read.returns ?? 0,
+      ]);
+      if (!found.has(key)) found.set(key, { read, path });
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      walk(child, `${path}/${key}`);
+    }
+  };
+  walk(rule.trip_when, "/trip_when");
+  return [...found.values()];
 }
 
 /** Validates as the engine does, refusing with every issue at once. */

@@ -10,6 +10,7 @@ import {
   type ResponseRow,
   type RuleActivity,
   type RuleRow,
+  type RuleSeriesRow,
   type SeriesRow,
   type ViolationRow,
 } from "./types";
@@ -208,12 +209,17 @@ export class ViewReads implements EngineReads {
     );
   }
 
-  async series(addresses: string[]): Promise<SeriesRow[]> {
-    if (addresses.length === 0) return [];
-    return this.#read<SeriesRow>(
-      `SELECT ${SERIES} FROM ${this.#schema}.series
-        WHERE lower(address) = ANY($1::text[]) ORDER BY id LIMIT ${LIMIT}`,
-      [addresses.map((a) => a.toLowerCase())],
+  async ruleSeries(ruleIds: string[]): Promise<RuleSeriesRow[]> {
+    const ids = ruleIds.filter((id) => /^\d+$/.test(id));
+    if (ids.length === 0) return [];
+    return this.#read<RuleSeriesRow>(
+      `SELECT rs.rule_id::text, rs.role, rs.path, s.id::text, s.key, s.address,
+              s.function, s.args, s.returns, s.metric, s.window_seconds::int
+         FROM ${this.#schema}.rule_series rs
+         JOIN ${this.#schema}.series s ON s.id = rs.series_id
+        WHERE rs.rule_id = ANY($1::bigint[])
+        ORDER BY rs.rule_id, rs.path LIMIT ${LIMIT}`,
+      [ids],
     );
   }
 

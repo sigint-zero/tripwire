@@ -103,7 +103,7 @@ export const ruleRoutes: FastifyPluginCallback<{
 
   app.get<ById>("/rules/:id/series", async (request, reply) => {
     const row = await reads.rule(request.params.id);
-    return row ? seriesOfRule(reads, row) : notFound(reply);
+    return row ? seriesOfRule(reads, row.id) : notFound(reply);
   });
 
   app.get<ById>(
@@ -111,7 +111,7 @@ export const ruleRoutes: FastifyPluginCallback<{
     async (request, reply): Promise<CurrentValue[] | undefined> => {
       const row = await reads.rule(request.params.id);
       if (!row) return notFound(reply);
-      const series = await seriesOfRule(reads, row);
+      const series = await seriesOfRule(reads, row.id);
       const points = await reads.newestPoints(series.map((s) => s.id));
       return series.flatMap((s) => {
         const p = points.find((point) => point.series_id === s.id);

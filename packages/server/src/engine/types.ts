@@ -74,6 +74,15 @@ export interface SeriesRow {
   window_seconds: number | null;
 }
 
+/** A series a rule draws from, as `rule_series` links them, with where in the document. */
+export interface RuleSeriesRow extends SeriesRow {
+  rule_id: string;
+  /** `read` for a recorded read, `metric` for the base a metric samples. */
+  role: "read" | "metric";
+  /** A JSON pointer to the node in the rule's document. */
+  path: string;
+}
+
 /** A rule's newest violation and how many nobody has acknowledged. */
 export interface RuleActivity {
   rule_id: string;
@@ -270,8 +279,8 @@ export interface EngineReads {
   engineStatus(): Promise<CursorRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
-  /** The series recorded for reads of these contracts. */
-  series(addresses: string[]): Promise<SeriesRow[]>;
+  /** The series each rule draws from, in document order. */
+  ruleSeries(ruleIds: string[]): Promise<RuleSeriesRow[]>;
   seriesById(id: string): Promise<SeriesRow | null>;
   /** The newest point of each series. */
   newestPoints(seriesIds: string[]): Promise<PointRow[]>;

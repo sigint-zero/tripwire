@@ -112,10 +112,7 @@ export const seriesRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
           issues: issuesOf(params.error),
         });
       }
-      const rules = (await reads.rules()).filter((r) =>
-        params.data.rules.includes(r.id),
-      );
-      const first = await firstSeries(reads, rules);
+      const first = await firstSeries(reads, params.data.rules);
       const to = new Date();
       const span = SPARK_WINDOWS[params.data.window ?? "24h"]!;
       const from = new Date(to.getTime() - span);
