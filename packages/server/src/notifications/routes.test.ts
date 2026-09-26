@@ -5,6 +5,7 @@ import type {
   StoredRuleCheck,
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
+import type pg from "pg";
 import { stat } from "node:fs/promises";
 import { createServer as createHttp, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -40,6 +41,7 @@ const tripping = (name: string, onTrip: object) => ({
 let now = Date.now();
 let app: FastifyInstance;
 let stub: StubEngine;
+let pool: pg.Pool;
 let home: string;
 let receiver: Server;
 let hook: string;
@@ -69,6 +71,7 @@ beforeAll(async () => {
   hook = `http://127.0.0.1:${(receiver.address() as AddressInfo).port}/hook`;
 
   const database = await testDatabase();
+  pool = database.pool;
   const dir = await testHome();
   home = dir.home;
   stub = await StubEngine.open(database.pool, () => now, "prepare");
@@ -146,6 +149,79 @@ describe("the feed", () => {
     ]);
   });
 
+  it("names the rule behind a settled response, and a pause by hand", async () => {
+    const [waiting] = (
+      await get<NotificationPage>("/notifications?kind=response")
+    ).items;
+    const responseId = /open=(\d+)/.exec(waiting!.link!)![1]!;
+    await send("POST", `/responses/${responseId}/approve`);
+    await block();
+    await block();
+    // Settled, the engine's note names only the response and its receipt.
+    const confirmed = (
+      await get<NotificationPage>("/notifications?kind=response")
+    ).items[0]!;
+    expect(confirmed).toMatchObject({
+      severity: "info",
+      title: "Token: pause confirmed",
+      link: `/responses?tab=history&open=${responseId}`,
+    });
+    expect(confirmed.text).toMatch(
+      /^From Pause it\. Transaction 0x[0-9a-f]+\. Block \d+\.$/,
+    );
+
+    // A locked signing key holds a response up.
+    await pool.query(
+      "INSERT INTO stub.notifications (kind, payload) VALUES ('response', $1)",
+      [
+        JSON.stringify({
+          response_id: Number(responseId),
+          rule_id: 1,
+          rule: "Pause it",
+          severity: "critical",
+          contract: token,
+          action: "trip_global",
+          status: "pending",
+          detail: "the signing key is locked",
+        }),
+      ],
+    );
+    // A person paused the contract from the dashboard.
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO stub.actions (kind, target, note, status)
+       VALUES ('trip_global', $1, 'Draining, pausing now', 'confirmed') RETURNING id::text`,
+      [token],
+    );
+    await pool.query(
+      "INSERT INTO stub.notifications (kind, payload) VALUES ('action', $1)",
+      [
+        JSON.stringify({
+          id: Number(rows[0]!.id),
+          status: "confirmed",
+          tx_hash: "0xab",
+          block_number: 7,
+        }),
+      ],
+    );
+    const items = (await get<NotificationPage>("/notifications?kind=response"))
+      .items;
+    const manual = items.find((i) => i.title.includes("by hand"));
+    const held = items.find((i) => i.title.includes("held up"));
+    expect(manual).toMatchObject({
+      kind: "response",
+      severity: "info",
+      title: "Token: pause by hand confirmed",
+      text: "“Draining, pausing now” Transaction 0xab. Block 7.",
+      link: "/activity",
+    });
+    expect(held).toMatchObject({
+      severity: "critical",
+      title: "Token: pause held up",
+      text: "From Pause it. The signing key is locked.",
+      link: `/responses?tab=in_flight&open=${responseId}`,
+    });
+  });
+
   it("pages with a cursor, and filters by severity and unread", async () => {
     const first = await get<NotificationPage>("/notifications?limit=1");
     expect(first.items).toHaveLength(1);
@@ -155,9 +231,10 @@ describe("the feed", () => {
     );
     expect(second.items).toHaveLength(1);
     expect(second.items[0]!.id).not.toBe(first.items[0]!.id);
-    expect(
-      (await get<NotificationPage>("/notifications?severity=info")).items,
-    ).toEqual([]);
+    const info = (await get<NotificationPage>("/notifications?severity=info"))
+      .items;
+    expect(info.length).toBeGreaterThan(0);
+    expect(info.every((i) => i.severity === "info")).toBe(true);
     expect(
       (await app.inject({ url: "/api/v1/notifications?cursor=nope" }))
         .statusCode,

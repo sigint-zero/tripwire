@@ -82,26 +82,44 @@ export class NotificationStore {
     }
     this.#pool = pool;
     // Both sources as one, each row filed under the feed's kind and
-    // severity: an evaluation error is a violation row of that kind, and
-    // a response or health row takes its severity from what it reports.
+    // severity: an evaluation error is a violation row of that kind, a
+    // person's pause or unpause is a response, and a response or health
+    // row takes its severity from what it reports. A settled transaction
+    // names only its response or action, so their rows fill in the rest.
+    const idOf = (kind: string, key: string) =>
+      `(CASE WHEN n.kind = '${kind}' AND coalesce(n.payload->>'${key}', n.payload->>'id') ~ '^[0-9]+$'
+             THEN coalesce(n.payload->>'${key}', n.payload->>'id')::bigint END)`;
     this.#notices = `(
-      SELECT 'engine' AS source, id,
-             CASE WHEN kind = 'violation' AND payload->>'kind' = 'evaluation_error'
-                  THEN 'evaluation_error' ELSE kind END AS kind,
+      SELECT 'engine' AS source, n.id,
+             CASE WHEN n.kind = 'violation' AND n.payload->>'kind' = 'evaluation_error'
+                    THEN 'evaluation_error'
+                  WHEN n.kind = 'action' THEN 'response'
+                  ELSE n.kind END AS kind,
              CASE
-               WHEN kind = 'violation' AND payload->>'kind' = 'evaluation_error' THEN 'warning'
-               WHEN kind = 'violation' THEN
-                 CASE WHEN payload->>'severity' IN ('info', 'warning', 'critical')
-                      THEN payload->>'severity' ELSE 'warning' END
-               WHEN kind = 'response' THEN
-                 CASE payload->>'status' WHEN 'confirmed' THEN 'info'
-                                         WHEN 'abandoned' THEN 'warning'
-                                         ELSE 'critical' END
-               WHEN kind = 'health' THEN
-                 CASE WHEN payload->>'status' = 'ready' THEN 'info' ELSE 'warning' END
+               WHEN n.kind = 'violation' AND n.payload->>'kind' = 'evaluation_error' THEN 'warning'
+               WHEN n.kind = 'violation' THEN
+                 CASE WHEN n.payload->>'severity' IN ('info', 'warning', 'critical')
+                      THEN n.payload->>'severity' ELSE 'warning' END
+               WHEN n.kind IN ('response', 'action') THEN
+                 CASE n.payload->>'status' WHEN 'confirmed' THEN 'info'
+                                           WHEN 'abandoned' THEN 'warning'
+                                           ELSE 'critical' END
+               WHEN n.kind = 'health' THEN
+                 CASE WHEN n.payload->>'status' = 'ready' THEN 'info' ELSE 'warning' END
                ELSE 'info' END AS severity,
-             payload, created_at
-        FROM ${views}.notifications
+             CASE
+               WHEN r.id IS NOT NULL THEN jsonb_build_object(
+                 'response_id', r.id::text, 'rule_id', r.rule_id::text,
+                 'rule', r.rule_name, 'contract', r.contract_address,
+                 'action', r.action) || n.payload
+               WHEN a.id IS NOT NULL THEN jsonb_build_object(
+                 'action_id', a.id::text, 'kind', a.kind, 'target', a.target,
+                 'selector', a.selector, 'note', a.note) || n.payload
+               ELSE n.payload END AS payload,
+             n.created_at
+        FROM ${views}.notifications n
+        LEFT JOIN ${views}.responses r ON r.id = ${idOf("response", "response_id")}
+        LEFT JOIN ${views}.actions a ON a.id = ${idOf("action", "action_id")}
       UNION ALL
       SELECT 'app', id, kind, severity, payload, created_at
         FROM app.local_notifications

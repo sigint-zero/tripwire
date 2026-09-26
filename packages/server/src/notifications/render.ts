@@ -19,6 +19,7 @@ const str = (v: unknown) =>
   typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
 
 const statusWords: Record<string, string> = {
+  pending: "held up",
   awaiting_approval: "waiting for approval",
   confirmed: "confirmed",
   failed: "failed",
@@ -62,18 +63,39 @@ export function render(
     }
     case "response": {
       const status = str(p.status) ?? "";
+      const words = statusWords[status] ?? status;
+      // The engine's detail is a clause: it reads as a sentence here.
+      const detail = str(p.detail) ?? str(p.error);
+      const tail = [
+        detail &&
+          `${detail[0]!.toUpperCase()}${detail.slice(1).replace(/\.$/, "")}.`,
+        str(p.tx_hash) && `Transaction ${str(p.tx_hash)}.`,
+        str(p.block_number) && `Block ${str(p.block_number)}.`,
+      ];
+      // A person's pause or unpause from the dashboard.
+      if (str(p.action_id)) {
+        const verb = str(p.kind)?.startsWith("reset") ? "unpause" : "pause";
+        return {
+          id,
+          title: `${contractName(p.target, names)}: ${verb} by hand ${words}`,
+          text: lines(str(p.note) && `“${str(p.note)}”`, ...tail),
+          link: "/activity",
+        };
+      }
       const action = str(p.action) === "call" ? "call" : "pause";
       const response = str(p.response_id);
+      const tab =
+        status === "awaiting_approval"
+          ? "waiting"
+          : ["pending", "approved", "submitted"].includes(status)
+            ? "in_flight"
+            : "history";
       return {
         id,
-        title: `${contractName(p.contract, names)}: ${action} ${statusWords[status] ?? status}`,
-        text: lines(
-          str(p.rule) && `From ${str(p.rule)}.`,
-          str(p.reason) && `${str(p.reason)!.replace(/\.$/, "")}.`,
-          str(p.tx_hash) && `Transaction ${str(p.tx_hash)}.`,
-        ),
+        title: `${contractName(p.contract, names)}: ${action} ${words}`,
+        text: lines(str(p.rule) && `From ${str(p.rule)}.`, ...tail),
         link: response
-          ? `/responses?tab=${status === "awaiting_approval" ? "waiting" : "history"}&open=${response}`
+          ? `/responses?tab=${tab}&open=${response}`
           : "/responses",
       };
     }

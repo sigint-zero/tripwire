@@ -157,6 +157,18 @@ CREATE TABLE IF NOT EXISTS stub.controller_events (
   event_name text NOT NULL,
   payload jsonb NOT NULL
 );
+CREATE TABLE IF NOT EXISTS stub.actions (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind text NOT NULL,
+  target text NOT NULL,
+  selector text,
+  note text,
+  status text NOT NULL,
+  tx jsonb,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS stub.keys (
   address text PRIMARY KEY,
   keystore jsonb NOT NULL,
@@ -211,6 +223,9 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.trip_state AS
     FROM stub.trip_state;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.notifications AS
   SELECT id, kind, payload, created_at FROM stub.notifications;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.actions AS
+  SELECT id, kind, target, selector, note, status, tx, error, created_at, updated_at
+    FROM stub.actions;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.controller_events AS
   SELECT id, block_number, block_hash, block_time, address, tx_hash, log_index,
          event_name, payload
@@ -823,16 +838,13 @@ export class StubEngine implements EngineCommands, EngineEvents {
     });
   }
 
+  /**
+   * A response's change, as the engine streams it: the whole view row.
+   * Its notification takes the engine's two forms: a settled transaction
+   * names only the response and its receipt; anything else carries the
+   * rule, and the detail of what happened.
+   */
   async #emitResponse(id: string, ruleId: string, status: string) {
-    this.#emit("response", { id, rule_id: ruleId, status });
-    // A person must act on one waiting, and hears how each one ends.
-    if (
-      !["awaiting_approval", "confirmed", "failed", "abandoned"].includes(
-        status,
-      )
-    ) {
-      return;
-    }
     const { rows } = await this.#pool.query<{
       rule_name: string;
       contract_address: string;
@@ -840,31 +852,46 @@ export class StubEngine implements EngineCommands, EngineEvents {
       error: string | null;
       tx: StubTx | null;
       updated_at: Date;
+      severity: string;
     }>(
-      `SELECT rule_name, contract_address, action, error, tx, updated_at
-         FROM ${STUB_VIEWS}.responses WHERE id = $1`,
+      `SELECT p.*, r.severity FROM ${STUB_VIEWS}.responses p
+         JOIN stub.rules r ON r.id = p.rule_id WHERE p.id = $1`,
       [id],
     );
     const response = rows[0];
     if (!response) return;
-    await this.#notify(
-      "response",
-      {
-        response_id: Number(id),
-        rule_id: Number(ruleId),
-        rule: response.rule_name,
-        contract: response.contract_address,
-        action: response.action,
-        status,
-        reason: response.error,
-        // Only a response that went out has a transaction to name.
-        tx_hash:
-          status === "confirmed" || status === "failed"
-            ? (response.tx?.hash ?? null)
-            : null,
-      },
-      response.updated_at.toISOString(),
-    );
+    const { severity, ...row } = response;
+    this.#emit("response", row);
+    const time = response.updated_at.toISOString();
+    if (status === "confirmed") {
+      await this.#notify(
+        "response",
+        {
+          id: Number(id),
+          status,
+          tx_hash: response.tx?.hash ?? null,
+          block_number: response.tx?.confirmed_block ?? null,
+          error: null,
+        },
+        time,
+      );
+    } else if (status === "awaiting_approval" || status === "abandoned") {
+      // Waiting is announced as NOTIFICATIONS.md N1 asks: a person must act.
+      await this.#notify(
+        "response",
+        {
+          response_id: Number(id),
+          rule_id: Number(ruleId),
+          rule: response.rule_name,
+          severity,
+          contract: response.contract_address,
+          action: response.action,
+          status,
+          detail: response.error,
+        },
+        time,
+      );
+    }
   }
 
   /**
