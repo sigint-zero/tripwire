@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { LoadedContract } from "./useContract";
+import type { ContractSurface } from "../../lib/abi";
 
 type Tab = "values" | "events" | "functions";
 
-export function ContractExplorer({ contract }: { contract: LoadedContract }) {
-  const { reads, events, writes } = contract.surface;
+/** What a contract exposes: the values it can read, its events, its functions. */
+export function ContractExplorer({ surface }: { surface: ContractSurface }) {
+  const { reads, events, writes } = surface;
   const [tab, setTab] = useState<Tab>(reads.length ? "values" : "events");
 
   const tabs: { id: Tab; label: string; count: number }[] = [

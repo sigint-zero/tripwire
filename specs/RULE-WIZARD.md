@@ -62,25 +62,29 @@ section when clicked. Sections not yet opened cannot be selected.
 
 | Section | Asks | Complete when |
 |-|-|-|
-| 1 Contract | an address, or a pasted ABI | an ABI is loaded |
+| 1 Contract | a registered contract, or one registered on the spot | a contract is chosen |
 | 2 Rule | a starting point, and the blanks in its sentence | the trigger and condition pass the schema |
 | 3 Response | severity, action and quiet period | a function trip names a function; a call names a function and has a valid value for each of its arguments |
 | 4 Review | a name and an optional description | the document passes the schema and no identical rule exists; creating stores it |
 
-Changing the contract clears the starting point, the blanks, the name
-and the severity, and closes every section after it. Blanks are kept
+Choosing another contract clears the starting point, the blanks, the
+name and the severity, and closes every section after it. Blanks are kept
 per starting point, so trying another and coming back does not lose
 what was filled in.
 
 ## Contract
 
-An installation watches one chain (`DATABASE.md`, DB9), which the
-engine reports. The user pastes an address; as soon as it is valid, the
-server looks up the contract's verified ABI on that chain (see
-[ABI lookup](#abi-lookup)). The section then shows the contract's name,
-the chain, whether it is a proxy and which implementation it points to,
-and the contract itself in three tabs, so the user sees what can be
-watched before choosing how:
+Every rule belongs to a registered contract (`CONTRACTS.md`). The
+section shows the registered contracts as tiles, each with its name,
+address and rules, and marks the disabled ones. The last tile, **Add a
+contract**, opens the registration form in place: registering a
+contract there chooses it, and an address that is already registered is
+offered to be used instead. With no contract registered yet, the form
+is all the section shows. Opening the wizard from a contract's page
+(`/rules/new?contract=:address`) starts with that contract chosen.
+
+Once a contract is chosen the section shows what it exposes, in three
+tabs, so the user sees what can be watched before choosing how:
 
 | Tab | Shows |
 |-|-|
@@ -88,9 +92,8 @@ watched before choosing how:
 | Events | every event, by name with its parameters |
 | Functions | every function a trip can pause or a response can call, with its selector |
 
-When there is no verified source, or the user prefers, the ABI can be
-pasted instead: a bare JSON array or any object with an `abi` field (a
-compiler artifact). A pasted ABI takes precedence over the lookup.
+A chosen contract that is disabled is marked so: a rule added to it
+starts off.
 
 From the ABI the wizard extracts:
 
@@ -278,6 +281,7 @@ check of the document. Beneath it, as they apply:
 - how long it warms up before it can trip (its longest window);
 - that an identical rule already watches the contract, in which case
   **Create** is disabled;
+- that the contract is disabled, so the rule starts off;
 - that the check ran against simulated values.
 
 The document is available as JSON behind a disclosure. Creating stores
@@ -325,13 +329,16 @@ engine's snake_case.
 | Method | Path | Purpose |
 |-|-|-|
 | GET | `/engine` | `{ chainId, responseMode, simulated }` |
-| GET | `/contracts/:address/abi` | `{ chainId, address, name, abi, implementation }` on the engine's chain, or `400 invalid_contract`, `404 not_verified`, `502 lookup_failed` |
+| GET | `/contracts/:address/abi` | `{ chainId, address, name, abi, implementation }` on the engine's chain, for registering; or `400 invalid_contract`, `404 not_verified`, `502 lookup_failed` |
 | POST | `/rules` | body `{ rule, checkOnly }`; see below |
-| GET | `/rules` | all rules, newest first: `{ id, rule, sentence, enabled, origin, createdAt }` |
+| GET | `/rules` | all rules, newest first, or one contract's with `?contract=`: `{ id, rule, sentence, enabled, origin, createdAt }` |
 | GET | `/rules/:id` | one rule (not built yet) |
 | PUT | `/rules/:id` | replace the document (not built yet) |
 | PATCH | `/rules/:id` | `{ enabled }` (not built yet) |
 | DELETE | `/rules/:id` | remove (not built yet) |
+
+The contracts rules belong to are registered and read through
+`/contracts` (`CONTRACTS.md`).
 
 `POST /rules` is the one way in, and follows the MCP server's
 `submit_rule`. With `checkOnly` it stores nothing and answers `200`
@@ -353,10 +360,13 @@ with the check:
 }
 ```
 
-An invalid document answers `valid: false` with every issue. Without
-`checkOnly`, a valid document is stored and answers `201` with the
-check plus `id` and `stored: true`; otherwise `400 invalid_rule` with
-the issues, `409 duplicate` with `duplicateOf`, or `409 name_taken`.
+An invalid document answers `valid: false` with every issue; a
+document for a contract that is not registered answers
+`400 contract_not_registered`, checked or not. Without `checkOnly`, a
+valid document is stored and answers `201` with the check plus `id`,
+`stored: true` and `enabled`, which is false when the contract is
+disabled; otherwise `400 invalid_rule` with the issues,
+`409 duplicate` with `duplicateOf`, or `409 name_taken`.
 Duplicates are compared in canonical form (sorted keys, lowercase
 addresses) on the contract, trigger, condition and response, ignoring
 name, description and severity.
@@ -382,7 +392,8 @@ validates them again and owns the stored rules. Until the engine is
 available, a stand-in inside the server answers instead:
 
 - it reports Ethereum as its chain and `prepare` as its response mode;
-- it keeps rules in memory, refuses duplicates, and keeps names unique
+- it keeps contracts and rules in memory, refuses rules for contracts
+  that are not registered and duplicates, and keeps names unique
   per contract;
 - it checks rules against deterministic simulated values that drift
   slowly over time;
@@ -409,20 +420,15 @@ Every answer from the stand-in is marked `simulated`.
 | WZ12 | Chain | One per installation, reported by the engine. No chain picker |
 | WZ13 | Reads from functions that return several values | Always name `returns`, even for the first output, so a read never depends on how a missing index is treated |
 | WZ14 | Call responses | Offered, on the rule's own contract with fixed arguments and no ether. It covers contracts that already have an admin pause and were never registered with the controller; another target or a `value` is rare enough for JSON mode |
+| WZ15 | Rules on unregistered contracts | Refused, as the engine refuses them. The wizard picks from registered contracts and registers one in place (`CONTRACTS.md`, CT1), so no rule is started for a contract nobody chose to watch |
 
 ## Open questions
 
-1. **Registered contracts.** The rules wizard is meant to read the
-   engine's `contracts` view (`DATABASE.md`), and registering a
-   contract is a person's decision made where contracts are added
-   (`MCP-SERVER.md`, MC3). Today the wizard takes any verified address.
-   Either the Contract section picks from registered contracts and can
-   add one inline, or it sends the user to Contracts first.
-2. **Issue codes.** The mirror reports Zod's codes; the engine's own
+1. **Issue codes.** The mirror reports Zod's codes; the engine's own
    codes should replace them once its schema is published with them.
-3. **Tuple reads.** Whether `returns` may be omitted for a function
+2. **Tuple reads.** Whether `returns` may be omitted for a function
    that returns several values (WZ13 avoids depending on it).
-4. **Response mode.** Where the application reads the installation's
+3. **Response mode.** Where the application reads the installation's
    response mode from: the engine's control interface, a view, or its
    own configuration.
 
@@ -437,7 +443,8 @@ Every answer from the stand-in is marked `simulated`.
 | `packages/server/src/mock-engine.ts` | the stand-in: store, checks, simulated values |
 | `packages/web/src/lib/abi.ts` | extracting values, events and functions from an ABI |
 | `packages/web/src/lib/templates.ts` | the starting points and their defaults |
-| `packages/web/src/components/wizard/` | the sections, the sentence with blanks, the pinned stepper, the simulated trip |
+| `packages/web/src/components/wizard/` | the sections, the contract picker, the sentence with blanks, the pinned stepper, the simulated trip |
+| `packages/web/src/components/contracts/` | registering a contract, and what a contract exposes |
 | `packages/web/src/pages/NewRule.tsx` | the wizard page and its state |
 
 Tests: the schema accepts every starting point's output, nested
@@ -452,6 +459,7 @@ violation, and builds nothing while a blank is empty; ABI extraction
 offers one value per integer output, names events in declaration
 style, and leaves out what rules cannot reference; the API checks
 without storing, reports a rule that would trip now and a warm-up,
-stores and lists rules, refuses duplicates and taken names, merges a
-proxy's ABI on the engine's chain, and maps an unverified contract and
-an unreachable Sourcify to `404` and `502`.
+stores and lists rules, refuses rules for contracts that are not
+registered, duplicates and taken names, merges a proxy's ABI on the
+engine's chain, and maps an unverified contract and an unreachable
+Sourcify to `404` and `502`.

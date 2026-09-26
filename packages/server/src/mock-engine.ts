@@ -1,6 +1,8 @@
 import {
   describeRule,
   type BoolNode,
+  type Contract,
+  type ContractDetail,
   type EngineInfo,
   type Rule,
   type RuleCheck,
@@ -9,9 +11,9 @@ import {
 } from "@tripwire/shared";
 import { randomBytes } from "node:crypto";
 
-// Development stand-in for the engine: keeps rules in memory and checks them
-// against simulated values that drift slowly over time, so the dashboard can
-// be built and demonstrated before the engine exists.
+// Development stand-in for the engine: keeps contracts and rules in memory
+// and checks rules against simulated values that drift slowly over time, so
+// the dashboard can be built and demonstrated before the engine exists.
 
 /** The engine's setup as the stand-in pretends it: Ethereum, trips held for approval. */
 export const STAND_IN: EngineInfo = {
@@ -219,14 +221,105 @@ function watchKey(rule: Rule): string {
   return JSON.stringify(canonical({ contract, when, trip_when, on_trip }));
 }
 
+/** A registered contract as the stand-in keeps it. */
+interface StoredContract {
+  id: string;
+  address: string;
+  name: string;
+  abi: unknown[];
+  source: Contract["source"];
+  implementation: Contract["implementation"];
+  createdAt: string;
+}
+
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
 export class MockEngine {
   readonly info = STAND_IN;
+  #contracts = new Map<string, StoredContract>();
   #rules = new Map<string, SavedRule>();
+  /** Contracts a person disabled, with the rules that switched off. */
+  #disables = new Map<string, string[]>();
 
-  list(): SavedRule[] {
-    return [...this.#rules.values()].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+  // Contracts
+
+  contracts(): Contract[] {
+    return [...this.#contracts.values()]
+      .map((c) => this.#summary(c))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  contract(address: string): ContractDetail | null {
+    const stored = this.#contracts.get(address.toLowerCase());
+    return stored ? { ...this.#summary(stored), abi: stored.abi } : null;
+  }
+
+  register(
+    registration: Omit<StoredContract, "id" | "createdAt">,
+  ): ContractDetail {
+    const address = registration.address.toLowerCase();
+    this.#contracts.set(address, {
+      ...registration,
+      address,
+      id: `c_${randomBytes(3).toString("hex")}`,
+      createdAt: new Date().toISOString(),
+    });
+    return this.contract(address)!;
+  }
+
+  /** Switches off every enabled rule on the contract, remembering which. */
+  disable(address: string): ContractDetail | null {
+    const key = address.toLowerCase();
+    if (!this.#contracts.has(key)) return null;
+    if (!this.#disables.has(key)) {
+      const switched = this.rules(key).filter((r) => r.enabled);
+      for (const rule of switched) rule.enabled = false;
+      this.#disables.set(
+        key,
+        switched.map((r) => r.id),
+      );
+    }
+    return this.contract(key);
+  }
+
+  /** Switches back on the rules disabling it switched off, and only those. */
+  enable(address: string): ContractDetail | null {
+    const key = address.toLowerCase();
+    if (!this.#contracts.has(key)) return null;
+    for (const id of this.#disables.get(key) ?? []) {
+      const rule = this.#rules.get(id);
+      if (rule) rule.enabled = true;
+    }
+    this.#disables.delete(key);
+    return this.contract(key);
+  }
+
+  #summary(c: StoredContract): Contract {
+    const rules = this.rules(c.address);
+    return {
+      id: c.id,
+      address: c.address,
+      name: c.name,
+      active: !this.#disables.has(c.address),
+      ruleCount: rules.length,
+      enabledCount: rules.filter((r) => r.enabled).length,
+      source: c.source,
+      implementation: c.implementation,
+      createdAt: c.createdAt,
+    };
+  }
+
+  // Rules
+
+  /** All rules, or one contract's, newest first. */
+  rules(contract?: string): SavedRule[] {
+    return [...this.#rules.values()]
+      .filter((r) => !contract || same(r.rule.contract, contract))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  isRegistered(address: string): boolean {
+    return this.#contracts.has(address.toLowerCase());
   }
 
   /** Evaluates the rule once at the current block, as a check before storing. */
@@ -239,7 +332,9 @@ export class MockEngine {
     };
     const holds = evaluateBool(rule.trip_when, ev);
     const key = watchKey(rule);
-    const duplicate = this.list().find((saved) => watchKey(saved.rule) === key);
+    const duplicate = this.rules().find(
+      (saved) => watchKey(saved.rule) === key,
+    );
     return {
       valid: true,
       issues: [],
@@ -258,19 +353,18 @@ export class MockEngine {
 
   /** Names are unique per contract. */
   nameTaken(rule: Rule): boolean {
-    return this.list().some(
-      (saved) =>
-        saved.rule.contract.toLowerCase() === rule.contract.toLowerCase() &&
-        saved.rule.name === rule.name,
+    return this.rules(rule.contract).some(
+      (saved) => saved.rule.name === rule.name,
     );
   }
 
+  /** Stores a rule; on a disabled contract it starts disabled, so the contract stays quiet. */
   create(rule: Rule): SavedRule {
     const saved: SavedRule = {
       id: `r_${randomBytes(3).toString("hex")}`,
       rule,
       sentence: describeRule(rule),
-      enabled: true,
+      enabled: !this.#disables.has(rule.contract.toLowerCase()),
       origin: "dashboard",
       createdAt: new Date().toISOString(),
     };

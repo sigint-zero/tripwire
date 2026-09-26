@@ -11,6 +11,33 @@ export interface ContractAbi {
   implementation: { address: string; name: string | null } | null;
 }
 
+/** A contract registered for Tripwire to watch. */
+export interface Contract {
+  id: string;
+  /** Lowercase; an installation watches one chain, so the address is the key. */
+  address: string;
+  name: string;
+  /** False while a person has disabled it and its rules with it. */
+  active: boolean;
+  ruleCount: number;
+  enabledCount: number;
+  /** Where the ABI came from: the verified source, or pasted by a person. */
+  source: "verified" | "pasted";
+  implementation: { address: string; name: string | null } | null;
+  createdAt: string;
+}
+
+export interface ContractDetail extends Contract {
+  abi: unknown[];
+}
+
+/** Registering a contract; without an ABI the verified one is looked up. */
+export interface ContractRegistration {
+  address: string;
+  name: string;
+  abi?: unknown[];
+}
+
 /**
  * How the engine is set up. An installation watches one chain, and whether
  * a trip is held for approval or sent at once is set for the installation,
@@ -53,6 +80,8 @@ export interface RuleSubmission {
 export interface StoredRuleCheck extends RuleCheck {
   id: string;
   stored: true;
+  /** False when the rule's contract is disabled: it starts disabled too. */
+  enabled: boolean;
 }
 
 /** A rule as the engine keeps it. */

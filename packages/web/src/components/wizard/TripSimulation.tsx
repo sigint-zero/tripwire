@@ -152,7 +152,6 @@ export function TripSimulation({
         className="mb-4 flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-amber-400 uppercase"
         title="An illustration of a breach, not a prediction."
       >
-        <span className="size-1.5 bg-amber-400" />
         Simulated trip
       </p>
 

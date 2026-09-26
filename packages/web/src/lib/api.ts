@@ -1,5 +1,8 @@
 import type {
+  Contract,
   ContractAbi,
+  ContractDetail,
+  ContractRegistration,
   EngineInfo,
   Issue,
   Rule,
@@ -51,7 +54,21 @@ export const api = {
   engine: (signal?: AbortSignal) => request<EngineInfo>("/engine", { signal }),
   abi: (address: string, signal?: AbortSignal) =>
     request<ContractAbi>(`/contracts/${address}/abi`, { signal }),
-  rules: (signal?: AbortSignal) => request<SavedRule[]>("/rules", { signal }),
+  contracts: (signal?: AbortSignal) =>
+    request<Contract[]>("/contracts", { signal }),
+  contract: (address: string, signal?: AbortSignal) =>
+    request<ContractDetail>(`/contracts/${address}`, { signal }),
+  registerContract: (registration: ContractRegistration) =>
+    request<ContractDetail>("/contracts", { json: registration }),
+  setContractActive: (address: string, active: boolean) =>
+    request<ContractDetail>(
+      `/contracts/${address}/${active ? "enable" : "disable"}`,
+      { method: "POST" },
+    ),
+  rules: (contract?: string, signal?: AbortSignal) =>
+    request<SavedRule[]>(contract ? `/rules?contract=${contract}` : "/rules", {
+      signal,
+    }),
   checkRule: (rule: Rule, signal?: AbortSignal) =>
     request<RuleCheck>("/rules", { json: { rule, checkOnly: true }, signal }),
   createRule: (rule: Rule) =>

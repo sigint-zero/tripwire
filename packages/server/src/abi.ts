@@ -1,5 +1,9 @@
 import { address, chainName, type ContractAbi } from "@tripwire/shared";
-import type { FastifyPluginCallback } from "fastify";
+import type {
+  FastifyBaseLogger,
+  FastifyPluginCallback,
+  FastifyReply,
+} from "fastify";
 
 // Looks up verified ABIs on Sourcify, which needs no API key. A proxy's
 // implementation ABI is merged in, so its functions show up too.
@@ -72,14 +76,50 @@ export async function lookupAbi(
   };
 }
 
-export const abiRoutes: FastifyPluginCallback<{ chainId: number }> = (
+/** Looks up verified ABIs on the engine's chain, remembering each answer. */
+export class AbiLookup {
+  #cache = new Map<string, ContractAbi>();
+
+  constructor(readonly chainId: number) {}
+
+  async get(contract: string): Promise<ContractAbi> {
+    const key = contract.toLowerCase();
+    const cached = this.#cache.get(key);
+    if (cached) return cached;
+    const result = await lookupAbi(this.chainId, contract);
+    this.#cache.set(key, result);
+    return result;
+  }
+}
+
+/** Sends a failed lookup as the API's error envelope. */
+export function lookupFailed(
+  reply: FastifyReply,
+  log: FastifyBaseLogger,
+  error: unknown,
+) {
+  if (error instanceof AbiNotFound) {
+    return reply.code(404).send({
+      statusCode: 404,
+      error: "Not Found",
+      code: "not_verified",
+      message: error.message,
+    });
+  }
+  log.warn(error);
+  return reply.code(502).send({
+    statusCode: 502,
+    error: "Bad Gateway",
+    code: "lookup_failed",
+    message: "Could not reach Sourcify. Paste the ABI instead.",
+  });
+}
+
+export const abiRoutes: FastifyPluginCallback<{ lookup: AbiLookup }> = (
   app,
-  { chainId },
+  { lookup },
   done,
 ) => {
-  const cache = new Map<string, ContractAbi>();
-
-  // Looks up on the chain the engine watches; an installation watches one.
   app.get<{ Params: { address: string } }>(
     "/contracts/:address/abi",
     async (request, reply) => {
@@ -92,29 +132,10 @@ export const abiRoutes: FastifyPluginCallback<{ chainId: number }> = (
           message: "Invalid address.",
         });
       }
-      const key = contract.data.toLowerCase();
-      const cached = cache.get(key);
-      if (cached) return cached;
       try {
-        const result = await lookupAbi(chainId, contract.data);
-        cache.set(key, result);
-        return result;
+        return await lookup.get(contract.data);
       } catch (error) {
-        if (error instanceof AbiNotFound) {
-          return reply.code(404).send({
-            statusCode: 404,
-            error: "Not Found",
-            code: "not_verified",
-            message: error.message,
-          });
-        }
-        request.log.warn(error);
-        return reply.code(502).send({
-          statusCode: 502,
-          error: "Bad Gateway",
-          code: "lookup_failed",
-          message: "Could not reach Sourcify. Paste the ABI instead.",
-        });
+        return lookupFailed(reply, request.log, error);
       }
     },
   );

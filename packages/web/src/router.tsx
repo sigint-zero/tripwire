@@ -7,6 +7,7 @@ import {
 import { AppShell } from "./components/AppShell";
 import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
+import { ContractPage } from "./pages/Contract";
 import { ContractsPage } from "./pages/Contracts";
 import { FirstRunPage } from "./pages/FirstRun";
 import { NewRulePage } from "./pages/NewRule";
@@ -47,6 +48,15 @@ const contractsRoute = createRoute({
   component: ContractsPage,
 });
 
+const contractRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/contracts/$address",
+  component: function Contract() {
+    const { address } = contractRoute.useParams();
+    return <ContractPage key={address} address={address} />;
+  },
+});
+
 const rulesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/rules",
@@ -61,7 +71,12 @@ const rulesRoute = createRoute({
 const newRuleRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/rules/new",
-  component: NewRulePage,
+  validateSearch: (search): { contract?: string } =>
+    typeof search.contract === "string" ? { contract: search.contract } : {},
+  component: function NewRule() {
+    const { contract } = newRuleRoute.useSearch();
+    return <NewRulePage key={contract} contract={contract} />;
+  },
 });
 
 const violationsRoute = createRoute({
@@ -104,6 +119,7 @@ const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
     overviewRoute,
     contractsRoute,
+    contractRoute,
     rulesRoute,
     newRuleRoute,
     violationsRoute,

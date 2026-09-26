@@ -23,6 +23,12 @@ const floor = {
 let app: FastifyInstance;
 beforeAll(async () => {
   app = await createServer();
+  // Rules belong to registered contracts.
+  await app.inject({
+    method: "POST",
+    url: "/api/v1/contracts",
+    payload: { address: vault, name: "Vault", abi: [] },
+  });
   return () => app.close();
 });
 afterEach(() => vi.restoreAllMocks());
@@ -150,6 +156,15 @@ describe("storing a rule", () => {
       code: "invalid_rule",
       issues: [{ path: "/name", message: "is required" }],
     });
+  });
+
+  it("refuses a rule for a contract that is not registered", async () => {
+    const other = "0x4444444444444444444444444444444444444444";
+    for (const checkOnly of [true, false]) {
+      const res = await submit({ ...floor, contract: other }, checkOnly);
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: "contract_not_registered" });
+    }
   });
 
   it("rejects a body that is not a submission", async () => {

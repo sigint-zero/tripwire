@@ -5,16 +5,19 @@ import { isAddress } from "viem";
 import { describeAbi, parseAbiText, type ContractSurface } from "../../lib/abi";
 import { api } from "../../lib/api";
 
-export interface LoadedContract {
+/** A contract seen before it is registered. */
+export interface ContractPreview {
   address: string;
   name: string | null;
   implementation: ContractAbi["implementation"];
   surface: ContractSurface;
   source: "verified" | "pasted";
+  /** The pasted ABI, which registering sends along; a verified one is looked up again. */
+  abi: unknown[] | null;
 }
 
 /** Resolves a contract's ABI: looked up by address, or pasted by the user. */
-export function useContract(address: string, pasted: string) {
+export function useContractLookup(address: string, pasted: string) {
   const valid = isAddress(address, { strict: false });
   const usePasted = pasted.trim() !== "";
 
@@ -29,9 +32,11 @@ export function useContract(address: string, pasted: string) {
   const pastedAbi = useMemo(() => {
     if (!usePasted) return null;
     try {
-      return { surface: describeAbi(parseAbiText(pasted)), error: null };
+      const abi = parseAbiText(pasted);
+      return { abi, surface: describeAbi(abi), error: null };
     } catch (error) {
       return {
+        abi: null,
         surface: null,
         error: error instanceof Error ? error.message : "Invalid ABI",
       };
@@ -43,28 +48,30 @@ export function useContract(address: string, pasted: string) {
     [lookup.data],
   );
 
-  let contract: LoadedContract | null = null;
+  let preview: ContractPreview | null = null;
   if (valid && pastedAbi?.surface) {
-    contract = {
+    preview = {
       address,
       name: null,
       implementation: null,
       surface: pastedAbi.surface,
       source: "pasted",
+      abi: pastedAbi.abi,
     };
   } else if (valid && !usePasted && lookup.data && verifiedSurface) {
-    contract = {
+    preview = {
       address,
       name: lookup.data.name,
       implementation: lookup.data.implementation,
       surface: verifiedSurface,
       source: "verified",
+      abi: null,
     };
   }
 
   return {
     valid,
-    contract,
+    preview,
     looking: valid && !usePasted && lookup.isFetching,
     lookupError: usePasted ? null : lookup.error,
     pasteError: pastedAbi?.error ?? null,

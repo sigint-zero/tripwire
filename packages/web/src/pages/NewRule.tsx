@@ -20,7 +20,8 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { ContractStep } from "../components/wizard/ContractStep";
+import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
+import { ContractPicker } from "../components/wizard/ContractPicker";
 import {
   actions,
   cooldowns,
@@ -31,7 +32,6 @@ import { RuleSentence, sentenceText } from "../components/wizard/RuleSentence";
 import { Stepper } from "../components/wizard/Stepper";
 import { TemplatePicker } from "../components/wizard/TemplatePicker";
 import { TripSimulation } from "../components/wizard/TripSimulation";
-import { useContract } from "../components/wizard/useContract";
 import { Button, Eyebrow } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { shortAddress } from "../lib/format";
@@ -42,12 +42,6 @@ import {
   type Values,
 } from "../lib/templates";
 
-// Development only: a contract address to start from, so it need not be
-// pasted on every reload. Production builds ignore it.
-const devAddress = import.meta.env.DEV
-  ? (import.meta.env.VITE_DEV_CONTRACT ?? "")
-  : "";
-
 const steps = [
   { title: "Contract", hint: "Which contract should Tripwire watch?" },
   { title: "Rule", hint: "What should always be true?" },
@@ -55,12 +49,13 @@ const steps = [
   { title: "Review", hint: "Name it and switch it on." },
 ];
 
-export function NewRulePage() {
+/** The wizard; `contract` preselects a registered contract. */
+export function NewRulePage({ contract: initial }: { contract?: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [address, setAddress] = useState(devAddress);
-  const [pasted, setPasted] = useState("");
-  const [pasteOpen, setPasteOpen] = useState(false);
+  const [selected, setSelected] = useState<string | null>(
+    initial?.toLowerCase() ?? null,
+  );
   const [templateId, setTemplateId] = useState<string | null>(null);
   // Blanks are kept per template, so trying another preset and coming back
   // does not lose what was filled in.
@@ -82,8 +77,11 @@ export function NewRulePage() {
   });
   const chain = engine ? chainName(engine.chainId) : null;
 
-  const contractState = useContract(address, pasted);
-  const contract = contractState.contract;
+  const { data: contracts } = useQuery({
+    queryKey: ["contracts"],
+    queryFn: ({ signal }) => api.contracts(signal),
+  });
+  const { contract } = useRegisteredContract(selected);
   const surface = contract?.surface;
   const ranked = surface ? rankTemplates(surface) : [];
   const template = templates.find((t) => t.id === templateId) ?? null;
@@ -146,6 +144,7 @@ export function NewRulePage() {
     mutationFn: () => api.createRule(rule!),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ["rules"] });
+      await queryClient.invalidateQueries({ queryKey: ["contracts"] });
       await navigate({ to: "/rules", search: { created: created.id } });
     },
   });
@@ -242,8 +241,6 @@ export function NewRulePage() {
       </section>
     );
 
-  const contractName = contract?.name ?? shortAddress(address);
-
   return (
     <div className="pb-[40vh]">
       <header className="mb-6">
@@ -265,28 +262,20 @@ export function NewRulePage() {
       <div>
         {section(
           0,
-          <ContractStep
-            chain={chain}
-            address={address}
-            pasted={pasted}
-            pasteOpen={pasteOpen}
-            state={contractState}
-            onAddress={(a) => {
-              setAddress(a);
-              resetFromContract();
-            }}
-            onPasted={(text) => {
-              setPasted(text);
-              resetFromContract();
-            }}
-            onPasteOpen={(open) => {
-              setPasteOpen(open);
-              if (!open) {
-                setPasted("");
-                resetFromContract();
-              }
-            }}
-          />,
+          contracts ? (
+            <ContractPicker
+              contracts={contracts}
+              selected={selected}
+              loaded={contract}
+              chain={chain}
+              onSelect={(address) => {
+                if (address !== selected) resetFromContract();
+                setSelected(address);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-gray-500">Loading contracts…</p>
+          ),
         )}
 
         {surface &&
@@ -339,7 +328,7 @@ export function NewRulePage() {
                   rule={draft}
                   sentence={sentenceText(template, values, surface)}
                   responseMode={engine.responseMode}
-                  contractName={contractName}
+                  contractName={contract?.name ?? ""}
                   valueLabel={ruleLabels[0] ?? ""}
                   limitLabel={ruleLabels[1] ?? ""}
                 />
@@ -360,7 +349,7 @@ export function NewRulePage() {
                 summary={[
                   [
                     "Watches",
-                    `${contractName} (${shortAddress(address)})${chain ? ` on ${chain}` : ""}`,
+                    `${contract?.name} (${shortAddress(selected ?? "")})${chain ? ` on ${chain}` : ""}`,
                   ],
                   ["Rule", sentenceText(template, values, surface)],
                   [
@@ -371,6 +360,7 @@ export function NewRulePage() {
                   ["Response", describeOnTrip(onTrip)],
                 ]}
                 check={rule ? check.data : undefined}
+                startsDisabled={contract?.active === false}
                 json={draft}
                 error={create.error}
               />
@@ -420,6 +410,7 @@ function Review({
   onDescription,
   summary,
   check,
+  startsDisabled,
   json,
   error,
 }: {
@@ -430,6 +421,7 @@ function Review({
   onDescription: (description: string) => void;
   summary: [string, string][];
   check: RuleCheck | undefined;
+  startsDisabled: boolean;
   json: unknown;
   error: Error | null;
 }) {
@@ -481,6 +473,11 @@ function Review({
       </dl>
       {check && (
         <ul className="space-y-1 text-xs">
+          {startsDisabled && (
+            <li className="text-amber-400">
+              Its contract is disabled, so the rule starts disabled.
+            </li>
+          )}
           {evaluation?.wouldTripNow && (
             <li className="text-amber-400">
               It would trip right now, at block{" "}
