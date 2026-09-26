@@ -24,6 +24,8 @@ interface Run {
   newest: Violation;
   oldest: Violation;
   ids: string[];
+  /** The newest response any violation in the run produced. */
+  response: Violation["response"];
 }
 
 function runsOf(violations: Violation[]): Run[] {
@@ -35,8 +37,14 @@ function runsOf(violations: Violation[]): Run[] {
     if (run && run.oldest.blockNumber - v.blockNumber <= 1) {
       run.oldest = v;
       run.ids.push(v.id);
+      run.response ??= v.response;
     } else {
-      const started = { newest: v, oldest: v, ids: [v.id] };
+      const started = {
+        newest: v,
+        oldest: v,
+        ids: [v.id],
+        response: v.response,
+      };
       runs.push(started);
       growing.set(key, started);
     }
@@ -224,17 +232,18 @@ function RunDetail({
 
       {/* Nothing is said when there was no response: under notify, a
           quiet period or a live response, none is expected. */}
-      {newest.response && (
+      {run.response && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
           <span className="text-[10px] font-bold tracking-[0.2em] uppercase">
             Response
           </span>
           {action && <span className="text-gray-300">{action}</span>}
-          <span className={responseStatuses[newest.response.status].tone}>
-            {responseStatuses[newest.response.status].label}
+          <span className={responseStatuses[run.response.status].tone}>
+            {responseStatuses[run.response.status].label}
           </span>
           <Link
             to="/responses"
+            search={{ open: run.response.id }}
             className="transition-colors hover:text-emerald-400"
           >
             In Responses →
