@@ -35,7 +35,7 @@ The CLI package ships `engine.json` beside the executable:
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publicKey": "RWSoM+vf95ORaF6HNTzIuR3dLJTdGRkZtNA+Knh6VeqT57s6rMkL25db",
   "releases": "https://github.com/sigint-zero/tripwire/releases/download/engine-v{version}/{asset}"
 }
@@ -544,8 +544,8 @@ the API's error envelope.
   "state": "ready",
   "since": "2026-09-26T09:14:03Z",
   "runner": "supervised",
-  "version": "0.1.0",
-  "pinnedVersion": "0.1.0",
+  "version": "0.1.2",
+  "pinnedVersion": "0.1.2",
   "install": null,
   "health": {
     "head": 23145870,

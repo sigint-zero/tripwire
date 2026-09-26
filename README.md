@@ -193,7 +193,7 @@ possible, fetch the release yourself and install it from that folder;
 it is checked the same way:
 
 ```sh
-v=0.1.0; t=x86_64-unknown-linux-musl   # aarch64-unknown-linux-musl on ARM64
+v=0.1.2; t=x86_64-unknown-linux-musl   # aarch64-unknown-linux-musl on ARM64
 gh release download engine-v$v -R sigint-zero/tripwire -D ./engine-$v \
   -p SHA256SUMS -p SHA256SUMS.minisig -p tripwire-engine-$v-$t
 tripwire engine install --from ./engine-$v
