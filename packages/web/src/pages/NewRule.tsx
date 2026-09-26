@@ -384,6 +384,7 @@ export function NewRulePage({
                 surface={surface}
                 responseMode={engine?.responseMode}
                 contract={selected ?? ""}
+                registered={contract?.controller != null}
               />
               {draft && template && ready[1] && engine && (
                 <TripSimulation
