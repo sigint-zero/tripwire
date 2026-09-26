@@ -144,14 +144,20 @@ export function ResponseStep({
   registered?: boolean;
 }) {
   const { writes } = surface;
-  // A rule already pausing through the controller keeps its choice in view.
-  const offered = actions.filter(
-    (a) =>
-      !a.controller ||
-      registered ||
-      value.action === "trip_global" ||
-      value.action === "trip_function",
-  );
+  // Why an action cannot be chosen here, or null when it can. A rule already
+  // pausing through the controller keeps its choice.
+  const unavailable = (a: (typeof actions)[number]) => {
+    if (a.controller && !registered && value.action !== a.action) {
+      return "Needs this contract registered with the Tripwire controller.";
+    }
+    if (
+      (a.action === "trip_function" || a.action === "call") &&
+      !writes.length
+    ) {
+      return "This contract has no functions a rule can reach.";
+    }
+    return null;
+  };
   const cooldown = value.cooldown_seconds ?? 0;
   const choose = (action: OnTrip["action"]) => {
     if (action === "call") {
@@ -184,21 +190,15 @@ export function ResponseStep({
         <h3 className={rowLabel}>On-chain</h3>
         <div>
           <div className={track}>
-            {offered.map((a) => {
-              const unavailable =
-                (a.action === "trip_function" || a.action === "call") &&
-                writes.length === 0;
+            {actions.map((a) => {
+              const reason = unavailable(a);
               return (
                 <button
                   key={a.action}
                   type="button"
                   aria-pressed={value.action === a.action}
-                  disabled={unavailable}
-                  title={
-                    unavailable
-                      ? "This contract has no functions a rule can reach."
-                      : a.body
-                  }
+                  disabled={reason !== null}
+                  title={reason ?? a.body}
                   onClick={() => choose(a.action)}
                   className={`${choice(value.action === a.action)} disabled:opacity-30`}
                 >
