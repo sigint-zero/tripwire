@@ -15,6 +15,7 @@ import { NotFoundPage } from "./pages/NotFound";
 import { NotificationsPage } from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
 import { ResponsesPage } from "./pages/Responses";
+import { RulePage } from "./pages/Rule";
 import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { ViolationsPage } from "./pages/Violations";
@@ -79,6 +80,15 @@ const newRuleRoute = createRoute({
   },
 });
 
+const ruleRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/rules/$id",
+  component: function Rule() {
+    const { id } = ruleRoute.useParams();
+    return <RulePage key={id} id={id} />;
+  },
+});
+
 const violationsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/violations",
@@ -122,6 +132,7 @@ const routeTree = rootRoute.addChildren([
     contractRoute,
     rulesRoute,
     newRuleRoute,
+    ruleRoute,
     violationsRoute,
     responsesRoute,
     activityRoute,

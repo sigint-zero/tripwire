@@ -124,6 +124,6 @@ export const api = {
   },
   violation: (id: string, signal?: AbortSignal) =>
     request<Violation>(`/violations/${id}`, { signal }),
-  acknowledge: (id: string, note?: string) =>
-    request<Violation>(`/violations/${id}/acknowledge`, { json: { note } }),
+  acknowledge: (ids: string[], note?: string) =>
+    request<Violation[]>("/violations/acknowledge", { json: { ids, note } }),
 };

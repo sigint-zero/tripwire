@@ -5,6 +5,7 @@ import {
   type Severity,
 } from "@tripwire/shared";
 import type { WriteFunction } from "../../lib/abi";
+import { choice, track } from "../ui";
 
 export const severities: {
   severity: Severity;
@@ -103,13 +104,6 @@ const row = "space-y-3";
 const rowLabel =
   "text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
 /** One control per row: a single track, only the chosen option filled. */
-const track = "flex w-fit bg-white/3 p-1";
-const choice = (active: boolean) =>
-  `inline-flex items-center gap-2 px-4 py-2 text-xs whitespace-nowrap font-bold tracking-wider uppercase transition-colors ${
-    active
-      ? "bg-emerald-500/10 text-emerald-400"
-      : "text-gray-500 hover:text-gray-300"
-  }`;
 
 export function ResponseStep({
   severity,

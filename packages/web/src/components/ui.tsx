@@ -28,6 +28,15 @@ export function Button({
   );
 }
 
+/** A row of choices on one filled track; the chosen one lit. */
+export const track = "flex w-fit bg-white/3 p-1";
+export const choice = (active: boolean) =>
+  `inline-flex cursor-pointer items-center gap-2 px-4 py-2 text-xs whitespace-nowrap font-bold tracking-wider uppercase transition-colors ${
+    active
+      ? "bg-emerald-500/10 text-emerald-400"
+      : "text-gray-500 hover:text-gray-300"
+  }`;
+
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="text-xs font-bold tracking-[0.2em] text-emerald-400 uppercase">
