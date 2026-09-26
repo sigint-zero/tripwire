@@ -27,9 +27,10 @@ When an invariant breaks, Tripwire:
 2. **Alerts you** on your channels: chat, paging, or your own systems.
 3. **Optionally responds on-chain**: it can pause the affected function
    (or the whole contract) through the TripwireController, Tripwire's
-   on-chain circuit-breaker contract, before the damage is done. Response
-   is opt-in per rule, with three modes: alert only, hold for your
-   approval, or fully autonomous.
+   on-chain circuit-breaker contract, before the damage is done. Each
+   rule chooses its on-chain action, and the installation runs in one
+   of three modes: alert only, hold for your approval, or fully
+   autonomous.
 
 Between violations you get a live dashboard: current values, historical
 charts, which rules are currently tripped, and the health of the monitor
