@@ -1,4 +1,4 @@
-import type { EngineStatus, KeyList, NewKey } from "@tripwire/shared";
+import type { Contract, EngineStatus, KeyList, NewKey } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { createServer } from "./app";
 import { newKeystore } from "./engine/keystore";
 import { ViewReads } from "./engine/reads";
 import { STUB_VIEWS, StubEngine } from "./engine/stub";
+import { GUARDIAN } from "./engine/stub-responses";
 import { signIn, TEST_COST, testDatabase, testHome } from "./testing";
 
 // Keys as Settings uses them: made, imported, unlocked and locked in the
@@ -175,6 +176,31 @@ describe("keys", () => {
       (await post(`/keys/${carried}/unlock`, { passphrase: "carried over" }))
         .statusCode,
     ).toBe(200);
+  });
+
+  it("follows a contract's guardian on the controller, and one that never registered", async () => {
+    const guardianOf = async () =>
+      (await get<Contract[]>("/contracts")).find((c) => c.address === vault)
+        ?.controller;
+    const next = `0x${"8".repeat(40)}`;
+    await pool.query(
+      `INSERT INTO stub.controller_events
+         (block_number, block_hash, block_time, address, tx_hash, log_index, event_name, payload)
+       VALUES (1e9, '0x', now(), '0xc0', '0x', 0, 'GuardianshipTransferred', $1)`,
+      [
+        JSON.stringify({
+          guardedContract: vault,
+          oldGuardian: GUARDIAN,
+          newGuardian: next,
+        }),
+      ],
+    );
+    expect(await guardianOf()).toEqual({ guardian: next });
+    await pool.query(
+      "DELETE FROM stub.controller_events WHERE payload->>'guardedContract' = $1",
+      [vault],
+    );
+    expect(await guardianOf()).toBeNull();
   });
 
   it("names the registered contracts that make a key an operator", async () => {

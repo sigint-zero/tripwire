@@ -24,6 +24,11 @@ export interface Contract {
   /** Where the ABI came from: the verified source, or pasted by a person. */
   source: "verified" | "pasted";
   implementation: { address: string; name: string | null } | null;
+  /**
+   * Its registration with the TripwireController, seen in the controller's
+   * events, and its guardian now; null when it did not register.
+   */
+  controller: { guardian: string } | null;
   createdAt: string;
 }
 

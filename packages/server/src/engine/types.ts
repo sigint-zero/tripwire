@@ -183,6 +183,14 @@ export interface OperatorRow {
   operator: string;
 }
 
+/** A registered contract that registered itself with the controller, and its guardian now. */
+export interface RegistrationRow {
+  /** The contract as registered with Tripwire. */
+  contract_address: string;
+  /** Lowercase `0x` address. */
+  guardian: string;
+}
+
 /** `KeyOut`: a keystore on disk, whether it can sign, and its native balance. */
 export interface KeyRow {
   /** Lowercase `0x` address. */
@@ -352,6 +360,8 @@ export interface EngineReads {
   engineStatus(): Promise<CursorRow[]>;
   /** Operators granted on registered contracts and not since removed. */
   operators(): Promise<OperatorRow[]>;
+  /** Registered contracts on the controller, each with its latest guardian. */
+  registrations(): Promise<RegistrationRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
   /** The series each rule draws from, in document order. */

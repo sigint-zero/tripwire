@@ -6,6 +6,7 @@ import type {
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { GUARDIAN } from "./engine/stub-responses";
 import { testServer } from "./testing";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
@@ -118,6 +119,15 @@ describe("registering a contract", () => {
     const res = await register({ address: other, name: "Unknown" });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ code: "not_verified" });
+  });
+
+  it("shows its registration with the controller, and the guardian", async () => {
+    // The stand-in's controller has every contract it watches registered.
+    const [listed] = await get<Contract[]>("/contracts");
+    expect(listed!.controller).toEqual({ guardian: GUARDIAN });
+    expect(
+      (await get<ContractDetail>(`/contracts/${token}`)).controller,
+    ).toEqual({ guardian: GUARDIAN });
   });
 
   it("answers 404 for a contract that is not registered", async () => {

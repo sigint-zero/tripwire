@@ -14,7 +14,9 @@ import {
   actsOnChain,
   buildTx,
   confirmed,
+  CONTROLLER,
   DEFAULT_QUIET_SECONDS,
+  GUARDIAN,
   submitted,
   type StubTx,
 } from "./stub-responses";
@@ -271,7 +273,39 @@ export class StubEngine implements EngineCommands, EngineEvents {
     mode: ResponseMode = "prepare",
   ): Promise<StubEngine> {
     await pool.query(SCHEMA);
-    return new StubEngine(pool, clock, mode);
+    const stub = new StubEngine(pool, clock, mode);
+    await stub.#register(null);
+    return stub;
+  }
+
+  /**
+   * The stand-in's controller has every contract it watches registered,
+   * so the controller's pauses can be tried: `address`, or every contract
+   * not registered yet. A contract registers itself on chain; this is
+   * the event the engine would mirror.
+   */
+  async #register(address: string | null) {
+    const block = blockAt(this.#clock());
+    await this.#pool.query(
+      `INSERT INTO stub.controller_events
+         (block_number, block_hash, block_time, address, tx_hash, log_index, event_name, payload)
+       SELECT $1, $2, $3, $4, '0x' || md5(c.address) || md5(c.address), 0, 'Registered',
+              jsonb_build_object('guardedContract', c.address, 'guardian', $5::text)
+         FROM stub.contracts c
+        WHERE ($6::text IS NULL OR c.address = $6)
+          AND NOT EXISTS (
+            SELECT 1 FROM stub.controller_events e
+             WHERE e.event_name = 'Registered'
+               AND lower(e.payload->>'guardedContract') = c.address)`,
+      [
+        block,
+        `0x${block.toString(16).padStart(64, "0")}`,
+        new Date(timeOf(block)).toISOString(),
+        CONTROLLER,
+        GUARDIAN,
+        address,
+      ],
+    );
   }
 
   /** The same events the engine streams, from the simulated chain. */
@@ -310,8 +344,8 @@ export class StubEngine implements EngineCommands, EngineEvents {
         last_success_unix_ms: clock,
         last_failure_unix_ms: null,
       },
-      // No chain, so no controller to mirror.
-      controller: null,
+      // The controller its responses pause through, mirrored as it goes.
+      controller: { address: CONTROLLER, mirrored_block: head },
       keys: {
         known: rows.length,
         unlocked: rows.filter((r) => this.#unlocked.has(r.address)).length,
@@ -337,6 +371,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
           contract.abi ? JSON.stringify(contract.abi) : null,
         ],
       );
+      await this.#register(address);
       return rows[0]!;
     } catch (error) {
       if (uniqueViolation(error)) {

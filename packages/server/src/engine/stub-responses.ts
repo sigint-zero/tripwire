@@ -8,6 +8,8 @@ import { toFunctionSelector } from "viem";
 
 /** The known controller deployment on Ethereum (`RESPONSES.md`). */
 export const CONTROLLER = "0x328aed8f7a01f45a959c187f3cb97ec508064854";
+/** The guardian every contract registers with the stand-in's controller: the owner's wallet. */
+export const GUARDIAN = "0x7e57000000000000000000000000000000000001";
 
 const GAS_LIMIT = 65_000n;
 const GWEI = 1_000_000_000n;

@@ -30,8 +30,10 @@ function toContract(
   row: ContractRow,
   disables: Map<string, string[]>,
   sources: Awaited<ReturnType<AppStore["sources"]>>,
+  guardians: Map<string, string>,
 ): Contract {
   const source = sources.get(row.address);
+  const guardian = guardians.get(row.address.toLowerCase());
   return {
     id: row.id,
     address: row.address,
@@ -43,6 +45,7 @@ function toContract(
     implementation: source?.implementation
       ? { address: source.implementation, name: null }
       : null,
+    controller: guardian ? { guardian } : null,
     createdAt: row.created_at,
   };
 }
@@ -63,21 +66,35 @@ export const contractRoutes: FastifyPluginCallback<{
       "No contract is registered at this address.",
     );
 
+  /** Each registered contract's guardian on the controller, by address. */
+  const guardians = async () =>
+    new Map(
+      (await reads.registrations()).map((r) => [
+        r.contract_address.toLowerCase(),
+        r.guardian,
+      ]),
+    );
+
   const detail = async (row: ContractRow): Promise<ContractDetail> => {
-    const [disables, sources] = await Promise.all([
+    const [disables, sources, registered] = await Promise.all([
       store.disables(),
       store.sources(),
+      guardians(),
     ]);
-    return { ...toContract(row, disables, sources), abi: row.abi ?? [] };
+    return {
+      ...toContract(row, disables, sources, registered),
+      abi: row.abi ?? [],
+    };
   };
 
   app.get("/contracts", async () => {
-    const [rows, disables, sources] = await Promise.all([
+    const [rows, disables, sources, registered] = await Promise.all([
       reads.contracts(),
       store.disables(),
       store.sources(),
+      guardians(),
     ]);
-    return rows.map((row) => toContract(row, disables, sources));
+    return rows.map((row) => toContract(row, disables, sources, registered));
   });
 
   app.get<ByAddress>("/contracts/:address", async (request, reply) => {

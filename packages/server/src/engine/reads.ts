@@ -7,6 +7,7 @@ import {
   type EngineReads,
   type BucketRow,
   type OperatorRow,
+  type RegistrationRow,
   type PointRow,
   type ResponseRow,
   type RuleActivity,
@@ -225,6 +226,23 @@ export class ViewReads implements EngineReads {
          JOIN ${this.#schema}.contracts c ON lower(c.address) = g.contract
         WHERE g.event_name = 'OperatorAdded'
         ORDER BY c.address, g.operator LIMIT ${LIMIT}`,
+    );
+  }
+
+  registrations() {
+    // Registration names the first guardian; each transfer names the next.
+    return this.#read<RegistrationRow>(
+      `SELECT c.address AS contract_address, g.guardian
+         FROM (
+           SELECT DISTINCT ON (1)
+                  lower(e.payload->>'guardedContract') AS contract,
+                  lower(coalesce(e.payload->>'newGuardian', e.payload->>'guardian')) AS guardian
+             FROM ${this.#schema}.controller_events e
+            WHERE e.event_name IN ('Registered', 'GuardianshipTransferred')
+            ORDER BY 1, e.block_number DESC, e.log_index DESC
+         ) g
+         JOIN ${this.#schema}.contracts c ON lower(c.address) = g.contract
+        ORDER BY c.address LIMIT ${LIMIT}`,
     );
   }
 
