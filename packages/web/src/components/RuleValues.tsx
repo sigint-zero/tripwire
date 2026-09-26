@@ -1,4 +1,5 @@
-import type { SavedRule, Violation } from "@tripwire/shared";
+import type { CheckNow, SavedRule, Violation } from "@tripwire/shared";
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { formatBig, showValue, timeAgo } from "../lib/format";
@@ -26,8 +27,12 @@ export function RuleValues({
     queryFn: ({ signal }) => api.ruleCurrent(rule.id, signal),
     refetchInterval: 30_000,
   });
-  const check = useMutation({ mutationFn: () => api.checkNow(rule.id) });
-  const result = check.data;
+  // The last result stays up while the next check runs, so nothing jumps.
+  const [shown, setShown] = useState<CheckNow>();
+  const check = useMutation({
+    mutationFn: () => api.checkNow(rule.id),
+    onSuccess: setShown,
+  });
 
   return (
     <>
@@ -72,54 +77,98 @@ export function RuleValues({
       </section>
 
       <section className="mb-12">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-          <h2 className={`${heading} mb-0`}>Check now</h2>
-          <Button
-            variant="ghost"
-            disabled={check.isPending}
-            onClick={() => check.mutate()}
-            title="Evaluates the rule once at the current block and records nothing, even while it is off"
-          >
-            {check.isPending
-              ? "Checking…"
-              : result
-                ? "Check again"
-                : "Check now"}
-          </Button>
-        </div>
-        {check.error && (
-          <p className="text-sm text-red-400">{check.error.message}</p>
-        )}
-        {result && (
-          <div className="bg-black/30 px-4 py-3">
-            <p className="mb-2 flex flex-wrap items-center gap-3 text-sm">
-              <span
-                className={
-                  result.wouldTripNow ? "text-red-400" : "text-emerald-400"
-                }
+        <h2 className={heading}>Check now</h2>
+        <div className="bg-white/3">
+          <div className="flex items-center justify-between gap-6 px-5 py-4">
+            <div className="min-w-0">
+              <p
+                className={`font-mono text-lg ${
+                  !shown
+                    ? "text-gray-600"
+                    : shown.evaluationError
+                      ? "text-amber-400"
+                      : shown.wouldTripNow
+                        ? "text-red-400"
+                        : "text-emerald-400"
+                }`}
               >
-                {result.wouldTripNow ? "Would trip now" : "Holds now"}
+                {/* A rule that cannot be evaluated never fires: not "holds". */}
+                {!shown
+                  ? "–"
+                  : shown.evaluationError
+                    ? "Cannot be evaluated"
+                    : shown.wouldTripNow
+                      ? "Would trip now"
+                      : "Holds now"}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {!shown ? (
+                  "Once, at the latest block. Records nothing."
+                ) : (
+                  <>
+                    {shown.block !== null &&
+                      `Block ${formatBig(String(shown.block))}`}
+                    {shown.warming && (
+                      <span className="text-amber-400/80">
+                        {shown.block !== null && " · "}
+                        Warming up
+                        {shown.warmupSecondsLeft > 0 &&
+                          `, about ${Math.ceil(shown.warmupSecondsLeft / 60)} min left`}
+                      </span>
+                    )}
+                  </>
+                )}
+              </p>
+              {check.error && (
+                <p className="mt-2 text-sm text-red-400">
+                  {check.error.message}
+                </p>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              disabled={check.isPending}
+              onClick={() => check.mutate()}
+              title="Evaluates the rule once at the current block and records nothing, even while it is off"
+              className="shrink-0"
+            >
+              {/* Sized for the longest label, so the button never jumps. */}
+              <span className="grid">
+                <span className="invisible col-start-1 row-start-1">
+                  Check again
+                </span>
+                <span className="col-start-1 row-start-1">
+                  {check.isPending
+                    ? "Checking…"
+                    : shown
+                      ? "Check again"
+                      : "Check"}
+                </span>
               </span>
-              {result.block !== null && (
-                <span className="font-mono text-xs text-gray-500">
-                  at block {formatBig(String(result.block))}
-                </span>
-              )}
-              {result.warming && (
-                <span className="text-xs text-amber-400/80">
-                  Warming up
-                  {result.warmupSecondsLeft > 0 &&
-                    `, about ${Math.ceil(result.warmupSecondsLeft / 60)} min left`}
-                </span>
-              )}
-            </p>
-            <Evidence
-              evidence={result.evidence}
-              display={rule.display}
-              contract={rule.rule.contract}
-            />
+            </Button>
           </div>
-        )}
+          {shown && (
+            <div
+              className={`border-t border-white/5 px-5 py-4 transition-opacity ${check.isPending ? "opacity-40" : ""}`}
+            >
+              {shown.evaluationError && (
+                <p className="mb-3 text-sm text-amber-300">
+                  {shown.evaluationError.message}
+                  <span className="ml-2 font-mono text-xs text-gray-500">
+                    at {shown.evaluationError.path}
+                  </span>
+                </p>
+              )}
+              <div className="max-w-3xl">
+                <Evidence
+                  evidence={shown.evidence}
+                  display={rule.display}
+                  contract={rule.rule.contract}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </section>
     </>
   );

@@ -102,16 +102,11 @@ export function RulePage({ id }: { id: string }) {
   return (
     <div>
       {back}
-      <header className="mt-4 mb-10 flex flex-wrap items-start justify-between gap-6">
-        <div className="min-w-0">
+      <header className="mt-4 mb-10 flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <h1 className="flex items-center gap-3 font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
+            <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
               {rule.rule.name}
-              {isPinned && (
-                <span title="Pinned to the Overview" className="text-gray-400">
-                  <PinIcon className="size-6" />
-                </span>
-              )}
             </h1>
             <Switch
               on={rule.enabled}
@@ -174,8 +169,16 @@ export function RulePage({ id }: { id: string }) {
             onClick={() => pin.mutate(!isPinned)}
             title="Pinned rules show on the Overview"
           >
-            <PinIcon />
-            {isPinned ? "Unpin" : "Pin"}
+            <PinIcon
+              className={`size-3.5 transition-transform ${isPinned ? "" : "rotate-45"}`}
+            />
+            {/* Sized for the longer word, so the row stays put. */}
+            <span className="grid">
+              <span className="invisible col-start-1 row-start-1">Unpin</span>
+              <span className="col-start-1 row-start-1">
+                {isPinned ? "Unpin" : "Pin"}
+              </span>
+            </span>
           </Button>
           <Button variant="danger" onClick={() => setConfirming(true)}>
             Delete

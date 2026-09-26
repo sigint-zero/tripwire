@@ -67,8 +67,8 @@ export function ContractPage({ address }: { address: string }) {
   return (
     <div>
       {back}
-      <header className="mt-4 mb-10 flex flex-wrap items-start justify-between gap-6">
-        <div className="min-w-0">
+      <header className="mt-4 mb-10 flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
               {contract.name}
