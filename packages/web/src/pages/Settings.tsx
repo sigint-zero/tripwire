@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useLogout } from "../components/AccountMenu";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PageHeader } from "../components/PageHeader";
 import {
   Button,
@@ -286,24 +287,9 @@ function Accounts() {
             </span>
             {u.id === session?.user.id ? (
               <Tag tone="text-emerald-400">You</Tag>
-            ) : removing === u.id ? (
-              <span className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  className="hover:border-red-500/40! hover:text-red-400!"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(u.id)}
-                  title="Ends its sessions and revokes its MCP tokens"
-                >
-                  Remove it
-                </Button>
-                <Button variant="ghost" onClick={() => setRemoving(null)}>
-                  Keep
-                </Button>
-              </span>
             ) : (
               <Button
-                variant="ghost"
+                variant="danger"
                 disabled={users.length === 1}
                 onClick={() => setRemoving(u.id)}
               >
@@ -313,6 +299,24 @@ function Accounts() {
           </Row>
         ))}
       </ul>
+      <ConfirmDialog
+        open={removing !== null}
+        title="Remove this account?"
+        confirm="Remove account"
+        pending={remove.isPending}
+        error={remove.error?.message}
+        onConfirm={() => removing && remove.mutate(removing)}
+        onClose={() => {
+          setRemoving(null);
+          remove.reset();
+        }}
+      >
+        <span className="font-mono text-white">
+          {users?.find((u) => u.id === removing)?.username}
+        </span>{" "}
+        can no longer log in. Its sessions end and the AI agent tokens it made
+        are revoked.
+      </ConfirmDialog>
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
@@ -367,10 +371,8 @@ function Accounts() {
             The passwords do not match.
           </p>
         )}
-        {(add.error ?? remove.error) && (
-          <p className="w-full text-xs text-red-400">
-            {(add.error ?? remove.error)!.message}
-          </p>
+        {add.error && (
+          <p className="w-full text-xs text-red-400">{add.error.message}</p>
         )}
       </form>
     </Section>
@@ -409,9 +411,13 @@ function AgentTokens() {
       await refresh();
     },
   });
+  const [revoking, setRevoking] = useState<string | null>(null);
   const revoke = useMutation({
     mutationFn: auth.revokeToken,
-    onSuccess: refresh,
+    onSuccess: async () => {
+      setRevoking(null);
+      await refresh();
+    },
   });
 
   return (
@@ -444,17 +450,29 @@ function AgentTokens() {
                   ` · until ${new Date(t.expiresAt).toLocaleDateString()}`}
               </span>
             </span>
-            <Button
-              variant="ghost"
-              disabled={revoke.isPending}
-              onClick={() => revoke.mutate(t.id)}
-              title="The agent is refused from its next request"
-            >
+            <Button variant="danger" onClick={() => setRevoking(t.id)}>
               Revoke
             </Button>
           </Row>
         ))}
       </ul>
+      <ConfirmDialog
+        open={revoking !== null}
+        title="Revoke this token?"
+        confirm="Revoke token"
+        pending={revoke.isPending}
+        error={revoke.error?.message}
+        onConfirm={() => revoking && revoke.mutate(revoking)}
+        onClose={() => {
+          setRevoking(null);
+          revoke.reset();
+        }}
+      >
+        <span className="text-white">
+          {tokens?.find((t) => t.id === revoking)?.label}
+        </span>{" "}
+        is refused from its next request. To let it back in, make a new token.
+      </ConfirmDialog>
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {

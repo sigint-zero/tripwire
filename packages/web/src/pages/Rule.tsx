@@ -2,6 +2,7 @@ import type { RuleDisplay, SavedRule } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   Button,
   buttonClass,
@@ -96,7 +97,7 @@ export function RulePage({ id }: { id: string }) {
   const severity = severities.find((s) => s.severity === rule.rule.severity);
   const action = actions.find((a) => a.action === rule.rule.on_trip.action);
   const isPinned = pinned?.includes(id) ?? false;
-  const failure = toggle.error ?? pin.error ?? remove.error;
+  const failure = toggle.error ?? pin.error;
 
   return (
     <div>
@@ -175,26 +176,29 @@ export function RulePage({ id }: { id: string }) {
             <PinIcon />
             {isPinned ? "Unpin" : "Pin"}
           </Button>
-          {confirming ? (
-            <>
-              <Button
-                variant="ghost"
-                className="hover:border-red-500/40! hover:text-red-400!"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate()}
-                title="Deletes the rule and its history"
-              >
-                Delete it
-              </Button>
-              <Button variant="ghost" onClick={() => setConfirming(false)}>
-                Keep
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" onClick={() => setConfirming(true)}>
-              Delete
-            </Button>
-          )}
+          <Button variant="danger" onClick={() => setConfirming(true)}>
+            Delete
+          </Button>
+          <ConfirmDialog
+            open={confirming}
+            title="Delete this rule?"
+            confirm="Delete rule"
+            pending={remove.isPending}
+            error={remove.error?.message}
+            onConfirm={() => remove.mutate()}
+            onClose={() => {
+              setConfirming(false);
+              remove.reset();
+            }}
+          >
+            <span className="font-mono text-white">{rule.rule.name}</span> stops
+            watching, and its violations go with it. This cannot be undone.
+            {rule.enabled && (
+              <span className="mt-3 block text-gray-500">
+                To pause it instead, switch it off.
+              </span>
+            )}
+          </ConfirmDialog>
         </div>
       </header>
 

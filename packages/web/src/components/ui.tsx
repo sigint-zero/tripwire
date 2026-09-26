@@ -5,6 +5,15 @@ const buttonStyles = {
     "border-emerald-500 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black",
   ghost:
     "border-white/10 text-gray-400 hover:border-emerald-500/40 hover:text-emerald-400",
+  /** Backs out: stays gray. */
+  quiet:
+    "border-white/10 text-gray-400 hover:border-white/20 hover:bg-white/5 hover:text-gray-200 focus-visible:outline-gray-500",
+  /** Starts something that cannot be undone: red only on hover. */
+  danger:
+    "border-white/10 text-gray-400 hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-red-500",
+  /** Confirms it. */
+  destroy:
+    "border-red-500 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-black focus-visible:outline-red-500",
 };
 
 /** The button look, for links that act as buttons. */

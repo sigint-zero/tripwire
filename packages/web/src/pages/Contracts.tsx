@@ -32,7 +32,7 @@ export function ContractsPage() {
         action={
           !none && (
             <Button
-              variant={adding ? "ghost" : "primary"}
+              variant={adding ? "quiet" : "primary"}
               onClick={() => setAdding(!adding)}
             >
               {adding ? (
