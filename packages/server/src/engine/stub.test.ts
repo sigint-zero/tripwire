@@ -126,6 +126,13 @@ describe("the stand-in behind the views", () => {
     expect(await reads.rules()).toEqual([]);
   });
 
+  it("keeps its ingest cursor where engine_status reads it", async () => {
+    await stub.tick();
+    const [cursor] = await reads.engineStatus();
+    expect(cursor).toMatchObject({ cursor: "ingest" });
+    expect(Number(cursor!.block_number)).toBeGreaterThan(21_000_000);
+  });
+
   it("reports views that do not exist yet as the engine not being ready", async () => {
     await expect(
       new ViewReads(database.pool).contracts(),

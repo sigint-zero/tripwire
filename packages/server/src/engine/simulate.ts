@@ -80,6 +80,11 @@ export function blockAt(clock: number): number {
   return 21_000_000 + Math.floor((clock - Date.UTC(2026, 0, 1)) / 12_000);
 }
 
+/** When a simulated block was made. */
+export function timeOf(block: number): number {
+  return Date.UTC(2026, 0, 1) + (block - 21_000_000) * 12_000;
+}
+
 function fromDecimal(text: string): bigint {
   const negative = text.startsWith("-");
   const [whole = "0", fraction = ""] = text.replace(/^-/, "").split(".");

@@ -3,6 +3,7 @@ import type pg from "pg";
 import {
   EngineNotReady,
   type ContractRow,
+  type CursorRow,
   type EngineReads,
   type BucketRow,
   type PointRow,
@@ -180,6 +181,13 @@ export class ViewReads implements EngineReads {
          FROM ${this.#schema}.responses`,
     );
     return { waiting: row?.waiting ?? 0, inFlight: row?.in_flight ?? 0 };
+  }
+
+  engineStatus() {
+    return this.#read<CursorRow>(
+      `SELECT cursor, block_number::text, updated_at, engine_version
+         FROM ${this.#schema}.engine_status ORDER BY cursor`,
+    );
   }
 
   async ruleActivity(ruleIds: string[]): Promise<RuleActivity[]> {

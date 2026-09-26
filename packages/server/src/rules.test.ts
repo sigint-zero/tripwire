@@ -371,10 +371,13 @@ describe("deleting a rule", () => {
 describe("the engine", () => {
   it("reports its chain and how trips are carried out", async () => {
     const res = await app.inject({ url: "/api/v1/engine" });
-    expect(res.json()).toEqual({
+    expect(res.json()).toMatchObject({
       chainId: 1,
       responseMode: "prepare",
       simulated: true,
+      state: "stand-in",
+      runner: "stand-in",
+      health: { head: expect.any(Number) as unknown },
     });
   });
 });

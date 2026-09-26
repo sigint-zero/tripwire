@@ -126,6 +126,20 @@ export interface EngineHealth {
   chain_id: number;
   /** The newest block the engine has observed. */
   head: number | null;
+  /** When that block was made. */
+  head_time?: string | null;
+  /** Where each of its cursors stands, and how long since it moved. */
+  cursors?: { name: string; block_number: number; age_seconds: number }[];
+  /** The RPC's state: "ok", "retrying" and the like. */
+  rpc?: string | null;
+}
+
+/** A row of `api_v1.engine_status`: one cursor, as the engine last recorded it. */
+export interface CursorRow {
+  cursor: string;
+  block_number: string;
+  updated_at: Date;
+  engine_version: string | null;
 }
 
 /** What evaluating a rule requires (M1 `Needs`); the application reads the warm-up. */
@@ -252,6 +266,8 @@ export interface EngineReads {
   }): Promise<ResponseRow[]>;
   response(id: string): Promise<ResponseRow | null>;
   responseCounts(): Promise<{ waiting: number; inFlight: number }>;
+  /** Where the engine's cursors stand; readable while the engine is down. */
+  engineStatus(): Promise<CursorRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
   /** The series recorded for reads of these contracts. */

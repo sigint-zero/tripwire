@@ -51,6 +51,58 @@ export interface EngineInfo {
   simulated: boolean;
 }
 
+/** Where the engine is, as the application sees it; `ready` and `degraded` are protecting. */
+export type EngineState =
+  | "unconfigured"
+  | "installing"
+  | "starting"
+  | "ready"
+  | "degraded"
+  | "unresponsive"
+  | "restarting"
+  | "failed"
+  | "stopped"
+  | "stand-in";
+
+/**
+ * The engine's last health answer. While it is down, the head and cursors
+ * come from what it last recorded, and the rest is null.
+ */
+export interface EngineHealth {
+  head: number | null;
+  /** When the head block was made, or when it was processed where that is all that is known. */
+  headTime: string | null;
+  /** The head minus the ingest cursor. */
+  lagBlocks: number | null;
+  /** The RPC's state in the engine's words, such as "ok" or "retrying". */
+  rpc: string | null;
+  cursors: { name: string; block: number; ageSeconds: number }[];
+}
+
+/** `GET /engine`: how it is set up, and whether it is watching. */
+export interface EngineStatus extends EngineInfo {
+  state: EngineState;
+  /** When it entered this state. */
+  since: string;
+  /** Who runs it: the application, someone by hand, or the stand-in. */
+  runner: "supervised" | "attached" | "stand-in";
+  version: string | null;
+  pinnedVersion: string | null;
+  unpinned: boolean;
+  /** The download's progress while installing. */
+  install: { bytes: number; total: number | null } | null;
+  health: EngineHealth | null;
+  restarts: { last10Minutes: number; total: number };
+  lastExit: {
+    code: number | null;
+    signal: string | null;
+    at: string;
+    reason: string;
+  } | null;
+  /** While failed, restarting or unresponsive: the engine's own message where it gave one. */
+  problem: { code: string; message: string } | null;
+}
+
 /** The engine's verdict on a rule, before or as it is stored. */
 export interface RuleCheck {
   valid: boolean;

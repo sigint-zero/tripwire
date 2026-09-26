@@ -5,8 +5,10 @@ import type { Auth } from "./auth";
 import { authRoutes, requireSession } from "./auth/routes";
 import { contractRoutes } from "./contracts";
 import type { EngineBackend } from "./engine";
+import { EngineMonitor } from "./engine/monitor";
 import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
+import type { EngineEvents } from "./events/types";
 import { eventRoutes } from "./events/route";
 import { refuse } from "./refuse";
 import { responseRoutes } from "./responses";
@@ -54,7 +56,17 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
     return reply.send(error);
   });
 
-  app.get("/engine", () => info);
+  const monitor = new EngineMonitor(
+    commands,
+    reads,
+    info.simulated ? "stand-in" : "attached",
+  );
+  const stopMonitor = monitor.start();
+  app.addHook("onClose", (_app, done) => {
+    stopMonitor();
+    done();
+  });
+  app.get("/engine", () => monitor.status(info));
   app.register(abiRoutes, { lookup });
   app.register(contractRoutes, { commands, reads, store, lookup });
   const rules = new RuleService(commands, reads, store, info.simulated);
@@ -63,7 +75,17 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   app.register(responseRoutes, { commands, reads });
   app.register(seriesRoutes, { reads });
   if (auth) {
-    const relay = new BrowserRelay(backend.engine.events, (message, detail) =>
+    // The engine's own events, and the monitor's word on whether it runs.
+    const events: EngineEvents = {
+      listen: (listener) => {
+        const stops = [
+          backend.engine.events.listen(listener),
+          monitor.listen(listener),
+        ];
+        return () => stops.forEach((stop) => stop());
+      },
+    };
+    const relay = new BrowserRelay(events, (message, detail) =>
       app.log.warn(detail, message),
     );
     // Open streams would hold the server's close; they end first.

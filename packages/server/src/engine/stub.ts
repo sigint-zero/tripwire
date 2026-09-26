@@ -19,6 +19,7 @@ import {
 } from "./stub-responses";
 import {
   blockAt,
+  timeOf,
   evaluateTrip,
   simulatedValue,
   warmupSeconds,
@@ -118,6 +119,12 @@ CREATE TABLE IF NOT EXISTS stub.responses (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS stub.cursors (
+  name text PRIMARY KEY,
+  block_number bigint NOT NULL,
+  block_hash text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 CREATE SCHEMA IF NOT EXISTS ${STUB_VIEWS};
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.contracts AS
   SELECT c.id, c.address, c.name, c.abi, c.created_at,
@@ -154,6 +161,11 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
     JOIN stub.violations v ON v.id = p.violation_id
     JOIN stub.rules r ON r.id = v.rule_id
     JOIN stub.contracts c ON c.id = r.contract_id;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.engine_status AS
+  SELECT name AS cursor, block_number, block_hash, updated_at,
+         NULL::text AS instance_id, 'stand-in' AS engine_version,
+         NULL::text AS rule_language_version
+    FROM stub.cursors;
 `;
 
 type ResponseMode = EngineInfo["responseMode"];
@@ -202,11 +214,14 @@ export class StubEngine implements EngineCommands, EngineEvents {
   }
 
   health(): Promise<EngineHealth> {
+    const clock = this.#clock();
+    const head = blockAt(clock);
     return Promise.resolve({
       status: "ready",
       version: "stand-in",
       chain_id: 1,
-      head: blockAt(this.#clock()),
+      head,
+      head_time: new Date(timeOf(head)).toISOString(),
     });
   }
 
@@ -435,11 +450,15 @@ export class StubEngine implements EngineCommands, EngineEvents {
     await this.#advanceResponses(block, time);
     if (block > this.#lastBlock) {
       this.#lastBlock = block;
-      this.#emit("block", {
-        number: block,
-        hash: `0x${block.toString(16).padStart(64, "0")}`,
-        time,
-      });
+      const hash = `0x${block.toString(16).padStart(64, "0")}`;
+      await this.#pool.query(
+        `INSERT INTO stub.cursors (name, block_number, block_hash, updated_at)
+         VALUES ('ingest', $1, $2, $3)
+         ON CONFLICT (name) DO UPDATE
+           SET block_number = $1, block_hash = $2, updated_at = $3`,
+        [block, hash, time],
+      );
+      this.#emit("block", { number: block, hash, time });
     }
     const { rows } = await this.#pool.query<{
       id: string;
