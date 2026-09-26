@@ -109,6 +109,17 @@ function named(address: string, item: ResponseItem) {
   return shortAddress(address);
 }
 
+/**
+ * The function a controller pause names by its selector, as the rule that
+ * asked for it wrote it.
+ */
+function pausedFunction(item: ResponseItem, rule?: SavedRule) {
+  const onTrip = rule?.rule.on_trip;
+  return item.action === "trip_function" && onTrip?.action === "trip_function"
+    ? onTrip.function
+    : null;
+}
+
 const eth = (wei: string | null) =>
   wei === null ? "–" : `${formatUnits(wei, 18)} ETH`;
 
@@ -323,6 +334,12 @@ function ResponseDetail({
                           ({item.contract.name})
                         </span>
                       )}
+                    {i === 1 && pausedFunction(item, rule) && (
+                      <span className="text-gray-500">
+                        {" "}
+                        ({pausedFunction(item, rule)})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ol>
@@ -450,7 +467,13 @@ function Decide({ item, rule }: { item: ResponseItem; rule?: SavedRule }) {
   };
   const { tx } = item;
   const call = tx?.function
-    ? `${tx.function.split("(")[0]}(${tx.args.map((a) => named(a, item)).join(", ")})`
+    ? `${tx.function.split("(")[0]}(${tx.args
+        .map((a, i) =>
+          i === 1 && pausedFunction(item, rule)
+            ? pausedFunction(item, rule)
+            : named(a, item),
+        )
+        .join(", ")})`
     : "the transaction";
   const recipient =
     item.action === "call" ? named(tx?.to ?? "", item) : "the controller";
