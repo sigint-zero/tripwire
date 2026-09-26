@@ -2,7 +2,6 @@ import type { Contract } from "@tripwire/shared";
 import { useState } from "react";
 import { rulesLabel, shortAddress } from "../../lib/format";
 import { AddContract } from "../contracts/AddContract";
-import { ContractExplorer } from "../contracts/ContractExplorer";
 import type { LoadedContract } from "../contracts/useRegisteredContract";
 import { Plus } from "../ui";
 
@@ -35,7 +34,7 @@ export function ContractPicker({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {!none && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {(locked
@@ -106,16 +105,13 @@ export function ContractPicker({
           existing={{ label: "Use it", open: choose }}
         />
       ) : (
-        loaded && (
-          <div className="space-y-4">
-            {!loaded.active && !locked && (
-              <p className="text-xs text-amber-400">
-                This contract is disabled, so a rule added to it starts disabled
-                too.
-              </p>
-            )}
-            <ContractExplorer surface={loaded.surface} />
-          </div>
+        loaded &&
+        !loaded.active &&
+        !locked && (
+          <p className="text-xs text-amber-400">
+            This contract is disabled, so a rule added to it starts disabled
+            too.
+          </p>
         )
       )}
     </div>

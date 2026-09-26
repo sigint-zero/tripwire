@@ -83,15 +83,6 @@ offered to be used instead. With no contract registered yet, the form
 is all the section shows. Opening the wizard from a contract's page
 (`/rules/new?contract=:address`) starts with that contract chosen.
 
-Once a contract is chosen the section shows what it exposes, in three
-tabs, so the user sees what can be watched before choosing how:
-
-| Tab | Shows |
-|-|-|
-| Values | every value the wizard can read, by name |
-| Events | every event, by name with its parameters |
-| Functions | every function a trip can pause or a response can call, with its selector |
-
 A chosen contract that is disabled is marked so: a rule added to it
 starts off.
 
@@ -116,6 +107,12 @@ one's sentence below them, set large in its own panel, so the user can
 try each against this contract and see the statement change at once.
 Nothing is chosen until the user picks a tile; suggested ones come
 first.
+
+Beside the section's heading, a **‹name› contract reference** toggle
+opens a cheat sheet of what the contract exposes (its values, events
+and functions, as on the contract's page in `CONTRACTS.md`) above the
+tiles; the toggle shows the three counts. It starts closed, so the
+tiles come first.
 
 Blanks are pre-filled when a starting point is first opened: values by
 preferred names (`totalAssets` for a balance, `updatedAt` for a

@@ -21,7 +21,9 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
+import { ContractExplorer } from "../components/contracts/ContractExplorer";
 import { ContractPicker } from "../components/wizard/ContractPicker";
+import { ContractReference } from "../components/wizard/ContractReference";
 import {
   actions,
   cooldowns,
@@ -75,6 +77,8 @@ export function NewRulePage({
   const [selected, setSelected] = useState<string | null>(
     (editing?.rule.contract ?? initial)?.toLowerCase() ?? null,
   );
+  // The contract's cheat sheet, closed until asked for.
+  const [reference, setReference] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(
     editing?.templateId ?? null,
   );
@@ -261,7 +265,7 @@ export function NewRulePage({
     scrollTo(index + 1);
   };
 
-  const section = (index: number, body: ReactNode) =>
+  const section = (index: number, body: ReactNode, action?: ReactNode) =>
     index <= open && (
       <section
         key={index}
@@ -270,14 +274,17 @@ export function NewRulePage({
         }}
         data-section={index}
         aria-labelledby={`section-${index}`}
-        className="animate-reveal scroll-mt-28 py-12 first:pt-4 motion-reduce:animate-none"
+        className="animate-reveal scroll-mt-28 py-12 first:pt-4 first:pb-4 motion-reduce:animate-none"
       >
-        <h2
-          id={`section-${index}`}
-          className="mb-8 font-display text-xl font-bold text-white md:text-2xl"
-        >
-          {steps[index]?.hint}
-        </h2>
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+          <h2
+            id={`section-${index}`}
+            className="font-display text-xl font-bold text-white md:text-2xl"
+          >
+            {steps[index]?.hint}
+          </h2>
+          {action}
+        </div>
         {body}
         {index > 0 && index < steps.length - 1 && index === open && (
           <div className="mt-10 flex justify-end">
@@ -343,6 +350,9 @@ export function NewRulePage({
           section(
             1,
             <div className="space-y-12">
+              {reference && contract && (
+                <ContractExplorer surface={contract.surface} />
+              )}
               <TemplatePicker
                 ranked={ranked}
                 selected={templateId}
@@ -370,6 +380,13 @@ export function NewRulePage({
                 </div>
               )}
             </div>,
+            contract && (
+              <ContractReference
+                contract={contract}
+                open={reference}
+                onToggle={() => setReference(!reference)}
+              />
+            ),
           )}
 
         {surface &&
