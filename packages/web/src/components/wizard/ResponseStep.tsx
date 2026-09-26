@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   literalProblem,
   type EngineInfo,
@@ -63,6 +64,8 @@ export const actions: {
   action: OnTrip["action"];
   title: string;
   body: string;
+  /** Acts through the TripwireController, so needs the contract registered there. */
+  controller?: true;
 }[] = [
   {
     action: "notify",
@@ -70,19 +73,21 @@ export const actions: {
     body: "Record the violation and alert. The contract is left alone.",
   },
   {
+    action: "call",
+    title: "Call a function",
+    body: "Call one of the contract's own functions, such as its pause(), with fixed arguments.",
+  },
+  {
     action: "trip_global",
     title: "Pause the contract",
-    body: "Pause the whole contract through its circuit breaker.",
+    body: "Pause the whole contract through the Tripwire controller.",
+    controller: true,
   },
   {
     action: "trip_function",
     title: "Pause one function",
-    body: "Pause just the function you choose; the rest keeps working.",
-  },
-  {
-    action: "call",
-    title: "Call a function",
-    body: "Call one of the contract's own functions, such as an admin pause(), with fixed arguments.",
+    body: "Pause just the function you choose, through the Tripwire controller.",
+    controller: true,
   },
 ];
 
@@ -116,6 +121,8 @@ export function ResponseStep({
   onChange,
   writes,
   responseMode,
+  contract,
+  registered = false,
 }: {
   severity: Severity;
   onSeverity: (severity: Severity) => void;
@@ -123,7 +130,19 @@ export function ResponseStep({
   onChange: (onTrip: OnTrip) => void;
   writes: WriteFunction[];
   responseMode: EngineInfo["responseMode"] | undefined;
+  /** The rule's contract, whose page shows its response readiness. */
+  contract: string;
+  /** Registered with the TripwireController, which adds its two pauses. */
+  registered?: boolean;
 }) {
+  // A rule already pausing through the controller keeps its choice in view.
+  const offered = actions.filter(
+    (a) =>
+      !a.controller ||
+      registered ||
+      value.action === "trip_global" ||
+      value.action === "trip_function",
+  );
   const cooldown = value.cooldown_seconds ?? 0;
   const choose = (action: OnTrip["action"]) => {
     if (action === "call") {
@@ -156,7 +175,7 @@ export function ResponseStep({
         <h3 className={rowLabel}>On-chain</h3>
         <div>
           <div className={track}>
-            {actions.map((a) => {
+            {offered.map((a) => {
               const unavailable =
                 (a.action === "trip_function" || a.action === "call") &&
                 writes.length === 0;
@@ -199,9 +218,16 @@ export function ResponseStep({
           {value.action !== "notify" && (
             <p className="mt-3 text-xs text-gray-500">
               {value.action === "call"
-                ? `Sent by the operator key, which needs the role ${nameOf(value.call.function)}() requires.`
-                : "Acts through the Tripwire controller."}{" "}
-              {responseMode && responseModes[responseMode]}
+                ? `Sent from Tripwire's key, which must be allowed to call ${nameOf(value.call.function)}().`
+                : "Sent through the Tripwire controller, where Tripwire's key must be an operator."}{" "}
+              {responseMode && responseModes[responseMode]}{" "}
+              <Link
+                to="/contracts/$address"
+                params={{ address: contract }}
+                className="text-emerald-400 transition-colors hover:text-emerald-300"
+              >
+                Readiness
+              </Link>
             </p>
           )}
         </div>

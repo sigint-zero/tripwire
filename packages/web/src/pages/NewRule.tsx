@@ -383,6 +383,7 @@ export function NewRulePage({
                 onChange={setOnTrip}
                 writes={surface.writes}
                 responseMode={engine?.responseMode}
+                contract={selected ?? ""}
               />
               {draft && template && ready[1] && engine && (
                 <TripSimulation
