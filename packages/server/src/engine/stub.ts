@@ -747,7 +747,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
         WHERE p.status IN ('approved', 'submitted')`,
     );
     for (const r of rows) {
-      const sentAt = r.tx.attempts.at(-1)?.block;
+      const sentAt = r.tx.attempts.at(-1)?.submitted_block;
       const next =
         r.status === "approved"
           ? { status: "submitted", tx: submitted(r.tx, block) }

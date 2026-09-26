@@ -5,6 +5,7 @@ import type {
   Violation,
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
+import { toFunctionSelector } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "./app";
 import { ViewReads } from "./engine/reads";
@@ -119,6 +120,8 @@ describe("responses in prepare mode", () => {
         to: CONTROLLER,
         function: "tripGlobal(address)",
         args: [token],
+        maxFeeGwei: "30",
+        maxPriorityFeeGwei: "2",
         maxCostWei: "1950000000000000",
         rebuilt: false,
         attempts: [],
@@ -225,7 +228,8 @@ describe("responses in send mode", () => {
       action: "trip_function",
       tx: {
         function: "trip(address,bytes4)",
-        args: [token, "withdraw(uint256)"],
+        // The engine names the paused function by its selector.
+        args: [token, toFunctionSelector("withdraw(uint256)")],
       },
     });
     await t.block();

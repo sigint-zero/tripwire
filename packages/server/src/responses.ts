@@ -6,6 +6,7 @@ import {
   type ResponseTx,
 } from "@tripwire/shared";
 import type { FastifyPluginCallback } from "fastify";
+import { formatGwei } from "viem";
 import { z } from "zod";
 import {
   EngineError,
@@ -50,36 +51,46 @@ const num = (v: unknown) =>
     : typeof v === "string" && v !== ""
       ? Number(v)
       : null;
-/** The engine's field, in its snake_case or already in camelCase. */
-const field = (raw: Raw, snake: string) =>
-  raw[snake] ?? raw[snake.replace(/_(\w)/g, (_, c: string) => c.toUpperCase())];
+/** Wei as gwei, for fees. */
+const gwei = (v: unknown) => {
+  const wei = str(v);
+  return wei && /^\d+$/.test(wei) ? formatGwei(BigInt(wei)) : null;
+};
 
-/** The built transaction, from however the engine keeps it. */
+/** The built transaction, from the engine's `responses.tx`. */
 export function toTx(value: unknown): ResponseTx | null {
   if (typeof value !== "object" || value === null) return null;
   const raw = value as Raw;
   const attempts = Array.isArray(raw.attempts) ? (raw.attempts as Raw[]) : [];
+  const gasLimit = str(raw.gas_limit);
+  const maxFee = str(raw.max_fee_per_gas);
   return {
-    to: str(raw.to),
+    to: str(raw.target),
+    // The engine does not name the signing key in the transaction.
     from: str(raw.from),
     function: str(raw.function),
-    args: Array.isArray(raw.args) ? raw.args.map((a) => String(a)) : [],
+    args: Array.isArray(raw.decoded_args)
+      ? raw.decoded_args.map((a) => String(a))
+      : [],
     value: str(raw.value) ?? "0",
     nonce: num(raw.nonce),
-    gasLimit: str(field(raw, "gas_limit")),
-    maxFeeGwei: str(field(raw, "max_fee_gwei")),
-    maxPriorityFeeGwei: str(field(raw, "max_priority_fee_gwei")),
-    maxCostWei: str(field(raw, "max_cost_wei")),
+    gasLimit,
+    maxFeeGwei: gwei(maxFee),
+    maxPriorityFeeGwei: gwei(raw.max_priority_fee_per_gas),
+    maxCostWei:
+      gasLimit && maxFee && /^\d+$/.test(gasLimit) && /^\d+$/.test(maxFee)
+        ? String(BigInt(gasLimit) * BigInt(maxFee))
+        : null,
     hash: str(raw.hash),
-    rebuilt: raw.rebuilt === true,
+    rebuilt: raw.approval_rebuilt === true,
     attempts: attempts.map((a) => ({
       hash: str(a.hash) ?? "",
-      maxFeeGwei: str(field(a, "max_fee_gwei")),
-      maxPriorityFeeGwei: str(field(a, "max_priority_fee_gwei")),
-      block: num(a.block),
+      maxFeeGwei: gwei(a.max_fee_per_gas),
+      maxPriorityFeeGwei: gwei(a.max_priority_fee_per_gas),
+      block: num(a.submitted_block),
     })),
-    block: num(raw.block),
-    gasUsed: str(field(raw, "gas_used")),
+    block: num(raw.confirmed_block),
+    gasUsed: str(raw.gas_used),
   };
 }
 

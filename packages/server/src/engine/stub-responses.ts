@@ -1,5 +1,6 @@
 import type { OnTrip } from "@tripwire/shared";
 import { createHash } from "node:crypto";
+import { toFunctionSelector } from "viem";
 
 // How the stand-in builds a response's transaction. Nothing is signed or
 // sent: the values are shaped like the engine's so the Responses page
@@ -7,12 +8,11 @@ import { createHash } from "node:crypto";
 
 /** The known controller deployment on Ethereum (`RESPONSES.md`). */
 export const CONTROLLER = "0x328aed8f7a01f45a959c187f3cb97ec508064854";
-/** The stand-in's pretend signing key. */
-export const STUB_KEY = "0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d";
 
 const GAS_LIMIT = 65_000n;
-const MAX_FEE_GWEI = 30n;
-const MAX_PRIORITY_FEE_GWEI = 2n;
+const GWEI = 1_000_000_000n;
+const MAX_FEE = 30n * GWEI;
+const MAX_PRIORITY_FEE = 2n * GWEI;
 /** Without a cooldown on the rule, how long before another response is staged. */
 export const DEFAULT_QUIET_SECONDS = 600;
 
@@ -25,45 +25,51 @@ export function actsOnChain(onTrip: OnTrip): onTrip is OnChainAction {
 const fakeHash = (seed: string) =>
   `0x${createHash("sha256").update(seed).digest("hex")}`;
 
-/** The transaction the engine would build for a rule's action. */
+/**
+ * The transaction the engine would build for a rule's action, in its
+ * `responses.tx` form: fees in wei, the arguments as decoded text.
+ */
 export function buildTx(onTrip: OnChainAction, target: string, nonce: number) {
   const call =
     onTrip.action === "trip_global"
-      ? { to: CONTROLLER, function: "tripGlobal(address)", args: [target] }
+      ? {
+          target: CONTROLLER,
+          function: "tripGlobal(address)",
+          decoded_args: [target],
+        }
       : onTrip.action === "trip_function"
         ? {
-            to: CONTROLLER,
+            target: CONTROLLER,
             function: "trip(address,bytes4)",
-            args: [target, onTrip.function],
+            decoded_args: [target, toFunctionSelector(onTrip.function)],
           }
         : {
-            to: (onTrip.call.address ?? target).toLowerCase(),
+            target: (onTrip.call.address ?? target).toLowerCase(),
             function: onTrip.call.function,
-            args: onTrip.call.args,
+            decoded_args: onTrip.call.args,
           };
   return {
     ...call,
-    from: STUB_KEY,
     value: onTrip.action === "call" ? (onTrip.call.value ?? "0") : "0",
     nonce,
     gas_limit: String(GAS_LIMIT),
-    max_fee_gwei: String(MAX_FEE_GWEI),
-    max_priority_fee_gwei: String(MAX_PRIORITY_FEE_GWEI),
-    max_cost_wei: String(GAS_LIMIT * MAX_FEE_GWEI * 1_000_000_000n),
+    max_fee_per_gas: String(MAX_FEE),
+    max_priority_fee_per_gas: String(MAX_PRIORITY_FEE),
     hash: fakeHash(`${target}:${nonce}`),
-    rebuilt: false,
     attempts: [] as {
       hash: string;
-      max_fee_gwei: string;
-      max_priority_fee_gwei: string;
-      block: number;
+      max_fee_per_gas: string;
+      max_priority_fee_per_gas: string;
+      submitted_block: number;
     }[],
-    block: null as number | null,
-    gas_used: null as string | null,
+    approval_rebuilt: false,
   };
 }
 
-export type StubTx = ReturnType<typeof buildTx>;
+export type StubTx = ReturnType<typeof buildTx> & {
+  confirmed_block?: number;
+  gas_used?: string;
+};
 
 /** The transaction once sent at `block`. */
 export function submitted(tx: StubTx, block: number): StubTx {
@@ -73,9 +79,9 @@ export function submitted(tx: StubTx, block: number): StubTx {
       ...tx.attempts,
       {
         hash: tx.hash,
-        max_fee_gwei: tx.max_fee_gwei,
-        max_priority_fee_gwei: tx.max_priority_fee_gwei,
-        block,
+        max_fee_per_gas: tx.max_fee_per_gas,
+        max_priority_fee_per_gas: tx.max_priority_fee_per_gas,
+        submitted_block: block,
       },
     ],
   };
@@ -83,5 +89,5 @@ export function submitted(tx: StubTx, block: number): StubTx {
 
 /** The transaction once included at `block`. */
 export function confirmed(tx: StubTx, block: number): StubTx {
-  return { ...tx, block, gas_used: "48213" };
+  return { ...tx, confirmed_block: block, gas_used: "48213" };
 }
