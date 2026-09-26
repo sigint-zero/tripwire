@@ -2,6 +2,8 @@ import { chainName } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ContractExplorer } from "../components/contracts/ContractExplorer";
+import { PausePanel } from "../components/contracts/PausePanel";
+import { Readiness } from "../components/contracts/Readiness";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
 import { RuleList } from "../components/RuleList";
 import { buttonClass, EmptyState, Plus, Switch, Tag } from "../components/ui";
@@ -113,6 +115,11 @@ export function ContractPage({ address }: { address: string }) {
       )}
 
       <section className="mb-12">
+        <h2 className={heading}>Paused now</h2>
+        <PausePanel contract={contract} rules={rules} />
+      </section>
+
+      <section className="mb-12">
         <h2 className={heading}>Rules</h2>
         {hasRules ? (
           <RuleList rules={rules} />
@@ -127,6 +134,11 @@ export function ContractPage({ address }: { address: string }) {
             </EmptyState>
           )
         )}
+      </section>
+
+      <section className="mb-12">
+        <h2 className={heading}>Response readiness</h2>
+        <Readiness address={key} />
       </section>
 
       <section>

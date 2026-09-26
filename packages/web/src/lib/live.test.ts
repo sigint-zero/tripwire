@@ -8,9 +8,9 @@ describe("what an event refreshes", () => {
     );
   });
 
-  it("refreshes everything on resync, and nothing on a block", () => {
+  it("refreshes everything on resync, and only readiness on a block", () => {
     expect(invalidations("resync", { reason: "connected" })).toBe("all");
-    expect(invalidations("block", { number: 1 })).toEqual([]);
+    expect(invalidations("block", { number: 1 })).toEqual([["readiness"]]);
   });
 
   it("refreshes violations when a response moves", () => {

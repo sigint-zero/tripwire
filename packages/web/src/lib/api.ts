@@ -15,6 +15,11 @@ import type {
   EngineStatus,
   Issue,
   KeyList,
+  ManualAction,
+  ManualActionItem,
+  Readiness,
+  ResponseTest,
+  WalletCall,
   McpTokenSummary,
   NewKey,
   CheckNow,
@@ -44,6 +49,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string | null = null,
     readonly issues: Issue[] = [],
+    /** The whole refusal, for the fields some refusals carry. */
+    readonly body: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -72,6 +79,7 @@ async function request<T>(
       res.status,
       body?.code,
       body?.issues,
+      body ?? {},
     );
   }
   return body as T;
@@ -278,6 +286,33 @@ export const api = {
     request<ResponseItem>(`/responses/${id}/reject`, {
       json: { reason: reason || undefined },
     }),
+  readiness: (contract: string, signal?: AbortSignal) =>
+    request<Readiness[]>(`/readiness?contract=${contract}`, { signal }).then(
+      (all) => all[0] ?? null,
+    ),
+  testResponse: (ruleId: string) =>
+    request<ResponseTest>(`/readiness/${ruleId}/test`, { method: "POST" }),
+  /** Sent through the engine, or, where it cannot make the call, the call to make from a wallet. */
+  contractAction: async (
+    address: string,
+    action: ManualAction,
+  ): Promise<
+    | { sent: ManualActionItem; wallet?: undefined }
+    | { wallet: WalletCall; sent?: undefined }
+  > => {
+    try {
+      return {
+        sent: await request<ManualActionItem>(`/contracts/${address}/actions`, {
+          json: action,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "not_available") {
+        return { wallet: error.body.wallet as WalletCall };
+      }
+      throw error;
+    }
+  },
   keys: (signal?: AbortSignal) => request<KeyList>("/keys", { signal }),
   createKey: (passphrase: string) =>
     request<NewKey>("/keys", { json: { passphrase } }),

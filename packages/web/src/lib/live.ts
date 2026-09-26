@@ -65,6 +65,9 @@ export function invalidations(
       return [["responses"], ["response", text(data.id)], ["violations"]];
     case "notification":
       return [["notifications"]];
+    case "block":
+      // A readiness checklist ticks by itself as the controller's events land.
+      return [["readiness"]];
     case "health":
       return [["engine"]];
     case "settings":

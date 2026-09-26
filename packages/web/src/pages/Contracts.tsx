@@ -1,4 +1,4 @@
-import { chainName } from "@tripwire/shared";
+import { chainName, type TripStateItem } from "@tripwire/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -19,6 +19,19 @@ export function ContractsPage() {
     queryKey: ["engine"],
     queryFn: ({ signal }) => api.engine(signal),
     staleTime: Infinity,
+  });
+  // What is paused now, by contract.
+  const { data: paused } = useQuery({
+    queryKey: ["trip-state"],
+    queryFn: ({ signal }) => api.tripState(signal),
+    select: (rows) => {
+      const by = new Map<string, TripStateItem[]>();
+      for (const row of rows) {
+        const at = row.contract.address.toLowerCase();
+        by.set(at, [...(by.get(at) ?? []), row]);
+      }
+      return by;
+    },
   });
   const none = contracts?.length === 0;
   const open = (address: string) =>
@@ -85,6 +98,9 @@ export function ContractsPage() {
                         Disabled
                       </span>
                     )}
+                    <PausedTag
+                      rows={paused?.get(contract.address.toLowerCase())}
+                    />
                   </p>
                   <p className="mt-1 truncate font-mono text-xs text-gray-500">
                     {contract.address}
@@ -112,5 +128,20 @@ export function ContractsPage() {
         </ul>
       )}
     </div>
+  );
+}
+
+/** A pause on the contract: **Paused** for every function, else how many. */
+function PausedTag({ rows }: { rows: TripStateItem[] | undefined }) {
+  if (!rows?.length) return null;
+  const functions = new Set(
+    rows.filter((r) => r.scope === "function").map((r) => r.selector),
+  ).size;
+  return (
+    <Tag tone="text-red-400">
+      {rows.some((r) => r.scope === "global")
+        ? "Paused"
+        : `${functions} ${functions === 1 ? "function" : "functions"} paused`}
+    </Tag>
   );
 }
