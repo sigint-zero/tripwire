@@ -174,18 +174,15 @@ export class AppStore {
     );
   }
 
-  /** Records an acknowledgement; false when the violation already has one. */
-  async acknowledge(
-    violationId: string,
-    by: string,
-    note: string | null,
-  ): Promise<boolean> {
-    const { rowCount } = await this.#pool.query(
+  /** Records acknowledgements; a violation already acknowledged keeps its first. */
+  async acknowledge(violationIds: string[], by: string, note: string | null) {
+    if (violationIds.length === 0) return;
+    await this.#pool.query(
       `INSERT INTO app.violation_acks (violation_id, acknowledged_by, note)
-       VALUES ($1, $2, $3) ON CONFLICT (violation_id) DO NOTHING`,
-      [violationId, by, note],
+       SELECT id, $2, $3 FROM unnest($1::bigint[]) AS id
+       ON CONFLICT (violation_id) DO NOTHING`,
+      [violationIds, by, note],
     );
-    return rowCount === 1;
   }
 
   /**

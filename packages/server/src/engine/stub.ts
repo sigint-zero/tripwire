@@ -372,12 +372,15 @@ export class StubEngine implements EngineCommands {
     return recorded;
   }
 
-  /** Ticks once per simulated block until the returned stop is called. */
+  /**
+   * Ticks until the returned stop is called: often enough that no
+   * simulated block is missed, and each is evaluated once.
+   */
   ticking(): () => Promise<void> {
     let running: Promise<unknown> = Promise.resolve();
     const timer = setInterval(() => {
       running = running.then(() => this.tick()).catch(() => {});
-    }, 12_000);
+    }, 4_000);
     timer.unref();
     return async () => {
       clearInterval(timer);

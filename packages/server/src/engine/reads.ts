@@ -77,6 +77,7 @@ export class ViewReads implements EngineReads {
   // the page bound are decided by the same query.
   async violations(
     filter: {
+      ids?: string[];
       ruleId?: string;
       contractId?: string;
       open?: boolean;
@@ -90,6 +91,7 @@ export class ViewReads implements EngineReads {
       params.push(value);
       where.push(clause.replace("?", `$${params.length}`));
     };
+    if (filter.ids) bind("v.id = ANY(?::bigint[])", filter.ids);
     if (filter.ruleId) bind("v.rule_id = ?", filter.ruleId);
     if (filter.contractId) {
       bind(

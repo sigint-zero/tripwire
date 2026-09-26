@@ -16,13 +16,16 @@ const query = z.object({
   before: id.optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
-const acknowledgement = z.object({
-  note: z
-    .string()
-    .trim()
-    .max(500)
-    .optional()
-    .transform((n) => n || null),
+const note = z
+  .string()
+  .trim()
+  .max(500)
+  .optional()
+  .transform((n) => n || null);
+const acknowledgement = z.object({ note });
+const many = z.object({
+  ids: z.array(id).min(1).max(1000),
+  note,
 });
 
 function toViolation(row: ViolationRow): Violation {
@@ -99,9 +102,30 @@ export const violationRoutes: FastifyPluginCallback<{
     }
     const row = await reads.violation(request.params.id);
     if (!row) return notFound(reply);
-    await store.acknowledge(row.id, DASHBOARD, body.data.note);
+    await store.acknowledge([row.id], DASHBOARD, body.data.note);
     const updated = await reads.violation(row.id);
     return updated ? toViolation(updated) : notFound(reply);
+  });
+
+  // A run of violations at once: all of them, or none when one is missing.
+  app.post("/violations/acknowledge", async (request, reply) => {
+    const body = many.safeParse(request.body);
+    if (!body.success) {
+      return refuse(reply, 400, "invalid_request", "Expected { ids, note }.", {
+        issues: issuesOf(body.error),
+      });
+    }
+    const ids = [...new Set(body.data.ids)];
+    const found = new Set(
+      (await reads.violations({ ids, limit: ids.length })).map((v) => v.id),
+    );
+    const missing = ids.find((i) => !found.has(i));
+    if (missing) {
+      return refuse(reply, 404, "not_found", `No violation ${missing}.`);
+    }
+    await store.acknowledge(ids, DASHBOARD, body.data.note);
+    const updated = await reads.violations({ ids, limit: ids.length });
+    return updated.map(toViolation);
   });
 
   done();

@@ -140,6 +140,26 @@ describe("violations", () => {
     expect(open).toHaveLength(1);
   });
 
+  it("acknowledges a run together, or none of it", async () => {
+    const ids = (await list("?open=true")).map((v) => v.id);
+    const bulk = (payload: object) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/violations/acknowledge",
+        payload,
+      });
+    const refused = await bulk({ ids: [...ids, "999999"] });
+    expect(refused.statusCode).toBe(404);
+    expect(await list("?open=true")).toHaveLength(ids.length);
+
+    const res = await bulk({ ids, note: "Seen" });
+    expect(res.json<Violation[]>().map((v) => v.acknowledged?.note)).toEqual(
+      ids.map(() => "Seen"),
+    );
+    expect(await list("?open=true")).toEqual([]);
+    expect((await bulk({ ids: [] })).statusCode).toBe(400);
+  });
+
   it("answers 404 for a violation that does not exist", async () => {
     for (const url of ["/violations/999999", "/violations/abc"]) {
       const res = await app.inject({ url: `/api/v1${url}` });

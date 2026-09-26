@@ -165,6 +165,7 @@ export interface EngineReads {
   rule(id: string): Promise<RuleRow | null>;
   /** Newest first; `before` pages by id, `open` leaves out acknowledged ones. */
   violations(filter?: {
+    ids?: string[];
     ruleId?: string;
     contractId?: string;
     open?: boolean;
