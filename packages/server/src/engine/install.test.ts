@@ -4,17 +4,12 @@ import {
   randomBytes,
   sign,
 } from "node:crypto";
-import { mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  installedVersions,
-  installEngine,
-  installEngineFrom,
-  pruneVersions,
-} from "./install";
+import { installEngine, pruneVersions } from "./install";
 import { engineInstallDir, type EnginePin } from "./release";
 
 const TARGET = "x86_64-unknown-linux-musl";
@@ -138,7 +133,7 @@ describe("installEngine", () => {
     ).rejects.toThrow("different key");
   });
 
-  it("says how to fetch it by hand when the release is not there", async () => {
+  it("names the missing file when the release is not there", async () => {
     files = {};
     const error = await installEngine({
       home: await home(),
@@ -149,8 +144,7 @@ describe("installEngine", () => {
       () => new Error("installed"),
       (e: unknown) => e as Error,
     );
-    expect(error.message).toContain("was not found");
-    expect(error.message).toContain("curl -fL");
+    expect(error.message).toContain("SHA256SUMS was not found");
   });
 
   it("takes the release from TRIPWIRE_ENGINE_RELEASES when set", async () => {
@@ -164,27 +158,6 @@ describe("installEngine", () => {
         retryDelayMs: 1,
       }),
     ).resolves.toMatchObject({ version: "0.1.0" });
-  });
-});
-
-describe("installEngineFrom", () => {
-  it("installs from a directory with the same checks", async () => {
-    const dir = await home();
-    for (const [name, body] of Object.entries(release())) {
-      await writeFile(join(dir, name), body);
-    }
-    const h = await home();
-    await expect(
-      installEngineFrom({ dir, home: h, pin, target: TARGET }),
-    ).resolves.toMatchObject({ version: "0.1.0" });
-    expect(await installedVersions(h, pin, TARGET)).toEqual([
-      { version: "0.1.0", verified: true, problem: null },
-    ]);
-
-    await writeFile(join(dir, ASSET), Buffer.from("#!/bin/sh\necho 0.1.1\n"));
-    await expect(
-      installEngineFrom({ dir, home: await home(), pin, target: TARGET }),
-    ).rejects.toThrow("does not match");
   });
 });
 

@@ -6,7 +6,6 @@ import {
   engineTarget,
   installedVersions,
   installEngine,
-  installEngineFrom,
   KNOWN_CHAINS,
   loadConfig,
   maskUrl,
@@ -59,10 +58,7 @@ function progressLine(label: string) {
   };
 }
 
-async function install(home: string, pin: EnginePin, from?: string) {
-  if (from) {
-    return installEngineFrom({ dir: from, home, pin });
-  }
+async function install(home: string, pin: EnginePin) {
   const bar = progressLine(`Downloading engine ${pin.version}`);
   try {
     return await installEngine({
@@ -78,7 +74,7 @@ async function install(home: string, pin: EnginePin, from?: string) {
 export async function engineCommand(
   home: string,
   args: string[],
-  options: { from?: string; lines?: string; follow?: boolean },
+  options: { lines?: string; follow?: boolean },
   fail: Fail,
 ) {
   const pin = readPin();
@@ -87,7 +83,7 @@ export async function engineCommand(
   switch (verb) {
     case "install": {
       try {
-        const installed = await install(home, pin, options.from);
+        const installed = await install(home, pin);
         console.log(
           `Engine ${installed.version} is installed and verified: ${installed.binary}`,
         );

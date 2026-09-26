@@ -25,7 +25,7 @@ const USAGE = `Usage: tripwire [start] [options]
                       [--rpc-http <url or env:NAME>] [--rpc-ws <url or env:NAME>]
                       [--database-url <url or env:NAME>] [--skip-verify]
        tripwire engine status
-       tripwire engine install [--from <dir>]
+       tripwire engine install
        tripwire engine log [-n <lines>] [--follow]
        tripwire user add|passwd|remove|unlock <name>
        tripwire user list
@@ -64,7 +64,6 @@ Options:
       --tls-key <file>      ...and this key
       --behind-proxy        a reverse proxy in front terminates TLS
       --expires <duration>  when a new MCP token stops working (default: never)
-      --from <dir>          install the engine from this directory
   -n, --lines <n>           log lines to print (default: 50)
       --follow              keep printing the log as it grows
   -v, --version             print the version
@@ -90,7 +89,6 @@ function parseCommandLine() {
         "rpc-http": { type: "string" },
         "rpc-ws": { type: "string" },
         "skip-verify": { type: "boolean", default: false },
-        from: { type: "string" },
         lines: { type: "string", short: "n" },
         follow: { type: "boolean", default: false },
         version: { type: "boolean", short: "v" },
@@ -138,7 +136,7 @@ if (positionals[0] === "engine") {
   await engineCommand(
     tripwireHome(),
     positionals.slice(1),
-    { from: values.from, lines: values.lines, follow: values.follow },
+    { lines: values.lines, follow: values.follow },
     failWithUsage,
   );
   process.exit(0);

@@ -186,19 +186,6 @@ TRIPWIRE_PASSWORD=... tripwire setup --username ops --chain-id 1 \
 You can also skip `setup` and run `tripwire start` straight away: the
 dashboard's first page asks the same questions.
 
-**Installing the engine by hand.** `tripwire start` and `tripwire setup`
-download the engine release this version pins and check its signature,
-checksum and version before running it. Where the download is not
-possible, fetch the release yourself and install it from that folder;
-it is checked the same way:
-
-```sh
-v=0.1.2; t=x86_64-unknown-linux-musl   # aarch64-unknown-linux-musl on ARM64
-gh release download engine-v$v -R sigint-zero/tripwire -D ./engine-$v \
-  -p SHA256SUMS -p SHA256SUMS.minisig -p tripwire-engine-$v-$t
-tripwire engine install --from ./engine-$v
-```
-
 ### 3. Start it
 
 ```sh

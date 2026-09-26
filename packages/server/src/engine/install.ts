@@ -1,15 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -18,7 +9,6 @@ import {
   engineInstallDir,
   EngineReleaseError,
   engineTarget,
-  installInstructions,
   listedDigest,
   verifiedEngine,
   verifyMinisign,
@@ -74,19 +64,11 @@ export async function installEngine(options: {
 
   const env = options.env ?? process.env;
   const asset = engineAsset(pin.version, target);
-  const fetched = await withRetries(
-    options.retryDelayMs ?? 2_000,
-    async () => {
-      const sums = await download(assetUrl(pin, "SHA256SUMS", env));
-      const signature = await download(
-        assetUrl(pin, "SHA256SUMS.minisig", env),
-      );
-      return { sums, signature: signature.toString("utf8") };
-    },
-    pin,
-    home,
-    target,
-  );
+  const fetched = await withRetries(options.retryDelayMs ?? 2_000, async () => {
+    const sums = await download(assetUrl(pin, "SHA256SUMS", env));
+    const signature = await download(assetUrl(pin, "SHA256SUMS.minisig", env));
+    return { sums, signature: signature.toString("utf8") };
+  });
   verifyMinisign(fetched.sums, fetched.signature, pin.publicKey);
   const want = listedDigest(fetched.sums.toString(), asset);
 
@@ -94,12 +76,8 @@ export async function installEngine(options: {
   await mkdir(bin, { recursive: true });
   const partial = join(bin, `.download-${randomBytes(6).toString("hex")}`);
   try {
-    const have = await withRetries(
-      options.retryDelayMs ?? 2_000,
-      () => streamTo(assetUrl(pin, asset, env), partial, options.onProgress),
-      pin,
-      home,
-      target,
+    const have = await withRetries(options.retryDelayMs ?? 2_000, () =>
+      streamTo(assetUrl(pin, asset, env), partial, options.onProgress),
     );
     if (have !== want) {
       throw new EngineReleaseError(
@@ -107,60 +85,6 @@ export async function installEngine(options: {
       );
     }
     await place(home, pin, partial, fetched.sums, fetched.signature);
-  } finally {
-    await rm(partial, { force: true });
-  }
-  return verifiedEngine({ home, pin, target });
-}
-
-/**
- * Installs from a directory holding the executable (named as released, or
- * `tripwire-engine`), `SHA256SUMS` and `SHA256SUMS.minisig`, with the same
- * checks, for machines that cannot reach the release location.
- */
-export async function installEngineFrom(options: {
-  dir: string;
-  home: string;
-  pin: EnginePin;
-  target?: string;
-}): Promise<InstalledEngine> {
-  const { dir, home, pin } = options;
-  const target = options.target ?? engineTarget();
-  const asset = engineAsset(pin.version, target);
-  const [sums, signature] = await Promise.all([
-    readFile(join(dir, "SHA256SUMS")).catch(() => null),
-    readFile(join(dir, "SHA256SUMS.minisig"), "utf8").catch(() => null),
-  ]);
-  if (!sums || !signature) {
-    throw new EngineReleaseError(
-      `${dir} needs SHA256SUMS and SHA256SUMS.minisig beside the engine.`,
-    );
-  }
-  const names = await readdir(dir);
-  const source = names.includes(asset)
-    ? join(dir, asset)
-    : names.includes("tripwire-engine")
-      ? join(dir, "tripwire-engine")
-      : null;
-  if (!source) {
-    throw new EngineReleaseError(`${dir} holds no ${asset}.`);
-  }
-  verifyMinisign(sums, signature, pin.publicKey);
-  const want = listedDigest(sums.toString(), asset);
-  const bin = join(home, "engine", "bin");
-  await mkdir(bin, { recursive: true });
-  const partial = join(bin, `.download-${randomBytes(6).toString("hex")}`);
-  try {
-    await copyFile(source, partial);
-    const have = createHash("sha256")
-      .update(await readFile(partial))
-      .digest("hex");
-    if (have !== want) {
-      throw new EngineReleaseError(
-        `${source} does not match its line in SHA256SUMS: it is not the ${pin.version} release. Nothing was installed.`,
-      );
-    }
-    await place(home, pin, partial, sums, signature);
   } finally {
     await rm(partial, { force: true });
   }
@@ -299,9 +223,6 @@ async function request(url: string): Promise<Response> {
 async function withRetries<T>(
   delayMs: number,
   attempt: () => Promise<T>,
-  pin: EnginePin,
-  home: string,
-  target: string,
 ): Promise<T> {
   let last: unknown;
   for (let i = 0; i <= RETRIES; i++) {
@@ -314,12 +235,6 @@ async function withRetries<T>(
         await new Promise((done) => setTimeout(done, delayMs * 2 ** i));
       }
     }
-  }
-  if (last instanceof EngineReleaseError) {
-    // Say how to put the release in place by hand.
-    throw new (last.constructor as typeof EngineReleaseError)(
-      `${last.message}\n\n${installInstructions(pin, home, target)}\n\nOr put the three files in any directory and run: tripwire engine install --from <dir>`,
-    );
   }
   throw last;
 }

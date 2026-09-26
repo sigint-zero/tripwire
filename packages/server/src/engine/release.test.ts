@@ -137,7 +137,7 @@ describe("verifiedEngine", () => {
     });
   });
 
-  it("says where to put the release when it is not installed", async () => {
+  it("says how to install the release when it is not installed", async () => {
     const home = await mkdtemp(join(tmpdir(), "tripwire-release-"));
     const { pin } = await install({ reports: "0.1.0" });
     const error = await verifiedEngine({ home, pin, target }).catch(
@@ -146,10 +146,7 @@ describe("verifiedEngine", () => {
     expect(error).toBeInstanceOf(EngineReleaseError);
     const message = (error as Error).message;
     expect(message).toContain("Engine 0.1.0 is not installed");
-    expect(message).toContain(engineInstallDir(home, "0.1.0"));
-    expect(message).toContain(
-      "gh release download engine-v0.1.0 -R sigint-zero/tripwire",
-    );
+    expect(message).toContain("tripwire engine install");
   });
 
   it("refuses a binary that does not match its checksum", async () => {

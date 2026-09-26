@@ -9,11 +9,7 @@ export {
   verifiedEngine,
   type EnginePin,
 } from "./engine/release";
-export {
-  installEngine,
-  installEngineFrom,
-  installedVersions,
-} from "./engine/install";
+export { installEngine, installedVersions } from "./engine/install";
 export { EngineLog, readLogTail } from "./engine/log";
 export { EngineSupervisor } from "./engine/supervisor";
 export { RunLockError, runLockHolder, takeRunLock } from "./run-lock";

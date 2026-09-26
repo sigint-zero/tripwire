@@ -47,45 +47,6 @@ export function engineAsset(version: string, target: string): string {
   return `tripwire-engine-${version}-${target}`;
 }
 
-/** The commands that put a release where `tripwire start` looks for it. */
-export function installInstructions(
-  pin: EnginePin,
-  home: string,
-  target: string,
-) {
-  const dir = engineInstallDir(home, pin.version);
-  const asset = engineAsset(pin.version, target);
-  const lines = [
-    `Put engine ${pin.version} in ${dir}:`,
-    "",
-    `  mkdir -p ${dir}`,
-    ...["SHA256SUMS", "SHA256SUMS.minisig", asset].map(
-      (name) =>
-        `  curl -fL -o ${join(dir, name)} ${pin.releases
-          .replace("{version}", pin.version)
-          .replace("{asset}", name)}`,
-    ),
-    `  mv ${join(dir, asset)} ${join(dir, "tripwire-engine")}`,
-    `  chmod +x ${join(dir, "tripwire-engine")}`,
-  ];
-  // A private release repository answers plain downloads with 404; the
-  // GitHub CLI fetches the same files with the user's own login.
-  const github =
-    /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([^/{]*)\{version\}\//.exec(
-      pin.releases,
-    );
-  if (github) {
-    lines.push(
-      "",
-      "Or, with the GitHub CLI (also when the release repository is private):",
-      "",
-      `  gh release download ${github[2]}${pin.version} -R ${github[1]} -D ${dir} -p SHA256SUMS -p SHA256SUMS.minisig -p ${asset}`,
-      `  mv ${join(dir, asset)} ${join(dir, "tripwire-engine")} && chmod +x ${join(dir, "tripwire-engine")}`,
-    );
-  }
-  return lines.join("\n");
-}
-
 /**
  * Verify a minisign signature: the key id matches, the Ed25519 signature
  * over the file (BLAKE2b-512 prehashed for algorithm `ED`) holds, and the
@@ -186,7 +147,7 @@ export async function verifiedEngine(options: {
   );
   if (!sums || !signature || !present) {
     throw new EngineReleaseError(
-      `Engine ${pin.version} is not installed.\n\n${installInstructions(pin, home, target)}`,
+      `Engine ${pin.version} is not installed. \`tripwire start\` or \`tripwire engine install\` downloads it.`,
     );
   }
 

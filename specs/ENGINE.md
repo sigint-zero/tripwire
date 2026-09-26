@@ -121,25 +121,11 @@ fraction of a second and catches a corrupted or replaced file.
 Verification uses `node:crypto` only (Ed25519 and BLAKE2b-512 are both
 built in), about sixty lines, so the package gains no dependency.
 
-### By hand
+### Ahead of time
 
-A release put into `TRIPWIRE_HOME/engine/bin/<version>/` by hand (the
-executable renamed to `tripwire-engine`, with `SHA256SUMS` and
-`SHA256SUMS.minisig` beside it) is found and checked exactly as a
-download is, so testing with a release fetched by hand uses the same
-path, the same checks and the same start as any installation. There is
-no separate override for a binary elsewhere. Until the download is
-built, `tripwire start` with no verified release stops and prints the
-commands that fetch one into place, with `curl` and with the GitHub
-CLI, which also works while the release repository is private.
-
-### Offline
-
-`tripwire engine install --from <dir>` installs from a directory
-holding the executable, `SHA256SUMS` and `SHA256SUMS.minisig`, with the
-same verification. It is also how an image build installs the engine
-ahead of time: `tripwire engine install` with no `--from` downloads
-and verifies without starting anything.
+`tripwire engine install` downloads and verifies the pinned release
+without starting anything, which is how an image build installs the
+engine before the first start.
 
 ### Where it lives
 
@@ -579,7 +565,7 @@ username.
 |-|-|
 | `tripwire start` | as today, and additionally installs, starts and supervises the engine |
 | `tripwire engine status` | the pinned version; installed versions and whether each verifies; whether an engine is running (from `engine.pid`) and since when; the last 20 log lines. Works with the server stopped |
-| `tripwire engine install [--from <dir>]` | downloads (or takes from a directory) the pinned release and verifies it, without starting anything |
+| `tripwire engine install` | downloads the pinned release and verifies it, without starting anything |
 | `tripwire engine log [-n <lines>] [--follow]` | prints the engine log |
 
 Cursors and view schema state are `tripwire db status`'s
@@ -624,7 +610,7 @@ The engine layer is done when, provably and repeatably:
    served. A release with one byte of the executable changed, a
    `SHA256SUMS` with a changed line, and a signature made by another key
    are each refused with a message naming what failed, and nothing is
-   installed. `install --from` applies the same checks.
+   installed.
 2. On an unsupported platform the state is `failed` with the platform
    named, and the dashboard still serves.
 3. With a chain configured, the start reaches `ready`. `engine.toml` is
