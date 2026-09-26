@@ -42,11 +42,18 @@ export function ContractPicker({
                 type="button"
                 aria-pressed={active}
                 onClick={() => choose(contract.address)}
-                className={`flex flex-col gap-2 p-4 text-left transition-colors ${
+                className={`group relative flex flex-col gap-2 overflow-hidden p-4 text-left transition-colors ${
                   active ? "bg-emerald-500/10" : "bg-white/3 hover:bg-white/5"
                 }`}
               >
-                <span className="flex items-center justify-between gap-3">
+                <ContractMark
+                  className={`pointer-events-none absolute right-4 -bottom-7 size-24 transition-colors duration-500 ${
+                    active
+                      ? "text-emerald-500/[0.07]"
+                      : "text-emerald-500/[0.04] group-hover:text-emerald-500/[0.07]"
+                  }`}
+                />
+                <span className="relative flex items-center justify-between gap-3">
                   <span className="truncate text-sm font-bold tracking-wider text-white uppercase">
                     {contract.name}
                   </span>
@@ -56,7 +63,7 @@ export function ContractPicker({
                     </span>
                   )}
                 </span>
-                <span className="font-mono text-xs text-gray-500">
+                <span className="relative font-mono text-xs text-gray-500">
                   {shortAddress(contract.address)} · {rulesLabel(contract)}
                 </span>
               </button>
@@ -72,7 +79,7 @@ export function ContractPicker({
                 : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
             }`}
           >
-            <span aria-hidden className="text-sm leading-none">
+            <span aria-hidden className="text-sm leading-none text-emerald-400">
               +
             </span>
             Add a contract
@@ -101,5 +108,22 @@ export function ContractPicker({
         )
       )}
     </div>
+  );
+}
+
+/** A contract as a page with a folded corner, set large behind a tile. */
+function ContractMark({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden
+      className={`fill-current ${className}`}
+    >
+      <path
+        fillRule="evenodd"
+        d="M4 1 H13.5 V7.5 H20 V23 H4 Z M7 11 H17 V12.5 H7 Z M7 14.5 H17 V16 H7 Z M7 18 H13 V19.5 H7 Z"
+      />
+      <path d="M15 1 L20 6 H15 Z" />
+    </svg>
   );
 }

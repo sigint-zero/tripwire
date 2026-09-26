@@ -73,6 +73,7 @@ export function ContractsPage() {
                       className={`size-1.5 ${contract.active ? "bg-emerald-500" : "bg-gray-600"}`}
                     />
                     {contract.name}
+                    <Tag>{sourceLabel(contract)}</Tag>
                     {!contract.active && (
                       <span className="text-[10px] tracking-[0.2em] text-amber-400">
                         Disabled
@@ -84,18 +85,9 @@ export function ContractsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-6">
-                  <Tag
-                    tone={
-                      contract.source === "verified"
-                        ? "text-emerald-400"
-                        : "text-gray-400"
-                    }
-                  >
-                    {sourceLabel(contract)}
-                  </Tag>
                   <span className="flex w-16 flex-col items-end">
                     <span
-                      className={`font-display text-3xl leading-none font-bold ${
+                      className={`font-mono text-3xl leading-none font-bold tabular-nums ${
                         contract.ruleCount ? "text-white" : "text-gray-600"
                       }`}
                     >

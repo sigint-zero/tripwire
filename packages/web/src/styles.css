@@ -35,3 +35,13 @@
     @apply outline-2 outline-offset-2 outline-emerald-500;
   }
 }
+
+/* A thin, quiet scrollbar for lists that scroll inside the page. */
+@utility scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.08) transparent;
+
+  &:hover {
+    scrollbar-color: rgb(255 255 255 / 0.16) transparent;
+  }
+}

@@ -36,7 +36,7 @@ export function ContractExplorer({ surface }: { surface: ContractSurface }) {
         ))}
       </div>
 
-      <ul className="max-h-72 overflow-y-auto py-2">
+      <ul className="scrollbar-subtle max-h-72 overflow-y-auto py-2">
         {tab === "values" &&
           reads.map((read) => (
             <li

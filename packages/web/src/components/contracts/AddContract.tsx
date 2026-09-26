@@ -209,9 +209,7 @@ function LookupStatus({
       <span className="font-bold text-white">
         {preview.name ?? shortAddress(preview.address)}
       </span>
-      <Tag tone="text-emerald-400">
-        {preview.source === "verified" ? "Verified" : "Pasted ABI"}
-      </Tag>
+      <Tag>{preview.source === "verified" ? "Verified" : "Pasted ABI"}</Tag>
       {chain && <Tag>{chain}</Tag>}
       {preview.implementation && (
         <Tag>Proxy → {preview.implementation.name ?? "implementation"}</Tag>

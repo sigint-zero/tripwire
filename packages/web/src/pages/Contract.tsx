@@ -71,7 +71,7 @@ export function ContractPage({ address }: { address: string }) {
             {contract.address}
           </p>
           <p className="mt-3 flex flex-wrap gap-2">
-            <Tag tone="text-emerald-400">
+            <Tag>
               {contract.source === "verified" ? "Verified" : "Pasted ABI"}
             </Tag>
             {engine && <Tag>{chainName(engine.chainId)}</Tag>}
