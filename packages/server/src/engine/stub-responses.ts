@@ -32,32 +32,70 @@ const fakeHash = (seed: string) =>
  * `responses.tx` form: fees in wei, the arguments as decoded text.
  */
 export function buildTx(onTrip: OnChainAction, target: string, nonce: number) {
-  const call =
-    onTrip.action === "trip_global"
+  return txFor(callOf(onTrip, target), nonce, `${target}:${nonce}`);
+}
+
+/** What a rule's action calls, and where. */
+export function callOf(onTrip: OnChainAction, target: string) {
+  return onTrip.action === "trip_global"
+    ? {
+        target: CONTROLLER,
+        function: "tripGlobal(address)",
+        decoded_args: [target],
+      }
+    : onTrip.action === "trip_function"
       ? {
           target: CONTROLLER,
-          function: "tripGlobal(address)",
-          decoded_args: [target],
+          function: "trip(address,bytes4)",
+          decoded_args: [target, toFunctionSelector(onTrip.function)],
         }
-      : onTrip.action === "trip_function"
-        ? {
-            target: CONTROLLER,
-            function: "trip(address,bytes4)",
-            decoded_args: [target, toFunctionSelector(onTrip.function)],
-          }
-        : {
-            target: (onTrip.call.address ?? target).toLowerCase(),
-            function: onTrip.call.function,
-            decoded_args: onTrip.call.args,
-          };
+      : {
+          target: (onTrip.call.address ?? target).toLowerCase(),
+          function: onTrip.call.function,
+          decoded_args: onTrip.call.args,
+          value: onTrip.call.value ?? "0",
+        };
+}
+
+const controllerCalls = {
+  trip_global: "tripGlobal(address)",
+  trip_function: "trip(address,bytes4)",
+  reset_global: "resetGlobal(address)",
+  reset_function: "reset(address,bytes4)",
+} as const;
+
+/** A person's pause or unpause through the controller. */
+export function manualCall(
+  kind: keyof typeof controllerCalls,
+  target: string,
+  selector: string | null,
+) {
+  return {
+    target: CONTROLLER,
+    function: controllerCalls[kind],
+    decoded_args: selector ? [target, selector] : [target],
+  };
+}
+
+/** A built transaction, in the engine's form. */
+export function txFor(
+  call: {
+    target: string;
+    function: string;
+    decoded_args: string[];
+    value?: string;
+  },
+  nonce: number,
+  seed: string,
+) {
   return {
     ...call,
-    value: onTrip.action === "call" ? (onTrip.call.value ?? "0") : "0",
+    value: call.value ?? "0",
     nonce,
     gas_limit: String(GAS_LIMIT),
     max_fee_per_gas: String(MAX_FEE),
     max_priority_fee_per_gas: String(MAX_PRIORITY_FEE),
-    hash: fakeHash(`${target}:${nonce}`),
+    hash: fakeHash(seed),
     attempts: [] as {
       hash: string;
       max_fee_per_gas: string;
@@ -68,7 +106,7 @@ export function buildTx(onTrip: OnChainAction, target: string, nonce: number) {
   };
 }
 
-export type StubTx = ReturnType<typeof buildTx> & {
+export type StubTx = ReturnType<typeof txFor> & {
   confirmed_block?: number;
   gas_used?: string;
 };

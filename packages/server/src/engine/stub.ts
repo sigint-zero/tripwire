@@ -13,11 +13,14 @@ import type { EngineEvents, EngineListener } from "../events/types";
 import {
   actsOnChain,
   buildTx,
+  callOf,
   confirmed,
   CONTROLLER,
   DEFAULT_QUIET_SECONDS,
   GUARDIAN,
+  manualCall,
   submitted,
+  txFor,
   type StubTx,
 } from "./stub-responses";
 import {
@@ -34,8 +37,11 @@ import {
   type DryRun,
   type EngineCommands,
   type EngineHealth,
+  type ActionRow,
   type KeyChange,
   type KeyRow,
+  type ManualActionKind,
+  type ResponseDryRun,
   type ReadCall,
   type RuleRow,
 } from "./types";
@@ -282,10 +288,17 @@ export class StubEngine implements EngineCommands, EngineEvents {
    * The stand-in's controller has every contract it watches registered,
    * so the controller's pauses can be tried: `address`, or every contract
    * not registered yet. A contract registers itself on chain; this is
-   * the event the engine would mirror.
+   * the event the engine would mirror. Its guardian then names every key
+   * Tripwire holds an operator.
    */
   async #register(address: string | null) {
     const block = blockAt(this.#clock());
+    const at = [
+      block,
+      `0x${block.toString(16).padStart(64, "0")}`,
+      new Date(timeOf(block)).toISOString(),
+      CONTROLLER,
+    ];
     await this.#pool.query(
       `INSERT INTO stub.controller_events
          (block_number, block_hash, block_time, address, tx_hash, log_index, event_name, payload)
@@ -297,14 +310,24 @@ export class StubEngine implements EngineCommands, EngineEvents {
             SELECT 1 FROM stub.controller_events e
              WHERE e.event_name = 'Registered'
                AND lower(e.payload->>'guardedContract') = c.address)`,
-      [
-        block,
-        `0x${block.toString(16).padStart(64, "0")}`,
-        new Date(timeOf(block)).toISOString(),
-        CONTROLLER,
-        GUARDIAN,
-        address,
-      ],
+      [...at, GUARDIAN, address],
+    );
+    await this.#pool.query(
+      `INSERT INTO stub.controller_events
+         (block_number, block_hash, block_time, address, tx_hash, log_index, event_name, payload)
+       SELECT $1, $2, $3, $4, '0x' || md5(r.contract || k.address) || md5(k.address), 1,
+              'OperatorAdded',
+              jsonb_build_object('guardedContract', r.contract,
+                                 'operator', k.address, 'guardian', $5::text)
+         FROM (SELECT DISTINCT lower(payload->>'guardedContract') AS contract
+                 FROM stub.controller_events WHERE event_name = 'Registered') r
+        CROSS JOIN stub.keys k
+        WHERE NOT EXISTS (
+          SELECT 1 FROM stub.controller_events e
+           WHERE e.event_name IN ('OperatorAdded', 'OperatorRemoved')
+             AND lower(e.payload->>'guardedContract') = r.contract
+             AND lower(e.payload->>'operator') = k.address)`,
+      [...at, GUARDIAN],
     );
   }
 
@@ -577,6 +600,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
     const block = blockAt(clock);
     const time = new Date(clock).toISOString();
     await this.#advanceResponses(block, time);
+    await this.#advanceActions(block, time);
     if (block > this.#lastBlock) {
       this.#lastBlock = block;
       const hash = `0x${block.toString(16).padStart(64, "0")}`;
@@ -1025,7 +1049,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
   }
 
   // Keys: kept in the stand-in's database rather than files, as keystores
-  // any Ethereum tool opens. With no chain, every balance is zero.
+  // any Ethereum tool opens. Each holds a simulated ether, enough for gas.
 
   async keys(): Promise<KeyRow[]> {
     const { rows } = await this.#pool.query<{ address: string }>(
@@ -1034,7 +1058,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
     return rows.map((r) => ({
       address: r.address,
       unlocked: this.#unlocked.has(r.address),
-      balance: "0",
+      balance: "1000000000000000000",
     }));
   }
 
@@ -1045,6 +1069,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
       [address, JSON.stringify(keystore)],
     );
     this.#unlocked.add(address);
+    await this.#register(null);
     return { address, unlocked: true };
   }
 
@@ -1056,6 +1081,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
        ON CONFLICT (address) DO UPDATE SET keystore = excluded.keystore`,
       [address, JSON.stringify({ ...keystore, address: address.slice(2) })],
     );
+    await this.#register(null);
     return { address, unlocked: this.#unlocked.has(address) };
   }
 
@@ -1080,6 +1106,179 @@ export class StubEngine implements EngineCommands, EngineEvents {
     if (!rows[0]) throw noKey(key);
     this.#unlocked.delete(key);
     return { address: key, unlocked: false };
+  }
+
+  /** The key that signs: the only one, as the engine chooses with no `[response] key`. */
+  async #signingKey(): Promise<string> {
+    const { rows } = await this.#pool.query<{ address: string }>(
+      "SELECT address FROM stub.keys ORDER BY address",
+    );
+    if (rows.length === 1) return rows[0]!.address;
+    throw new EngineError(
+      400,
+      "no_key",
+      rows.length === 0
+        ? "no operator key exists yet; create one under /v1/keys first"
+        : `${rows.length} keys exist and [response] key does not say which signs`,
+    );
+  }
+
+  /** Whether the controller names `key` an operator on `contract` now. */
+  async #isOperator(contract: string, key: string): Promise<boolean> {
+    const { rows } = await this.#pool.query<{ event_name: string }>(
+      `SELECT event_name FROM stub.controller_events
+        WHERE event_name IN ('OperatorAdded', 'OperatorRemoved')
+          AND lower(payload->>'guardedContract') = $1
+          AND lower(payload->>'operator') = $2
+        ORDER BY block_number DESC, log_index DESC, id DESC LIMIT 1`,
+      [contract.toLowerCase(), key],
+    );
+    return rows[0]?.event_name === "OperatorAdded";
+  }
+
+  async responseDryRun(ruleId: string): Promise<ResponseDryRun> {
+    if (!/^\d+$/.test(ruleId)) throw notFound("rule");
+    const { rows } = await this.#pool.query<{
+      document: Rule;
+      address: string;
+    }>(
+      `SELECT r.document, c.address FROM stub.rules r
+         JOIN stub.contracts c ON c.id = r.contract_id WHERE r.id = $1`,
+      [ruleId],
+    );
+    const rule = rows[0];
+    if (!rule) throw notFound("rule");
+    const onTrip = rule.document.on_trip;
+    if (!actsOnChain(onTrip)) {
+      throw new EngineError(
+        400,
+        "invalid_request",
+        "the rule's action is notify; there is nothing to send",
+      );
+    }
+    const sender = await this.#signingKey();
+    const call = callOf(onTrip, rule.address);
+    const preview = { ...call, value: call.value ?? "0", sender };
+    if (
+      onTrip.action !== "call" &&
+      !(await this.#isOperator(rule.address, sender))
+    ) {
+      return {
+        ok: false,
+        revert_reason: "caller is not the guardian or an operator",
+        gas_estimate: null,
+        preview,
+      };
+    }
+    return { ok: true, revert_reason: null, gas_estimate: 48_213, preview };
+  }
+
+  async createAction(input: {
+    action: ManualActionKind;
+    target: string;
+    selector?: string;
+    note?: string;
+  }): Promise<ActionRow> {
+    const target = input.target.toLowerCase();
+    const functionLevel =
+      input.action === "trip_function" || input.action === "reset_function";
+    if (functionLevel !== Boolean(input.selector)) {
+      throw new EngineError(
+        400,
+        "invalid_request",
+        functionLevel
+          ? `${input.action} needs the function's selector`
+          : `${input.action} takes no selector`,
+      );
+    }
+    const sender = await this.#signingKey();
+    if (!this.#unlocked.has(sender)) {
+      throw new EngineError(
+        409,
+        "locked",
+        "the key is locked; unlock it first",
+      );
+    }
+    const block = blockAt(this.#clock());
+    const { rows: counted } = await this.#pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM stub.actions",
+    );
+    const nonce = counted[0]?.n ?? 0;
+    const tx = submitted(
+      txFor(
+        manualCall(input.action, target, input.selector ?? null),
+        nonce,
+        `action:${target}:${nonce}`,
+      ),
+      block,
+    );
+    const { rows } = await this.#pool.query<ActionRow>(
+      `INSERT INTO stub.actions (kind, target, selector, note, status, tx)
+       VALUES ($1, $2, $3, $4, 'submitted', $5)
+       RETURNING id::text, kind, target, selector, note, status, tx, error,
+                 created_at, updated_at`,
+      [
+        input.action,
+        target,
+        input.selector ?? null,
+        input.note ?? null,
+        JSON.stringify(tx),
+      ],
+    );
+    return rows[0]!;
+  }
+
+  /** A person's pause or unpause confirms a block after it was sent. */
+  async #advanceActions(block: number, time: string) {
+    const { rows } = await this.#pool.query<{
+      id: string;
+      kind: ManualActionKind;
+      target: string;
+      selector: string | null;
+      tx: StubTx;
+    }>(
+      `SELECT id::text, kind, target, selector, tx FROM stub.actions
+        WHERE status = 'submitted'`,
+    );
+    for (const a of rows) {
+      const sentAt = a.tx.attempts.at(-1)?.submitted_block;
+      if (sentAt === undefined || sentAt >= block) continue;
+      await this.#pool.query(
+        "UPDATE stub.actions SET status = 'confirmed', tx = $2, updated_at = $3 WHERE id = $1",
+        [a.id, JSON.stringify(confirmed(a.tx, block)), time],
+      );
+      const tripped = a.kind.startsWith("trip");
+      const selector = a.selector ?? "";
+      await this.#pool.query(
+        `INSERT INTO stub.trip_state
+           (contract_address, selector, source, tripped, since_block, tx_hash, updated_at)
+         VALUES ($1, $2, 'controller', $3, $4, $5, $6)
+         ON CONFLICT (contract_address, selector, source) DO UPDATE
+           SET tripped = excluded.tripped, since_block = excluded.since_block,
+               tx_hash = excluded.tx_hash, updated_at = excluded.updated_at`,
+        [a.target, selector, tripped, block, a.tx.hash, time],
+      );
+      this.#emit("trip_state", {
+        contract_address: a.target,
+        selector,
+        source: "controller",
+        tripped,
+        since_block: block,
+        tx_hash: a.tx.hash,
+        updated_at: time,
+      });
+      await this.#notify(
+        "action",
+        {
+          id: Number(a.id),
+          status: "confirmed",
+          tx_hash: a.tx.hash,
+          block_number: block,
+          error: null,
+        },
+        time,
+      );
+    }
   }
 
   read(calls: ReadCall[]): Promise<(string | string[])[]> {

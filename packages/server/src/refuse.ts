@@ -7,6 +7,7 @@ const reasons: Record<number, string> = {
   404: "Not Found",
   409: "Conflict",
   429: "Too Many Requests",
+  501: "Not Implemented",
   502: "Bad Gateway",
   503: "Service Unavailable",
 };

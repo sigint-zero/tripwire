@@ -78,9 +78,10 @@ describe("keys", () => {
         {
           address: made,
           unlocked: true,
-          balanceWei: "0",
+          balanceWei: "1000000000000000000",
           signing: true,
-          operatorOn: [],
+          // The stand-in's guardian names every key an operator.
+          operatorOn: [vault],
           file: `${directory}/${made}.json`,
         },
       ],
@@ -223,15 +224,18 @@ describe("keys", () => {
     // contract; granted on one this installation does not watch.
     const other = "0x6666666666666666666666666666666666666666";
     await post("/contracts", { address: other, name: "Other", abi: [] });
-    await event("OperatorAdded", vault, 10);
-    await event("OperatorAdded", other, 11);
-    await event("OperatorRemoved", other, 12);
-    await event("OperatorAdded", `0x${"7".repeat(40)}`, 13);
+    // Later than anything the stand-in's guardian did.
+    const later = 1e9;
+    await event("OperatorAdded", vault, later + 10);
+    await event("OperatorAdded", other, later + 11);
+    await event("OperatorRemoved", other, later + 12);
+    await event("OperatorAdded", `0x${"7".repeat(40)}`, later + 13);
 
     const { keys } = await get<KeyList>("/keys");
     expect(keys.find((k) => k.address === carried)?.operatorOn).toEqual([
       vault,
     ]);
-    expect(keys.find((k) => k.address === made)?.operatorOn).toEqual([]);
+    // Named on Other when it registered; the vault's grants went with its events.
+    expect(keys.find((k) => k.address === made)?.operatorOn).toEqual([other]);
   });
 });

@@ -6,7 +6,10 @@ import {
   type DryRun,
   type EngineCommands,
   type EngineHealth,
+  type ActionRow,
   type KeyChange,
+  type ManualActionKind,
+  type ResponseDryRun,
   type KeyRow,
   type ReadCall,
   type RuleRow,
@@ -145,6 +148,26 @@ export class HttpEngine implements EngineCommands {
       "POST",
       `/v1/keys/${encodeURIComponent(address)}/lock`,
     );
+  }
+
+  responseDryRun(id: string) {
+    return this.#call<ResponseDryRun>("POST", "/v1/responses/dry-run", {
+      rule_id: Number(ruleId(id)),
+    });
+  }
+
+  async createAction(action: {
+    action: ManualActionKind;
+    target: string;
+    selector?: string;
+    note?: string;
+  }) {
+    const row = await this.#call<ActionRow & { id: number }>(
+      "POST",
+      "/v1/actions",
+      action,
+    );
+    return { ...row, id: String(row.id) };
   }
 
   async #call<T = unknown>(

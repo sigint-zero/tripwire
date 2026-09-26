@@ -9,6 +9,7 @@ import { EngineMonitor } from "./engine/monitor";
 import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
 import type { EngineEvents } from "./events/types";
+import { actionRoutes } from "./actions";
 import { eventRoutes } from "./events/route";
 import { keyRoutes } from "./keys";
 import { notificationRoutes } from "./notifications/routes";
@@ -20,6 +21,7 @@ import { responseRoutes } from "./responses";
 import { seriesRoutes } from "./series";
 import { setupRoutes } from "./setup";
 import { RuleService } from "./rule-service";
+import { readinessRoutes } from "./readiness";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
 import { tripStateRoutes } from "./trip-state";
@@ -84,6 +86,8 @@ export const api: FastifyPluginCallback<{
   app.register(seriesRoutes, { reads });
   app.register(tripStateRoutes, { reads });
   app.register(setupRoutes, { reads, store });
+  app.register(readinessRoutes, { commands, reads, info });
+  app.register(actionRoutes, { commands, reads });
   app.register(keyRoutes, {
     commands,
     reads,

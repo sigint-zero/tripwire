@@ -202,6 +202,39 @@ export interface KeyRow {
   balance: string;
 }
 
+/** `POST /v1/responses/dry-run`: a rule's action built and simulated, nothing sent. */
+export interface ResponseDryRun {
+  ok: boolean;
+  revert_reason?: string | null;
+  gas_estimate?: number | null;
+  /** The decoded call, and the key it would be sent from. */
+  preview: {
+    target?: string;
+    function?: string;
+    decoded_args?: string[];
+    value?: string;
+    sender?: string;
+  };
+}
+
+/** The controller calls a person may make by hand. */
+export type ManualActionKind =
+  "trip_global" | "trip_function" | "reset_global" | "reset_function";
+
+/** A row of `api_v1.actions`: a pause or unpause a person asked for. */
+export interface ActionRow {
+  id: string;
+  kind: ManualActionKind;
+  target: string;
+  selector: string | null;
+  note: string | null;
+  status: string;
+  tx: unknown;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** `KeyAddress`: a key after a change. */
 export interface KeyChange {
   address: string;
@@ -326,6 +359,15 @@ export interface EngineCommands {
   /** `400 wrong_passphrase` naming nothing further; `404` for an unknown key. */
   unlockKey(address: string, passphrase: string): Promise<KeyChange>;
   lockKey(address: string): Promise<KeyChange>;
+  /** Builds a rule's on-chain action from the signing key and simulates it. */
+  responseDryRun(ruleId: string): Promise<ResponseDryRun>;
+  /** A pause or unpause through the controller, sent like a response. */
+  createAction(action: {
+    action: ManualActionKind;
+    target: string;
+    selector?: string;
+    note?: string;
+  }): Promise<ActionRow>;
 }
 
 /** Every read of the engine's state comes from its views. */
