@@ -1,10 +1,9 @@
 # Database
 
 How the application provides, reaches and shares the one database that
-it and the engine both use. Two halves: what the engine's store
-milestone (its M2 sheet) requires of the application, and what the
-application owns in that database, including the migrations it runs
-itself. `HIGH-LEVEL-SPEC.md` places this; `AUTHENTICATION.md` explains
+it and the engine both use. Two halves: what the engine expects of
+the database it is given, and what the application owns in that
+database, including the migrations it runs itself. `HIGH-LEVEL-SPEC.md` places this; `AUTHENTICATION.md` explains
 why accounts are not in here.
 
 ## Summary
@@ -23,9 +22,9 @@ why accounts are not in here.
 
 ## The engine's side of the contract
 
-This section restates, from the application's seat, what the engine's
-store sheet fixes. The engine is a black box behind two things: its
-local control interface and the views below.
+The engine is a black box behind two things: its local control
+interface and the views below. This section states what the
+application relies on at that boundary.
 
 ### What the engine takes
 
@@ -49,7 +48,7 @@ pool. The engine refuses to start against a schema newer than itself
 and names the engine version that schema requires. Consequences:
 
 - On the very first start the views do not exist until the engine has
-  run migration 001. The application's read layer treats a missing
+  run its migrations. The application's read layer treats a missing
   `api_v1` schema as the state "engine has not initialised the database
   yet" and reports it as such, rather than as an error.
 - Downgrading the pinned engine release after the schema has moved on
@@ -107,7 +106,7 @@ A disabled rule:
 | history | kept; charts show a gap for the disabled period |
 | responses already awaiting approval | stay in the queue for the person to decide |
 | edits | allowed; they take effect once it is enabled |
-| rules with a metric | re-enter warm-up on enabling when their window spans the gap (the engine's M1 warm-up semantics decide), so a stale window never trips |
+| rules with a metric | re-enter warm-up on enabling when their window spans the gap (the engine decides when the window is covered again), so a stale window never trips |
 
 **Disabling a contract** disables every currently enabled rule on it in
 one batch call to the engine, and records the ids of exactly those rules
@@ -448,16 +447,16 @@ the engine, below), so view queries are tested against the real views
 with no chain and no RPC. The engine's migrations stay inside its
 binary; the application never ships or replays them.
 
-## Asks of the engine
+## What the application requires of the engine
 
-Things this document relies on that the engine's store sheet does not
-yet state. Each is small; each is the engine side's call.
+Capabilities this document relies on at the engine boundary, beyond
+the URL and the views above.
 
-| # | Ask | Why the application needs it |
+| # | Requirement | Why the application needs it |
 |-|-|-|
-| E1 | A migrate-and-exit invocation that opens the store, migrates, and exits without touching the chain | CI tests the read layer against the real views; `tripwire db status` can offer "migrate the engine schemas now" |
+| E1 | A migrate-and-exit invocation that migrates the database and exits without touching the chain | CI tests the read layer against the real views; `tripwire db status` can offer "migrate the engine schemas now" |
 | E2 | The minimum PostgreSQL major version, stated in each release's view reference | the external-mode pre-flight names it before the engine is spawned |
-| E3 | The behaviour of a disabled rule, as in "Disabling rules and contracts" above, and a batch enable or disable that takes many rule ids and applies in one transaction | the engine stores `enabled` but no sheet yet says what a disabled rule does; disabling a contract is a batch, and a half-applied batch would leave a contract partly watched |
+| E3 | A disabled rule behaves as in "Disabling rules and contracts" above, and a batch enable or disable takes many rule ids and applies in one transaction | disabling a contract is a batch, and a half-applied batch would leave a contract partly watched |
 | E4 | The view reference lists, per view, the columns and their types | the application selects columns by name and its types are generated from that file |
 
 ## Decisions
