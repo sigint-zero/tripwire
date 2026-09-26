@@ -103,6 +103,9 @@ export const api: FastifyPluginCallback<{
   app.register(keyRoutes, {
     commands,
     reads,
+    store,
+    signingKey: () => supervisor?.config?.response.key ?? null,
+    responseMode: () => info.responseMode,
     directory: backend.engine.keysDirectory ?? null,
   });
   if (auth && home) {

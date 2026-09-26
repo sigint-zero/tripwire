@@ -31,7 +31,7 @@ export function SettingsPage() {
         <Account />
         <Accounts />
         <AgentTokens />
-        <Section title="Keys">
+        <Section title="Keys" id="keys">
           <Keys />
         </Section>
         <Section title="Alert channels">
@@ -45,9 +45,17 @@ export function SettingsPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  id,
+  children,
+}: {
+  title: string;
+  id?: string;
+  children: ReactNode;
+}) {
   return (
-    <section>
+    <section id={id} className="scroll-mt-6">
       <h2 className={heading}>{title}</h2>
       {children}
     </section>

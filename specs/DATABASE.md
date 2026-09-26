@@ -434,6 +434,16 @@ from `api_v1.contracts`; only the source lives here.
 | fetched_from | text | the verifier consulted |
 | fetched_at | timestamptz | |
 
+`app.key_names`: what people call the engine's keys, shown in
+Settings, Keys (`RESPONSES.md`). The engine never sees a name.
+
+| Column | Type | Notes |
+|-|-|-|
+| address | text PK | lowercase |
+| name | text | 1 to 60 characters |
+| named_by | text | account id from `users.json` |
+| updated_at | timestamptz | |
+
 ### Sweeping
 
 Because nothing is enforced across schemas, rows can outlive the
@@ -445,6 +455,8 @@ absent from `api_v1.rules`, `violation_acks` rows absent from
 notification is absent from `api_v1.notifications` or
 `app.local_notifications`, and `contract_sources` rows absent from
 `api_v1.contracts`, and prunes `dashboard.pinned_rules` the same way.
+`key_names` is not swept: a key's file can be put back, and its name
+comes back with it.
 The volume guard is unaffected: it counts the trailing hour, and a
 rule deleted within the hour still counted when it was stored.
 

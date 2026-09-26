@@ -111,17 +111,59 @@ files in `TRIPWIRE_HOME/engine/keys/`, one per key; any standard
 Ethereum tool opens them, and a keystore made elsewhere can be
 imported.
 
-The list shows each key's address, whether it is unlocked, its native
-balance at the current block (the engine reports it with each key),
-whether it is the signing key and, for contracts
-that use the controller, the ones it is an authorised operator on (from
-the controller's events, below). A zero balance is flagged: a key that
-cannot pay for gas cannot respond.
+The list shows each key's name when it has one, its address, whether
+it is unlocked, its native balance at the current block (the engine
+reports it with each key) in the chain's currency, whether it is the
+signing key and, for contracts that use the controller, the ones it is
+an authorised operator on (from the controller's events, below). A zero
+balance is flagged: a key that cannot pay for gas cannot respond.
+
+**One key, for now.** The engine signs with the key named as the
+signing key in the response settings, or else with the only key; with
+several keys and none named, it cannot tell which signs, and every
+response waits. Until the signing key can be chosen in the dashboard,
+Tripwire holds one key: **Create** and **Import** are offered only
+while there is none, the server refuses a second with `409 one_key`,
+and the section says there is no adding another. Keystore files put in
+the keys directory by hand still count; when that leaves several keys
+and none is named to sign, the list says so in red above the keys, with
+what to do (keep one; remove the others' files while Tripwire is
+stopped).
+
+**A locked key that rules need is shown in red.** A key's `neededBy` is
+the number of enabled rules whose trip sends a transaction (any action
+but `notify`), counted for the signing key while the response mode is
+`prepare` or `send`, since `notify` builds nothing. While that key is
+locked and `neededBy` is above zero:
+
+- its row in Keys is tinted red, its "Locked" is red, and a line under
+  it says how many rules sign with it and to unlock it;
+- every page of the dashboard shows a red **Key locked** banner under
+  the top bar, naming the key and the count and linking to Settings,
+  Keys. It reads the keys every 30 seconds as well as after any change
+  made here, because an engine restart locks every key without passing
+  through the dashboard.
+
+**Details** on a key opens it in place:
+
+| Part | Shows |
+|-|-|
+| Name | what people call the key ("Pauser", "Hot wallet"), up to 60 characters, saved by the application in `app.key_names`; empty forgets it. The engine never sees it |
+| Address and file | each with a copy button; how to fund the key (send the chain's currency to the address: every transaction it sends pays gas) and a link to the address on the chain's block explorer, for chains with a known one |
+| What it may do | for each registered contract, whether the key is its `owner()` or holds `DEFAULT_ADMIN_ROLE` (read at the current block through the engine, one batch, only for contracts whose ABI has those views), and the contracts the controller names it an operator on. Owner and admin are shown as warnings, as in the least-power check (Readiness, below); a read that fails says so and still shows the operator grants |
+| Sent from it | the transactions the engine sent from the key, newest first: responses (linked to the response, with the rule's name) and actions by hand (linked to the contract's page, with the note). Each shows the call and the contract, its status, the gas it used once confirmed, and its hash, linked to the explorer. Built transactions that were never sent are left out |
+
+A transaction belongs to a key by the sender its `tx` names. A
+transaction that names none was sent by the only key when there is one
+key, because the engine signs with that key alone. With several keys
+such a transaction cannot be placed: the list leaves it out and counts
+it below the list ("2 more transactions do not name the key that sent
+them").
 
 | Action | Does |
 |-|-|
 | **Create** | a passphrase, typed twice, 12 characters or more. The engine generates the key and returns its address; the new key starts unlocked. The dialog then says where the file is and that the passphrase cannot be recovered |
-| **Import** | a keystore file (JSON, up to 64 KB) and its passphrase. The engine checks it opens before storing it; the imported key starts locked, so the dialog offers **Unlock** next. The engine would replace a key it already holds, so the server refuses a keystore whose address is already in the list before forwarding it |
+| **Import** | a keystore file (JSON, up to 64 KB) and its passphrase. The engine checks it opens before storing it; the imported key starts locked, so the dialog offers **Unlock** next. When several keys are allowed again, the server must refuse a keystore whose address is already in the list before forwarding it: the engine would replace a key it already holds |
 | **Unlock** | the passphrase; the key signs until it is locked or the engine restarts |
 | **Lock** | the key stops signing at once; responses wait at `pending` with the reason |
 
@@ -396,9 +438,11 @@ the API's error envelope. No MCP tool reads or changes any of it.
 | GET | `/responses/:id` | one response, with `tx` in full: `{ to, function, args, value, nonce, gasLimit, maxFeeGwei, maxPriorityFeeGwei, maxCostWei, hash, rebuilt, attempts }` |
 | POST | `/responses/:id/approve` | the resulting response; `409 not_waiting`, `409 busy` |
 | POST | `/responses/:id/reject` | `{ reason? }`; the resulting response; `409 not_waiting` |
-| GET | `/keys` | `{ keys: [{ address, unlocked, balanceWei, signing, operatorOn: [address], file }], directory }` |
-| POST | `/keys` | `{ passphrase }`; `201 { address, file }` |
-| POST | `/keys/import` | `{ keystore, passphrase }`; `201 { address, file }`; `400 invalid_keystore`, `400 wrong_passphrase`, `409 key_exists` |
+| GET | `/keys` | `{ keys: [{ address, name, unlocked, balanceWei, signing, neededBy, operatorOn: [address], file }], directory }` |
+| GET | `/keys/:address` | `{ key, powers: [{ contract: { address, name }, power: owner\|admin\|operator }], powersProblem, transactions: [{ kind: response\|action, id, reason, call, contract: { address, name }, status, hash, block, gasUsed, createdAt }], unattributed }`; `404 not_found` for a key the engine does not hold |
+| PUT | `/keys/:address/name` | `{ name }`, trimmed; empty or `null` forgets it: `{ address, name }`; `400 invalid_name` over 60 characters, `404 not_found` |
+| POST | `/keys` | `{ passphrase }`; `201 { address, file }`; `409 one_key` while a key exists |
+| POST | `/keys/import` | `{ keystore, passphrase }`; `201 { address, file }`; `400 invalid_keystore`, `400 wrong_passphrase`, `409 one_key` while a key exists |
 | POST | `/keys/:address/unlock` | `{ passphrase }`; the key; `400 wrong_passphrase`, `429 too_many_attempts` |
 | POST | `/keys/:address/lock` | the key |
 | GET | `/readiness` | `?contract`; per contract: `{ address, name, steps: [{ step, state: done\|todo\|not_applicable, detail }], guardianCall: { to, value, data, from } \| null, rules: [{ id, name, action, test }] }`; `step` one of `signing_key`, `rules`, `registered`, `operator`, `permission`, `least_power`, `mode` |
@@ -428,6 +472,9 @@ does, through the same engine endpoints.
 | `tripwire keys unlock <address>` | prompts for the passphrase; the key signs until it is locked or the engine restarts |
 | `tripwire keys lock <address>` | stops the key signing at once |
 
+While Tripwire holds one key (Keys, above), `create` and `import` refuse
+when a key exists, as the dashboard does.
+
 Passphrases are read from the terminal with echo off, or from
 `TRIPWIRE_KEYS_PASSPHRASE` for scripted installs, never from an
 argument where they would land in shell history. With the engine
@@ -444,7 +491,13 @@ gas_estimate, preview }`), the `responses.tx` object documented in the
 view reference, and actions by hand in `POST /v1/actions`, recorded
 in `api_v1.actions`: the controller's pauses and unpauses, and a `call`
 of any declared function on a watched contract, whether or not it is
-on the controller. No requirement is open.
+on the controller.
+
+One requirement is open:
+
+| # | Requirement | Why |
+|-|-|-|
+| R5 | `responses.tx` and `actions.tx` name the sending key, as `from` (lowercase `0x` address) | a key's history in Keys is placed by sender. Without it, a transaction can be placed only while one key exists, and adding a second key hides every earlier transaction from the first key's list. The application already reads `from` when present |
 
 ## Decisions
 
@@ -462,6 +515,8 @@ on the controller. No requirement is open.
 | RS10 | Who may approve | Any account, logged with the username. Accounts are equal; a two-person rule can come later if owners ask |
 | RS11 | Default response | A call to the protected contract's own function from a key granted permission on it. It works with any contract that can be paused today, with nothing to deploy or register; the controller stays an option for contracts built for it |
 | RS12 | A key with too much power | Warned, not refused. The owner may have reasons, and a refusal would push them to work around it; the warning names the risk and what to grant instead |
+| RS13 | Key names | Kept by the application, not the engine. A name is a label for people; the keystore file stays the standard format any tool opens, and the engine's interface does not grow for it |
+| RS14 | One key until the signing key can be chosen | Refuse a second key rather than warn about it. With two keys and none named, every response waits, and the dashboard cannot name one yet; a second key has no use until it can |
 
 ## Checkpoint
 

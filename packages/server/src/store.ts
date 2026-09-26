@@ -272,6 +272,30 @@ export class AppStore {
     );
   }
 
+  /** What people call the keys, by lowercase address. */
+  async keyNames(): Promise<Map<string, string>> {
+    const { rows } = await this.#pool.query<{ address: string; name: string }>(
+      "SELECT address, name FROM app.key_names LIMIT 10000",
+    );
+    return new Map(rows.map((r) => [r.address, r.name]));
+  }
+
+  /** Names a key, or forgets its name with `null`. */
+  async nameKey(address: string, name: string | null, by: string) {
+    if (name === null) {
+      await this.#pool.query("DELETE FROM app.key_names WHERE address = $1", [
+        address.toLowerCase(),
+      ]);
+      return;
+    }
+    await this.#pool.query(
+      `INSERT INTO app.key_names (address, name, named_by) VALUES ($1, $2, $3)
+       ON CONFLICT (address) DO UPDATE
+         SET name = excluded.name, named_by = excluded.named_by, updated_at = now()`,
+      [address.toLowerCase(), name, by],
+    );
+  }
+
   /** Forgets a deleted contract: its disable and its source. */
   async forgetContract(contractId: string, address: string) {
     await this.#pool.query(

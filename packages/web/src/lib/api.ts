@@ -14,6 +14,7 @@ import type {
   ContractRegistration,
   EngineStatus,
   Issue,
+  KeyDetail,
   KeyList,
   ChainSetup,
   ChainVerify,
@@ -305,6 +306,14 @@ export const api = {
       json: action,
     }),
   keys: (signal?: AbortSignal) => request<KeyList>("/keys", { signal }),
+  key: (address: string, signal?: AbortSignal) =>
+    request<KeyDetail>(`/keys/${address}`, { signal }),
+  /** An empty name forgets it. */
+  nameKey: (address: string, name: string) =>
+    request<{ address: string; name: string | null }>(`/keys/${address}/name`, {
+      method: "PUT",
+      json: { name },
+    }),
   createKey: (passphrase: string) =>
     request<NewKey>("/keys", { json: { passphrase } }),
   importKey: (keystore: string, passphrase: string) =>

@@ -22,13 +22,13 @@ import { refuse } from "./refuse";
 // kept in memory until the next test or a restart.
 
 const ADD_OPERATOR = parseAbi(["function addOperator(address,address)"]);
-const DEFAULT_ADMIN_ROLE = `0x${"0".repeat(64)}`;
+export const DEFAULT_ADMIN_ROLE = `0x${"0".repeat(64)}`;
 
 const short = (address: string) =>
   `${address.slice(0, 6)}…${address.slice(-4)}`;
 
 /** Whether the ABI has a view function of exactly this shape. */
-function hasView(abi: unknown[] | null, name: string, inputs: string[]) {
+export function hasView(abi: unknown[] | null, name: string, inputs: string[]) {
   return (abi ?? []).some((item) => {
     const f = item as {
       type?: string;
@@ -43,7 +43,8 @@ function hasView(abi: unknown[] | null, name: string, inputs: string[]) {
   });
 }
 
-const actsOnChain = (rule: RuleRow) =>
+/** A rule whose trip sends a transaction: enabled, and not notify-only. */
+export const actsOnChain = (rule: RuleRow) =>
   rule.enabled && rule.document.on_trip.action !== "notify";
 const usesController = (rule: RuleRow) =>
   rule.document.on_trip.action === "trip_global" ||

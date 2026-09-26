@@ -57,6 +57,7 @@ describe("migrations", () => {
       "contract_sources",
       "deliveries",
       "dispatches",
+      "key_names",
       "local_notifications",
       "migrations",
       "notification_reads",

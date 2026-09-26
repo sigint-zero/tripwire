@@ -2,6 +2,7 @@ import { Link, Outlet } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AccountMenu } from "./AccountMenu";
 import { ChainBadge } from "./ChainBadge";
+import { LockedKeyBanner } from "./LockedKeyBanner";
 import { ServerStatus } from "./ServerStatus";
 import { Wordmark } from "./Wordmark";
 
@@ -120,6 +121,7 @@ export function ShellLayout({ children }: { children: ReactNode }) {
           <ChainBadge />
           <AccountMenu />
         </header>
+        <LockedKeyBanner />
         {children}
       </main>
     </div>
