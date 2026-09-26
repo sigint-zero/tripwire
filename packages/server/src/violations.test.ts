@@ -1,5 +1,6 @@
 import type { StoredRuleCheck, Violation } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
+import type pg from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "./app";
 import { ViewReads } from "./engine/reads";
@@ -32,11 +33,13 @@ const rule = (name: string, op: string) => ({
 let clock = Date.UTC(2026, 8, 1);
 let stub: StubEngine;
 let app: FastifyInstance;
+let pool: pg.Pool;
 let tripping: string;
 
 beforeAll(async () => {
   const database = await testDatabase();
   const home = await testHome();
+  pool = database.pool;
   stub = await StubEngine.open(database.pool, () => clock);
   app = await createServer({
     backend: {
@@ -95,6 +98,7 @@ describe("violations", () => {
       kind: "tripped",
       evidence: { node: "compare", value: true },
       acknowledged: null,
+      response: null,
     });
     expect(newest!.blockNumber).toBe(older!.blockNumber + 1);
   });
@@ -116,6 +120,23 @@ describe("violations", () => {
   it("filters by kind", async () => {
     expect(await list("?kind=tripped")).toHaveLength(2);
     expect(await list("?kind=pending")).toEqual([]);
+  });
+
+  it("carries the latest response the engine built for it", async () => {
+    const [newest] = await list();
+    const respond = (status: string) =>
+      pool.query(
+        `INSERT INTO stub.responses (violation_id, action, mode, status)
+         VALUES ($1, 'trip_global', 'prepare', $2)`,
+        [newest!.id, status],
+      );
+    await respond("failed");
+    await respond("awaiting_approval");
+    const [withResponse] = await list();
+    expect(withResponse!.response).toMatchObject({
+      status: "awaiting_approval",
+    });
+    await pool.query("DELETE FROM stub.responses");
   });
 
   it("refuses a malformed query", async () => {

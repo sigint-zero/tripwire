@@ -114,6 +114,16 @@ export interface RuleChange {
   display?: RuleDisplay;
 }
 
+/** Where a response stands, from built to final. */
+export type ResponseStatus =
+  | "pending"
+  | "awaiting_approval"
+  | "approved"
+  | "submitted"
+  | "confirmed"
+  | "failed"
+  | "abandoned";
+
 export type ViolationKind = "tripped" | "evaluation_error" | "pending";
 
 /** A rule tripping, or failing to evaluate, at one block. */
@@ -131,6 +141,8 @@ export interface Violation {
   evidence: unknown;
   createdAt: string;
   acknowledged: { by: string; note: string | null; at: string } | null;
+  /** What the engine did about it on chain; null when it did nothing. */
+  response: { id: string; status: ResponseStatus } | null;
 }
 
 /** The logged-in account and its session. */

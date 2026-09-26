@@ -1,4 +1,10 @@
-import type { Issue, Rule, Severity, ViolationKind } from "@tripwire/shared";
+import type {
+  Issue,
+  ResponseStatus,
+  Rule,
+  Severity,
+  ViolationKind,
+} from "@tripwire/shared";
 
 // The engine's outward contract, as the application uses it: commands
 // through its control interface (M6), reads from its `api_v1` views.
@@ -52,6 +58,8 @@ export interface ViolationRow {
   acknowledged_by: string | null;
   note: string | null;
   acknowledged_at: string | null;
+  response_id: string | null;
+  response_status: ResponseStatus | null;
 }
 
 /** `GET /v1/health`: the running process speaking for itself. */

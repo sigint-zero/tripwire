@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS stub.violations (
   evidence jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS stub.responses (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  violation_id bigint NOT NULL REFERENCES stub.violations (id) ON DELETE CASCADE,
+  action text NOT NULL,
+  mode text NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
+  tx jsonb,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE SCHEMA IF NOT EXISTS ${STUB_VIEWS};
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.contracts AS
   SELECT c.id, c.address, c.name, c.abi, c.created_at,
@@ -85,6 +96,14 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.violations AS
          c.address AS contract_address, v.kind, v.block_number, v.block_time,
          v.tx_hash, v.evidence, v.created_at
     FROM stub.violations v
+    JOIN stub.rules r ON r.id = v.rule_id
+    JOIN stub.contracts c ON c.id = r.contract_id;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
+  SELECT p.id, p.violation_id, v.rule_id, r.name AS rule_name,
+         c.address AS contract_address, p.action, p.mode, p.status, p.tx,
+         p.error, p.created_at, p.updated_at
+    FROM stub.responses p
+    JOIN stub.violations v ON v.id = p.violation_id
     JOIN stub.rules r ON r.id = v.rule_id
     JOIN stub.contracts c ON c.id = r.contract_id;
 `;

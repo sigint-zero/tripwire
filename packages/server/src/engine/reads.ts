@@ -23,7 +23,8 @@ const RULE = `id::text, contract_id::text, contract_address, name, document,
   created_at, updated_at`;
 const VIOLATION = `v.id::text, v.rule_id::text, v.rule_name, v.severity,
   v.contract_address, v.kind, v.block_number::int, v.block_time, v.tx_hash,
-  v.evidence, v.created_at, a.acknowledged_by, a.note, a.acknowledged_at`;
+  v.evidence, v.created_at, a.acknowledged_by, a.note, a.acknowledged_at,
+  p.id::text AS response_id, p.status AS response_status`;
 
 export class ViewReads implements EngineReads {
   readonly #pool: pg.Pool;
@@ -106,8 +107,7 @@ export class ViewReads implements EngineReads {
     if (filter.open) where.push("a.violation_id IS NULL");
     const limit = Math.min(Math.max(filter.limit ?? LIMIT, 1), LIMIT);
     return this.#read<ViolationRow>(
-      `SELECT ${VIOLATION} FROM ${this.#schema}.violations v
-         LEFT JOIN app.violation_acks a ON a.violation_id = v.id
+      `SELECT ${VIOLATION} FROM ${this.#violations()}
         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
         ORDER BY v.id DESC LIMIT ${limit}`,
       params,
@@ -117,12 +117,20 @@ export class ViewReads implements EngineReads {
   async violation(id: string): Promise<ViolationRow | null> {
     if (!/^\d+$/.test(id)) return null;
     const rows = await this.#read<ViolationRow>(
-      `SELECT ${VIOLATION} FROM ${this.#schema}.violations v
-         LEFT JOIN app.violation_acks a ON a.violation_id = v.id
-        WHERE v.id = $1`,
+      `SELECT ${VIOLATION} FROM ${this.#violations()} WHERE v.id = $1`,
       [id],
     );
     return rows[0] ?? null;
+  }
+
+  /** Violations with their acknowledgement and their latest response. */
+  #violations() {
+    return `${this.#schema}.violations v
+      LEFT JOIN app.violation_acks a ON a.violation_id = v.id
+      LEFT JOIN LATERAL (
+        SELECT r.id, r.status FROM ${this.#schema}.responses r
+         WHERE r.violation_id = v.id ORDER BY r.id DESC LIMIT 1
+      ) p ON true`;
   }
 
   async #read<T extends object>(sql: string, params: unknown[] = []) {

@@ -50,6 +50,10 @@ function toViolation(row: ViolationRow): Violation {
             at: row.acknowledged_at,
           }
         : null,
+    response:
+      row.response_id && row.response_status
+        ? { id: row.response_id, status: row.response_status }
+        : null,
   };
 }
 

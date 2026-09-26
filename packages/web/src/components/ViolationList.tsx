@@ -10,9 +10,10 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { api } from "../lib/api";
 import { shortAddress, timeAgo } from "../lib/format";
+import { responseStatuses } from "../lib/responses";
 import { Evidence } from "./Evidence";
 import { Button, Tag } from "./ui";
-import { SeverityIcon } from "./wizard/ResponseStep";
+import { actions, SeverityIcon } from "./wizard/ResponseStep";
 
 /**
  * One rule's violations at consecutive blocks, newest first. A rule
@@ -73,22 +74,29 @@ export function ViolationList({
       {runsOf(violations)
         .slice(0, limit)
         // New blocks extend a run at its newest end; its oldest stays put.
-        .map((run) => (
-          <RunRow
-            key={run.oldest.id}
-            run={run}
-            contract={contracts?.find(
-              (c) => c.address === run.newest.contractAddress,
-            )}
-            showContract={contracts !== undefined}
-            display={rules?.find((r) => r.id === run.newest.ruleId)?.display}
-            showRule={showRule}
-            expanded={open === run.oldest.id}
-            onToggle={() =>
-              setOpen((id) => (id === run.oldest.id ? null : run.oldest.id))
-            }
-          />
-        ))}
+        .map((run) => {
+          const rule = rules?.find((r) => r.id === run.newest.ruleId);
+          return (
+            <RunRow
+              key={run.oldest.id}
+              run={run}
+              contract={contracts?.find(
+                (c) => c.address === run.newest.contractAddress,
+              )}
+              showContract={contracts !== undefined}
+              display={rule?.display}
+              action={
+                actions.find((a) => a.action === rule?.rule.on_trip.action)
+                  ?.title
+              }
+              showRule={showRule}
+              expanded={open === run.oldest.id}
+              onToggle={() =>
+                setOpen((id) => (id === run.oldest.id ? null : run.oldest.id))
+              }
+            />
+          );
+        })}
     </ul>
   );
 }
@@ -99,12 +107,15 @@ function RunRow({
   showContract,
   showRule,
   display,
+  action,
   expanded,
   onToggle,
 }: {
   run: Run;
   contract?: Contract;
   display?: RuleDisplay;
+  /** The rule's on-chain action, in words. */
+  action?: string;
   showContract: boolean;
   showRule: boolean;
   expanded: boolean;
@@ -170,7 +181,12 @@ function RunRow({
       </button>
 
       {expanded && (
-        <RunDetail run={run} showRule={showRule} display={display} />
+        <RunDetail
+          run={run}
+          showRule={showRule}
+          display={display}
+          action={action}
+        />
       )}
     </li>
   );
@@ -180,10 +196,12 @@ function RunDetail({
   run,
   showRule,
   display,
+  action,
 }: {
   run: Run;
   showRule: boolean;
   display?: RuleDisplay;
+  action?: string;
 }) {
   const { newest } = run;
   const queryClient = useQueryClient();
@@ -203,6 +221,26 @@ function RunDetail({
         </p>
         <Evidence evidence={newest.evidence} display={display} />
       </div>
+
+      {/* Nothing is said when there was no response: under notify, a
+          quiet period or a live response, none is expected. */}
+      {newest.response && (
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+          <span className="text-[10px] font-bold tracking-[0.2em] uppercase">
+            Response
+          </span>
+          {action && <span className="text-gray-300">{action}</span>}
+          <span className={responseStatuses[newest.response.status].tone}>
+            {responseStatuses[newest.response.status].label}
+          </span>
+          <Link
+            to="/responses"
+            className="transition-colors hover:text-emerald-400"
+          >
+            In Responses →
+          </Link>
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         {showRule ? (
