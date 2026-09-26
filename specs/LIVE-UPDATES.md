@@ -36,6 +36,7 @@ control interface, authenticated with the interface secret as
 | `response` | a response changes status |
 | `notification` | a notification row is recorded |
 | `health` | the engine's health status changes |
+| `error` | sent once, just before the engine disconnects a client that fell behind: `{ code: "lagged", message }` |
 
 What the application relies on:
 
@@ -44,8 +45,8 @@ What the application relies on:
 - Ids are monotonic within one connection. There is no replay and no
   `Last-Event-ID`: history is the views' job.
 - The engine never drops an event silently. A client too slow to keep
-  up is disconnected and told why; from the application's side that is
-  one more reconnect.
+  up is sent one `error` event with code `lagged` and disconnected;
+  from the application's side that is one more reconnect.
 
 ## The server's upstream connection
 
@@ -58,6 +59,7 @@ long as the engine runs.
 | connection opens | sends `resync` to every browser stream, since anything may have changed while it was down |
 | connection drops, engine still running | reconnects after 1 second, doubling to a 30-second cap, with a random tenth either way; resets after a minute connected |
 | engine stops or restarts | closes the connection; the supervisor's own state reaches the browser as `health`; reconnects once the engine is `starting` again |
+| an `error` event with code `lagged` | the engine is about to hang up because the server fell behind: logged at warn, the server reconnects at once and sends `resync` to every browser stream. It is expected, not a parse failure |
 | an event fails to parse | logged at warn with its name and id, then treated as `resync`: the server does not guess |
 | `401` from the engine | the secret changed under it (a new data directory): the server re-reads the secret file once and reconnects; a second `401` is logged at error, and the connection stays closed until the engine next starts, with the browser streams told `resync` and the 60-second poll taking over |
 
@@ -103,7 +105,7 @@ API.
 | `rule_state` | `{ ruleId, enabled, warming }` | engine `rule_state` |
 | `trip_state` | `{ contractAddress, selector, source, tripped }` | engine `trip_state` |
 | `response` | `{ id, ruleId, status }` | engine `response` |
-| `notification` | `{ id, source, kind, severity, unread }` | engine `notification`, and the application's own `system` notifications; `unread` is the new unread count |
+| `notification` | `{ id, source, kind, severity, unread }` | engine `notification`, and the application's own `system` notifications; `severity` is the one `NOTIFICATIONS.md` assigns, which the server derives: the engine's payload carries a severity only for violations and response decisions, not for health or settlements; `unread` is the new unread count |
 | `health` | `{ state, since }` | the supervisor: the engine states in `ENGINE.md`, including those the engine cannot report about itself (`unresponsive`, `restarting`, `failed`, `stopped`) |
 | `settings` | `{ area, applied }` | the application, when a settings change was applied or rolled back (`SETTINGS.md`) |
 | `channel` | `{ id, failing }` | the application, when an alert channel starts or stops failing (`NOTIFICATIONS.md`) |
@@ -217,7 +219,9 @@ Live updates are done when, provably and repeatably:
 2. With five tabs open, the engine sees exactly one stream client.
 3. Killing the engine's stream connection (engine left running) leads
    to a reconnect and a `resync` in every tab; a violation recorded
-   during the gap is on screen after the resync.
+   during the gap is on screen after the resync. The same holds when
+   the engine hangs up with an `error` event of code `lagged`, which is
+   logged as a lag and never as a parse failure.
 4. A browser that stops reading (paused tab, throttled socket) is sent
    `resync` with reason `behind` and closed; its queue never exceeds
    256 events, and other tabs are unaffected.

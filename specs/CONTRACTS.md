@@ -48,8 +48,9 @@ straight away, as the wizard does.
 The Contracts page lists registered contracts by name. Each row shows
 the name, the address, its rules ("No rules yet", "3 rules", or "3
 rules, 1 on" when some are off), where its ABI came from (verified,
-proxy, pasted) and, when it is disabled, that it is. A row opens the
-contract's page.
+proxy, pasted), when it is disabled, that it is, and what is paused
+on it now: **Paused** for the whole contract, else "2 functions
+paused" (`ACTIVITY.md`, Trip state). A row opens the contract's page.
 
 ## A contract's page
 
@@ -62,7 +63,15 @@ At `/contracts/:address`:
 - its rules, each with the engine's sentence, severity, action, and
   whether it is off;
 - what it exposes: the values rules can read, its events and its
-  functions, as in the wizard.
+  functions, as in the wizard;
+- its **Response readiness** checklist: whether Tripwire's key can make
+  the calls the contract's rules would make, by calling the contract's
+  own functions or, for a contract that uses the optional
+  TripwireController, through it (`RESPONSES.md`, Readiness);
+- the pause panel: what is paused on it now, whether by a rule's
+  confirmed call or by the controller (`ACTIVITY.md`, Trip state), with
+  **Pause** and **Unpause** by hand (`RESPONSES.md`, Pausing and
+  unpausing by hand).
 
 ## Disabling and enabling
 
@@ -94,9 +103,6 @@ page.
 | remove | the server route exists (`DELETE /contracts/:address`): the engine removes the contract with its rules and their history, and the application forgets what it kept about them. The page will ask for confirmation, naming how many rules and violations go with it (CT3) |
 | verified source files | kept by the application when a contract is added (`app.contract_sources`), for agents and the contract's page |
 | live values | the engine reads values at the current block; the values tab can show them |
-| trip state | what is paused on the contract right now, by the controller or by a rule's confirmed call; the panel is specified in `ACTIVITY.md` |
-| response readiness | whether Tripwire's key can make the calls the contract's rules would make, and, for a contract that uses the optional TripwireController, whether it is set up there; specified in `RESPONSES.md` |
-| pause and unpause | a person pausing or unpausing the contract by hand during an incident; specified in `RESPONSES.md` |
 
 ## API
 
@@ -113,6 +119,8 @@ the API's error envelope.
 | POST | `/contracts/:address/disable` | switches its rules off, remembering which; returns the contract |
 | POST | `/contracts/:address/enable` | switches the remembered rules back on; returns the contract |
 | GET | `/rules?contract=:address` | one contract's rules |
+| GET | `/readiness?contract=:address` | its readiness checklist (`RESPONSES.md`) |
+| POST | `/contracts/:address/actions` | a pause or unpause by hand (`RESPONSES.md`) |
 
 `active` is false while the contract is disabled. `source` is
 `verified` or `pasted`.

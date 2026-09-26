@@ -70,20 +70,33 @@ an endpoint, never reads it back. A value may be a literal URL or
 whether it is set in the server's environment, never its value.
 
 **Every endpoint change is verified before it is saved.** Saving runs
-the engine's verify invocation (`ENGINE.md`, ask G2) against the
-proposed configuration: the chain id must equal the installation's,
-the node must serve receipts by one of the methods the engine knows,
-and a WebSocket endpoint must accept a subscription when detection
-needs one. The section shows the result as it comes back:
+the engine's verify invocation (`ENGINE.md`, G2) against the proposed
+configuration: the node must serve the installation's chain id, it
+must serve receipts by one of the methods the engine knows, and a
+WebSocket endpoint, whenever one is given, must accept the
+pending-transaction subscription. The section shows the result as it
+comes back:
 
 ```
 Chain id 1 matches.
-Receipts: eth_getBlockReceipts.
-Latest block 21,904,112, 4 seconds old.
+Receipts: one call per block.
+Latest block 21,904,112.
+Pending transactions: subscribed.
 ```
 
+| Verify result | Shown as |
+|-|-|
+| no `wrong_chain` problem | "Chain id N matches.", N being the installation's id; the engine reports the configured id, and says nothing more when the node agrees |
+| `receipts` `block_receipts` | "Receipts: one call per block." |
+| `receipts` `per_transaction` | "Receipts: one call per transaction. Works; costs more RPC calls on busy blocks." |
+| `head` | "Latest block N." The engine gives the number only; the block's age is not known here |
+| `ws` `{ ok: true }` | "Pending transactions: subscribed." The line is absent when no WebSocket endpoint was given |
+
 A failed verification names each problem in the engine's words and
-saves nothing. A passed one proceeds to apply.
+saves nothing. For `wrong_chain` the engine's message names both ids
+("the node serves chain id 8453, the engine is configured for 1"); the
+section shows it with the chains' names where it knows them. A passed
+verification proceeds to apply.
 
 **Polling interval** is how often the engine asks for a new head. The
 field explains the trade: shorter notices blocks sooner and costs more
@@ -116,6 +129,10 @@ first, like an endpoint change.
 |-|-|-|
 | raw values | 90 days | 7 |
 | notifications | 90 days | 7 (`NOTIFICATIONS.md`, N3) |
+
+The minimum of 7 is the application's own; the engine would accept a
+single day. A week is the least that keeps a weekend's incident
+reviewable.
 
 Raw per-block values older than the setting are summarised into hourly
 buckets and the raw points removed; charts read the buckets beyond the
@@ -164,7 +181,9 @@ Response section in `RESPONSES.md`, saves the same way:
 4. **Restart** the engine with a freshly generated `engine.toml`
    (`ENGINE.md`).
 5. **Confirm**: wait up to 60 seconds for the engine to report `ready`
-   or `degraded`. Either counts as started.
+   or `degraded`, not counting any wait on a previous engine's database
+   lease (`ENGINE.md`, Applying configuration). Either counts as
+   started.
 6. **Roll back** if it does not start: restore `config.json.previous`,
    restart again, and answer `409 settings_rejected` with the engine's
    own error message and log lines, so the person sees why and the

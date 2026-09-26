@@ -40,6 +40,7 @@ startup:
 |-|-|
 | PostgreSQL wire protocol | the local database must speak it; a driver that only offers an in-process API is not enough |
 | a database where the engine's user may create schemas and tables | the application checks this itself before spawning the engine, so the owner sees one clear message instead of an engine crash |
+| PostgreSQL 14 or later | the minimum the engine states in its view reference (`postgres_min_major`); the external-mode pre-flight checks it before the engine is spawned |
 | at least one connection | the engine is fully correct at a budget of one connection, and the application relies on that in local mode |
 
 ### What the engine does at startup
@@ -84,9 +85,11 @@ view reference the engine publishes with each release.
 | `violations` | Violations, Rule detail, Contract detail, Overview | firings and evaluation errors with evidence |
 | `series`, `series_points` | Rule detail charts, Overview mini charts | recorded values by series and time range (`RULES.md`) |
 | `series_rollups` | Rule detail charts | hourly summaries of points older than the engine's raw retention |
+| `rule_series` | Rule detail charts, Overview mini charts | which series each rule reads, by role (`read` or `metric`) and path in the document (`RULES.md`) |
 | `trip_state` | Overview, Contracts, Contract detail | what is paused now, by the controller or by a rule's confirmed call (`ACTIVITY.md`) |
 | `controller_events` | Activity, response readiness | the controller's history: trips, resets, registration, operators, guardianship (`ACTIVITY.md`, `RESPONSES.md`) |
-| `responses` | Responses | the approval queue and response history (`RESPONSES.md`) |
+| `responses` | Responses, Activity | the approval queue and response history (`RESPONSES.md`) |
+| `actions` | Activity, Contract detail | pauses and unpauses a person asked the engine for by hand, with their transactions (`RESPONSES.md`, `ACTIVITY.md`) |
 | `notifications` | Notifications, the notification dispatcher | the engine's notification record: the feed, and what the application delivers (`NOTIFICATIONS.md`) |
 | `engine_status` | health strip, Settings, `tripwire db status` | one row per cursor with `updated_at`; readable while the engine is down, which is how the dashboard tells "stale" from "stopped" |
 
@@ -205,12 +208,16 @@ inside another client's open transaction. The pooler's contract:
 | a transaction is open or failed (status `T` or `E`) | the lease is held until the client commits or rolls back |
 | a client disconnects while holding the lease | the pooler issues `ROLLBACK` before the next lease |
 | a leased transaction sits idle for 30 seconds | the pooler rolls it back and disconnects that client, so a stuck client can never stall the engine's block writes |
+| a client uses the unnamed prepared statement after another client's Parse replaced it | the pooler replays that client's own last unnamed Parse first, then passes its message on; the replayed `ParseComplete` is not forwarded, since the client already had it. A driver may Parse in one lease and Bind in the next, and the session has only one unnamed statement to share |
+| a simple query runs | the unnamed statement is gone, as PostgreSQL defines; the next client to use its own is replayed as above |
 
 The pooler does not reset the session between leases, so anything
 session-scoped one client leaves behind (a setting, a named prepared
-statement, a temporary table) is seen by the other. That is why both
-processes keep nothing session-scoped (requirement E5 for the engine),
-and why the application follows four rules whenever it talks to the
+statement, a temporary table) is seen by the other. The one exception
+it manages is the unnamed prepared statement, above, which drivers use
+for every parameterised query. That is why both processes keep nothing
+session-scoped (E5 for the engine), and why the application follows
+four rules whenever it talks to the
 local database. They cost nothing in external mode, so they are simply
 the rules:
 
@@ -229,17 +236,13 @@ transactions. A statement from one client, issued while another
 client holds a transaction open, must wait until that transaction
 ends; it must never run inside it. Without that, an application read
 could land inside the engine's block write, or an application
-rollback could undo engine rows. The PGlite socket server
-multiplexes clients over the one session, but its documentation does
-not say it holds to transaction boundaries and its authors note that
-not every case is covered, so the checkpoint proves the property
-rather than trusting it. If that proof fails on a release of the
-socket server, the pooling layer is replaced first: a small
-transaction-boundary pooler of the application's own, speaking the
-wire protocol to the clients and PGlite's protocol interface inward,
-inside the provisioning module. Only if PGlite itself cannot hold up
-does local mode move to an embedded PostgreSQL server (decision DB1);
-either way the provisioning module is the only code that changes.
+rollback could undo engine rows. The pooler is the application's own,
+a small module in the server package that speaks the wire protocol to
+the clients and PGlite's protocol interface inward, because PGlite's
+socket server does not say it holds to transaction boundaries. Only if
+PGlite itself cannot hold up does local mode move to an embedded
+PostgreSQL server (decision DB1); either way the provisioning module is
+the only code that changes.
 
 The Unix socket path is not authenticated; it is protected by the
 `0700` directory, which is the same protection the data directory has.
@@ -276,8 +279,7 @@ the environment, then the file; the first two force external mode for
 that run without rewriting the file.
 
 The application writes `TRIPWIRE_HOME/engine.toml` on every start
-(`ENGINE.md` shows the whole file). The database part is the same in
-both modes:
+(`ENGINE.md` shows the whole file). Its database part, in local mode:
 
 ```toml
 [database]
@@ -285,11 +287,11 @@ url = "env:TRIPWIRE_DATABASE_URL"
 max_connections = 1
 ```
 
-The application resolves the URL and places it in the engine's
-environment when it spawns it, using the engine's own `env:` form, so
-the URL and its password are written into no file the application
-creates. `max_connections` is `1` in local mode and omitted in external
-mode, leaving the engine's default.
+In external mode the `url` line is the same and `max_connections` is
+omitted, leaving the engine's default. The application resolves the
+URL and places it in the engine's environment when it spawns it, using
+the engine's own `env:` form, so the URL and its password are written
+into no file the application creates.
 
 ## Start and stop
 
@@ -303,10 +305,12 @@ Start:
    local database, start the pooler.
 2. Pre-flight (external) or a `select 1` through the pooler (local).
 3. Apply the application's migrations (below).
-4. Install the engine if needed, write `engine.toml`, run the engine's
-   migrations, spawn it and begin polling its health (`ENGINE.md`).
-5. Listen. Until the engine reports ready the dashboard shows the
-   status screen and reads that need `api_v1` answer "engine starting".
+4. Listen. The dashboard is served from here.
+5. In the background: install the engine if needed, write
+   `engine.toml`, run the engine's migrations, spawn it and begin
+   polling its health (`ENGINE.md`, Start). Until the engine reports
+   ready, the dashboard shows its state and reads that need `api_v1`
+   answer "engine starting".
 
 Stop, on `SIGINT` or `SIGTERM`:
 
@@ -357,6 +361,7 @@ Keys defined so far:
 | `notifications.dashboard_url` | text, unset by default | links in alert messages |
 | `notifications.heartbeat_url` | text, unset by default | the outside heartbeat |
 | `notifications.dispatch_since` | timestamp, set on first start | notifications before it are shown, never sent |
+| `setup.dismissed` | boolean, default false | the Overview's setup checklist, closed before every step was done (`FIRST-RUN.md`) |
 
 `app.rule_prefs`: how a rule is shown, which the engine has no reason
 to know.
@@ -369,7 +374,7 @@ to know.
 | updated_at | timestamptz | |
 
 `app.rule_submissions`: every rule an MCP token stored, for the
-"created via MCP" badge and the volume guard.
+permanent "Via <token label>" badge and the volume guard.
 
 | Column | Type | Notes |
 |-|-|-|
@@ -484,32 +489,33 @@ directory at once.
 
 ## Development
 
-The fixture backend of the read layer stays for the engine stub and
-for tests. The Postgres backend is the one described here. CI
-exercises it against a local-mode database that the pinned engine
-release has migrated with its migrate-and-exit invocation (an ask of
-the engine, below), so view queries are tested against the real views
-with no chain and no RPC. The engine's migrations stay inside its
+The fixture backend of the read layer stays for the development
+stand-in (`ENGINE.md`) and for tests. The Postgres backend is the one
+described here. CI exercises it against a local-mode database that the
+pinned engine release has migrated with `tripwire-engine migrate`
+(E1 below), so view queries are tested against the real views with no
+chain and no RPC. The engine's migrations stay inside its
 binary; the application never ships or replays them.
 
-## What the application requires of the engine
+## What the application relies on from the engine
 
 Capabilities this document relies on at the engine boundary, beyond
-the URL and the views above.
+the URL and the views above. Each is part of the engine's published
+interface.
 
-| # | Requirement | Why the application needs it |
+| # | Fact | Why the application needs it |
 |-|-|-|
-| E1 | A migrate-and-exit invocation that migrates the database and exits without touching the chain | CI tests the read layer against the real views; `tripwire db status` can offer "migrate the engine schemas now" |
-| E2 | The minimum PostgreSQL major version, stated in each release's view reference | the external-mode pre-flight names it before the engine is spawned |
-| E3 | A disabled rule behaves as in "Disabling rules and contracts" above, and a batch enable or disable takes many rule ids and applies in one transaction | disabling a contract is a batch, and a half-applied batch would leave a contract partly watched |
-| E4 | The view reference lists, per view, the columns and their types | the application selects columns by name and its types are generated from that file |
-| E5 | The engine stays fully correct when its connection is served by a transaction-boundary pooler: nothing it does is session-scoped (its migration lock is transaction-scoped, it sets no session state, no `LISTEN`/`NOTIFY`, no prepared statement relied on across transactions) | in local mode both processes share PGlite's one session through the pooler, which hands the session over at transaction boundaries |
+| E1 | `tripwire-engine migrate --config <file>` migrates the database and exits without touching the chain, printing the schema version; a refusal exits with the same codes as a start (`ENGINE.md`, G3) | CI tests the read layer against the real views; `tripwire db status` can offer "migrate the engine schemas now" |
+| E2 | The view reference states the minimum PostgreSQL major version (`postgres_min_major`, 14) | the external-mode pre-flight names it before the engine is spawned |
+| E3 | A disabled rule behaves as in "Disabling rules and contracts" above, and `POST /v1/rules/enabled` takes many rule ids and applies them in one transaction | disabling a contract is a batch, and a half-applied batch would leave a contract partly watched |
+| E4 | The view reference (`views.json`) lists, per view, the columns and their types, and the shapes of its `jsonb` payloads | the application selects columns by name and its types are written against that file |
+| E5 | The engine is fully correct when its connection is served by a transaction-boundary pooler: it keeps no session state, runs every query as an unnamed statement and caches none, takes its migration lock per transaction, and uses no `LISTEN`/`NOTIFY` | in local mode both processes share PGlite's one session through the pooler, which hands the session over at transaction boundaries |
 
 ## Decisions
 
 | # | Decision | Recommendation and reason |
 |-|-|-|
-| DB1 | Local database engine | PGlite behind a transaction-boundary pooler that both processes connect through. It installs with the package, needs no download and no child binary, and the engine already guarantees correctness at one pooled connection for exactly this case. The pooler is the socket server's multiplexer if the checkpoint proves it, else a small pooler of the application's own; the fallback, taken only if PGlite itself fails the proof, is an embedded PostgreSQL server. In every case the provisioning module is the only code that changes |
+| DB1 | Local database engine | PGlite behind a transaction-boundary pooler of the application's own that both processes connect through. It installs with the package, needs no download and no child binary, and the engine already guarantees correctness at one pooled connection for exactly this case. The fallback, taken only if PGlite itself fails the proof, is an embedded PostgreSQL server; the provisioning module is the only code that changes |
 | DB2 | One URL for both processes | Yes. The application holds one credential and hands the same one to the engine. A split into a writer and a read-only role is documented for owners who want it, and the application does not need it to keep to its schema: the boundary is enforced by code review and by the test that rejects any query text naming `engine.` |
 | DB3 | Where credentials live | Files, per `AUTHENTICATION.md` AU4. Login must work with the database down, and a CLI command must be able to add a user beside a running server without contending for the local database's one session |
 | DB4 | Own migration runner | A hundred lines of SQL-file runner instead of a migration library. The schema is thirteen tables; a library would be the largest dependency in the server for the least work |
@@ -534,12 +540,13 @@ The database layer is done when, provably and repeatably:
 3. Isolation in local mode: client A begins a transaction and inserts
    a row; client B, concurrently, inserts and commits a row of its
    own; A rolls back. B's statement waited for A's transaction to end,
-   B's row is present and A's is not. Run against the pooling layer
-   the package pins; a failure replaces the pooler, and only PGlite
-   itself failing flips DB1. The same run proves the contract's edges:
-   a client killed mid-transaction leaves no open transaction for the
-   next lease, and a transaction left idle for 30 seconds is rolled
-   back while the other client proceeds.
+   B's row is present and A's is not. Only PGlite itself failing this
+   flips DB1. The same run proves the contract's edges: a client
+   killed mid-transaction leaves no open transaction for the next
+   lease, a transaction left idle for 30 seconds is rolled back while
+   the other client proceeds, and a client that parses the unnamed
+   statement, loses the lease to another client's Parse, and then
+   binds it gets its own statement's result.
 4. A shipped migration file altered after being applied stops the
    start with `migration_altered`; a ledger version above the shipped
    set stops it with `app_schema_newer`.

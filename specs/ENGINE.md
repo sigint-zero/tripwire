@@ -35,7 +35,7 @@ The CLI package ships `engine.json` beside the executable:
 
 ```json
 {
-  "version": "1.4.2",
+  "version": "0.1.0",
   "publicKey": "RWQ…",
   "releases": "https://<the release location>/{version}/{asset}"
 }
@@ -46,6 +46,13 @@ The CLI package ships `engine.json` beside the executable:
 | `version` | the exact engine release this application is built against: its control interface, views and rule schema are the ones in that release's contract files |
 | `publicKey` | the minisign public key the engine's releases are signed with |
 | `releases` | a URL template for release assets; `{version}` and `{asset}` are substituted |
+
+The release location and its tag scheme are the engine's to publish;
+the application only substitutes into the template it ships. Besides
+the executables, each release's `SHA256SUMS` covers the contract files
+(`openapi.json`, `views.json`, `rule.schema.json`) and
+`rule-examples.tar.gz`, a set of valid example rule documents; the
+installer needs only the executable's line.
 
 `TRIPWIRE_ENGINE_RELEASES` in the environment replaces `releases`, for
 a mirror or a network that cannot reach the release location. The key
@@ -94,7 +101,7 @@ the dashboard is available for first run while the engine arrives
    `TRIPWIRE_HOME/engine/bin/<version>/tripwire-engine`, and keep
    `SHA256SUMS` and its signature beside it.
 6. Run it with `--version` and check the printed version equals the
-   pin (requirement G5).
+   pin (G5 below).
 
 Network failures retry three times with backoff, then the state is
 `failed` with the last error; a restart request (API or CLI) retries.
@@ -181,11 +188,12 @@ Validation, at load and before any write:
 | `chain.controllerAddress`, `chain.controllerDeployedBlock` | both set or both null. Null means the known deployment for the chain id, from the table in `RESPONSES.md`; a chain with none runs without a controller |
 | `response.mode` | `notify`, `prepare` or `send` |
 | `response.key` | an address or null |
-| `response.maxFeeGwei`, `response.maxPriorityFeeGwei` | a positive number or null (the engine's default) |
+| `response.maxFeeGwei` | a positive integer, or null for the engine's default of 100 |
+| `response.maxPriorityFeeGwei` | an integer, 0 or more, or null for the engine's default of 2. It is the first attempt's priority fee, not a cap: escalation may raise it, bounded only by the maximum fee. It may not exceed the maximum fee, counting the engine's defaults for whichever of the two is null |
 | `response.replacementBlocks`, `response.maxAttempts` | integer, 1 or more |
 | `response.submission` | `private`, `private_strict` or `public` |
-| `response.privateEndpoints` | a list of `https://` URLs, or null (the engine's built-in set) |
-| `retention.pointsDays`, `retention.notificationsDays` | integer, 7 or more |
+| `response.privateEndpoints` | a non-empty list of `http://` or `https://` URLs, or null (the engine's built-in set). An empty list is refused: the engine would treat it as an empty route set, under which `private` submits publicly and `private_strict` cannot start |
+| `retention.pointsDays`, `retention.notificationsDays` | integer, 7 or more. The engine accepts 1 or more; 7 is the application's own floor, so a slip of the keyboard cannot erase a week of history |
 | `mempool.enabled` | true only with `chain.rpcWs` set |
 | `mempool.respond` | true only with `mempool.enabled` |
 | anything else | an unknown member is an error, as it is in the engine |
@@ -278,9 +286,12 @@ it:
 The control interface binds loopback only. The application picks a
 free port at each start by binding port 0 and releasing it, and writes
 it into `engine.toml`. Two installations on one machine never collide,
-and nothing but the application talks to that port. If the engine
-exits because the port was taken in the moment between, the next start
-picks another; that exit is not counted as unplanned.
+and nothing but the application talks to that port. If the port was
+taken in the moment between, the engine exits with the generic code 1
+and logs "cannot bind the control interface"; the supervisor
+recognises that line in the log, picks another port for the next
+start, and does not count the exit as unplanned. A code 1 without that
+line is a crash like any other.
 
 ## Start
 
@@ -305,9 +316,12 @@ the full start is:
 9. Spawn `tripwire-engine run --config engine.toml` in its own process
    group, with stdout and stderr piped to the log, and write
    `engine.pid`. State `starting`.
-10. Wait for `TRIPWIRE_HOME/engine/interface-secret` to exist, read it,
-    and poll `GET /v1/health`: every second while starting, every five
-    seconds after.
+10. Wait until `TRIPWIRE_HOME/engine/interface-secret` holds 64
+    hexadecimal characters, read it, and poll `GET /v1/health`: every
+    second while starting, every five seconds after. The engine creates
+    the file and then writes it, so a read in between finds it empty;
+    waiting for the full secret rather than for the file closes that
+    gap.
 
 The engine gets its own process group so a Ctrl+C in the terminal
 reaches the application only, which then stops the engine in the order
@@ -327,7 +341,7 @@ it once before treating the engine as unhealthy.
 | `installing` | the pinned release is being downloaded and verified |
 | `starting` | spawned, not yet `ready` |
 | `ready` | health says ready |
-| `degraded` | health says degraded: protecting but behind (lag, RPC backoff, a signer missing) |
+| `degraded` | health says degraded, with the engine's cause: the RPC is failing, evaluation lags the node's head, the response mode is `send` and no signing key is unlocked, or the pending-transaction subscription is down |
 | `unresponsive` | the process is alive but its health has not answered for 60 seconds |
 | `restarting` | it exited or was killed without being asked to; waiting out the backoff |
 | `failed` | it will not restart until something changes: installation or verification failed, the platform is unsupported, the configuration was refused, or the schema is newer than the engine |
@@ -340,11 +354,15 @@ protecting.
 ### Health
 
 Each poll of `GET /v1/health` has a five-second timeout and records
-the engine's status, version, observed head, each cursor's position and
-age, and its RPC state. Lag is the head minus the ingest cursor. While
-the process is down, cursors come from the `api_v1.engine_status` view
-instead, which stays readable, so the dashboard can say both "stopped"
-and "last block processed 4 minutes ago".
+the engine's status and its cause when degraded, version, the head it
+last observed on the node (`observed_head`), the last block it
+evaluated, each cursor's position and age, and its RPC state. Lag is
+the observed head minus the ingest cursor. While the process is down,
+cursors come from the `api_v1.engine_status` view instead, which stays
+readable, so the dashboard can say both "stopped" and "last block
+processed 4 minutes ago". The engine reports no block times in health;
+where the application shows a time for the head, it is when the ingest
+cursor last moved (below, `GET /engine`).
 
 ### Restart policy
 
@@ -352,6 +370,7 @@ and "last block processed 4 minutes ago".
 |-|-|
 | exit with code 0 when not asked to stop | restart with backoff |
 | exit because the database is unreachable or the RPC failed verification (codes in G3) | restart with backoff; the message is shown until the engine is up |
+| exit because another engine holds the database (code `70`) | retry every 10 seconds, not counted as unplanned and raising nothing; state `starting` with "waiting for the previous engine's hold on the database to lapse". After 90 seconds of this it becomes an unplanned exit like any other |
 | exit because the configuration was refused or the schema is newer (codes in G3) | `failed`; no restart until the configuration changes or a person asks |
 | any other exit, including a crash or a signal | restart with backoff |
 | health unanswered for 60 seconds | `unresponsive`, and "engine not responding" |
@@ -361,6 +380,18 @@ The backoff starts at one second and doubles to a cap of 60 seconds.
 It resets once the engine has been running for ten minutes. A hung
 engine is not protecting, and killing it is the only recovery the
 application has, so an unresponsive engine is not left alone.
+
+Code `70` has its own row because of how the engine guards against
+two engines on one database (G1): a running engine holds a lease in the
+database, renewed every 10 seconds and released on a clean stop. An
+engine that did not stop cleanly (`kill -9`, the 120-second `SIGKILL`
+above, a crash) leaves its lease behind, and a new engine may take it
+over only once it is 60 seconds stale. Until then every start exits
+`70`. Retrying on the normal backoff would count five or six unplanned
+restarts for one death and raise "engine restarting repeatedly";
+retrying on a fixed interval without counting waits out the lease
+quietly. So after an unplanned death the engine is back within about
+70 seconds, not within the first backoff step.
 
 The alerts are the `system` notifications in `NOTIFICATIONS.md`: an
 unplanned exit from a running engine raises "engine stopped", a third
@@ -388,8 +419,8 @@ guards prevent it:
   command line names the recorded binary, the application stops it
   (`SIGTERM`, 15 seconds, `SIGKILL`) before spawning another. A pid
   reused by an unrelated process is left alone and the file deleted.
-- **The engine's own guard** (requirement G1), which covers two
-  installations pointed at one external database.
+- **The engine's own guard** (G1), which covers two installations
+  pointed at one external database.
 
 ## Stop
 
@@ -408,7 +439,11 @@ reaches `engine.toml` is applied by one supervisor operation, used by
    temporary file and rename it into place.
 3. Regenerate `engine.toml` and restart the engine (stop as above, then
    start from step 6).
-4. Wait up to 60 seconds for `ready` or `degraded`.
+4. Wait up to 60 seconds for `ready` or `degraded`. The stop is a clean
+   one, which releases the engine's database lease, so the new engine
+   does not wait on it; time spent retrying exit `70` (a previous engine
+   that died uncleanly just before) does not count against the 60
+   seconds.
 5. If the engine exits instead, or does not get there in time: restore
    `config.json.previous`, restart again, and return the engine's own
    error message (its log lines from the failed attempt).
@@ -484,8 +519,8 @@ the API's error envelope.
   "state": "ready",
   "since": "2026-09-26T09:14:03Z",
   "runner": "supervised",
-  "version": "1.4.2",
-  "pinnedVersion": "1.4.2",
+  "version": "0.1.0",
+  "pinnedVersion": "0.1.0",
   "unpinned": false,
   "install": null,
   "health": {
@@ -505,7 +540,7 @@ the API's error envelope.
 |-|-|
 | `runner` | `supervised`, `attached` or `stand-in` |
 | `install` | `{ bytes, total }` while `installing`, else null |
-| `health` | from the last health answer; while the process is down, `head`, `headTime` and cursors from `api_v1.engine_status` and the rest null, so the health strip can say when the last block was seen (`OVERVIEW.md`) |
+| `health` | from the last health answer: `head` is the ingest cursor's block, `headTime` is when that cursor last moved (now minus its `age_seconds`), `lagBlocks` is `observed_head` minus the ingest cursor. While the process is down, `head` and `headTime` are the `ingest` row of `api_v1.engine_status` (`block_number`, `updated_at`), cursors come from the same view, and the rest is null, so the health strip can say when the last block was processed (`OVERVIEW.md`). The block's own time reaches the browser with each `block` event (`LIVE-UPDATES.md`) |
 | `lastExit` | `{ code, signal, at, reason }` of the last unplanned exit |
 | `problem` | `{ code, message }` while `failed`, `restarting` or `unresponsive`: the engine's own message where it gave one |
 
@@ -526,15 +561,18 @@ username.
 Cursors and view schema state are `tripwire db status`'s
 (`DATABASE.md`).
 
-## What the application requires of the engine
+## What the application relies on from the engine
 
-| # | Requirement | Why the application needs it |
+Each of these is part of the engine's published process contract; the
+application depends on them and tests them in its checkpoint.
+
+| # | Fact | Why the application needs it |
 |-|-|-|
-| G1 | The engine refuses to run while another instance is running against the same database, with a guard that holds under the transaction pooler (nothing session-scoped, `DATABASE.md` E5) | two engines on one database would evaluate and respond twice; the application's own locks cannot see an engine from another installation |
-| G2 | A verify invocation, `tripwire-engine verify --config <file>`: loads the configuration, connects to the RPC, runs the startup RPC checks (chain id, receipts method, the WebSocket subscription when the mempool is enabled), prints one JSON result `{ ok, chain_id, head, receipts, ws, problems: [{ code, message }] }` and exits 0 or non-zero, without a database | first run and Settings check an RPC endpoint before committing it; the application never talks to the chain itself |
-| G3 | Distinct exit codes: `0` clean stop, `78` configuration refused (unknown key, invalid value, send mode without a signer), `65` database schema newer than this engine, `75` database unreachable, `69` RPC verification failed; anything else is a crash | the supervisor restarts on what can recover by itself and stops on what needs a person, instead of looping on a bad configuration |
-| G4 | The interface secret file exists before the control interface accepts connections, and `GET /v1/health` answers `starting` while the engine is starting | the application reads the secret right after spawning and polls health from the first second |
-| G5 | `--version` prints the version the release is named by | the installer confirms the binary it verified is the version it pinned |
+| G1 | The engine refuses to run while another engine holds the same database. The guard is a lease row in the database, renewed every 10 seconds, released on a clean stop and taken over only when 60 seconds stale; it is not session-scoped, so it holds under the transaction pooler (`DATABASE.md`). A refused start exits `70` | two engines on one database would evaluate and respond twice; the application's own locks cannot see an engine from another installation |
+| G2 | `tripwire-engine verify --config <file>` loads the configuration, connects to the RPC and runs the startup checks without a database: the chain id, the receipts method, and, whenever `[chain] rpc_ws` is present, the pending-transaction subscription. It prints one JSON line `{ ok, chain_id, head, receipts, ws, problems: [{ code, message }] }` and exits 0, or `69` with problems. `chain_id` is the configured id; a node serving another chain is the problem `wrong_chain`, whose message names both ids. `head` is a block number with no time. `receipts` is `block_receipts` or `per_transaction`. `ws` is null without `rpc_ws`, else `{ ok, pending }`. A configuration the engine cannot load prints no JSON: it exits `78` with the reason on stderr | first run and Settings check an RPC endpoint before committing it; the application never talks to the chain itself. The application leaves `rpc_ws` out of the verify configuration when it does not want the WebSocket checked |
+| G3 | Exit codes: `0` clean stop, `78` configuration refused (unknown key, invalid value, send mode without an unlocked signer), `65` database schema newer than this engine, `75` database unreachable, `69` RPC verification failed, `70` another engine holds the database; anything else, including `1`, is a crash | the supervisor restarts on what can recover by itself, waits on what will clear by itself, and stops on what needs a person, instead of looping on a bad configuration |
+| G4 | The interface secret is written and the control interface bound before the engine touches the database or the chain, and `GET /v1/health` answers `starting` until it is ready | the application reads the secret right after spawning and polls health from the first second |
+| G5 | `--version` prints exactly the version the release is named by | the installer confirms the binary it verified is the version it pinned |
 
 ## Decisions
 
@@ -546,7 +584,7 @@ Cursors and view schema state are `tripwire db status`'s
 | EN4 | Who writes `engine.toml` | The application, on every start, from `config.json`. One source of truth; the file is output, not configuration |
 | EN5 | How secrets reach the engine | Through an allow-listed environment and `env:` references. The database URL, the RPC URLs and the key passphrase land in no file the application writes |
 | EN6 | The control interface port | A free loopback port per start. Nothing but the application uses it, and a fixed port would collide between installations |
-| EN7 | Restart policy | Backoff from one second to 60, without giving up on failures that can clear by themselves (database, RPC, crashes); `failed` for those that cannot (configuration, schema, installation), chosen by exit code |
+| EN7 | Restart policy | Backoff from one second to 60, without giving up on failures that can clear by themselves (database, RPC, crashes); a quiet fixed retry for a lease another engine left behind (`70`); `failed` for those that cannot (configuration, schema, installation), chosen by exit code |
 | EN8 | A hung engine | Killed at 120 seconds of silence and restarted. An engine that does not answer is not protecting |
 | EN9 | Orphans and doubles | `run.lock`, `engine.pid` and the engine's own guard. Two engines on one database is the worst failure available, so it gets three independent guards |
 | EN10 | The stand-in | Opt-in only. A production install with no engine says so instead of simulating |
@@ -568,9 +606,11 @@ The engine layer is done when, provably and repeatably:
 3. With a chain configured, the start reaches `ready`. `engine.toml` is
    `0600` and contains neither the RPC URL nor the database URL; the
    engine's environment holds only the allow-listed variables.
-4. `kill -9` of the engine restarts it within the backoff and it
-   returns to `ready`. Three kills within ten minutes raise "engine
-   restarting repeatedly" exactly once, and the backoff is observed.
+4. `kill -9` of the engine restarts it, and it returns to `ready`
+   within about 70 seconds, the new engine's exits `70` retried every
+   10 seconds without raising "engine restarting repeatedly". Three
+   kills within ten minutes raise "engine restarting repeatedly"
+   exactly once, and the backoff is observed.
 5. `SIGSTOP` of the engine gives `unresponsive` and "engine not
    responding" at 60 seconds, and a kill and restart at 120.
 6. A configuration change the engine refuses (an RPC for another chain)

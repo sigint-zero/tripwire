@@ -22,15 +22,14 @@ first class of rule.
 
 ## Components
 
-One repository, one workspace, six packages:
+One repository, one workspace, five packages:
 
 | Package | Role |
 |-|-|
 | `cli` | the `tripwire` command: guided setup, installing the engine and starting and supervising it with the server, and utilities (rule export/import, key and token management, database status and backup) |
-| `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine, delivers notifications to alert channels |
+| `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine, delivers notifications to alert channels. Carries the development stand-in for the engine (`TRIPWIRE_ENGINE=stand-in`, `ENGINE.md`): the same interface with fixture data, so the whole application runs with no engine present |
 | `web` | the dashboard: a single-page app built to static files, served by the server |
 | `shared` | types and validation schemas used by all packages |
-| `engine-stub` | development stand-in for the engine: same interface, fixture data, scripted scenarios. Lets the whole application run with no engine present |
 | `mcp` | a Model Context Protocol server exposing Tripwire to AI agents: it teaches an agent how to find a contract's rules, shows contracts and the rules already on them, and accepts rule submissions checked by the engine. Specified in `MCP-SERVER.md` |
 
 ## How data moves
@@ -60,7 +59,7 @@ One repository, one workspace, six packages:
 | Rules | all rules with current values and status; a wizard with starting points to create and edit them; per-rule detail with charts and evidence |
 | Violations | filterable history with full evidence per violation |
 | Responses | the approval queue for prepared response transactions, and response history |
-| Activity | timeline of on-chain trip events and role changes |
+| Activity | what is paused now, and the history of pauses and resets, Tripwire's own first |
 | Notifications | in-app feed and alert-channel status |
 | Settings | connection readout, response defaults, retention, alert channels, keys and tokens, response-mode onboarding |
 | First run | guided setup from account creation and RPC endpoint to first rule and first alert channel |
@@ -130,5 +129,6 @@ Zod validation at every boundary. pnpm workspaces, vitest.
 
 ## Status
 
-Pre-implementation. This spec leads the code and will be revised as the
-application takes shape.
+Under construction. The engine this application drives is built; the
+detailed specs above lead the application's code, and each is revised
+when the code shows it wrong.

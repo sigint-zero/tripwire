@@ -155,7 +155,7 @@ Blank types:
 |-|-|-|
 | value | a dropdown of the contract's values | a `view_call` whose signature declares what it returns (`totalSupply() returns (uint256)`), with `returns` selecting the output when there are several |
 | value or number | the same dropdown plus "a fixed number…", which opens a number field | a `view_call` or a `literal` |
-| percent | whole number, 0 to 999 | `tolerance_percent`, a literal, or a fraction in a `mul` |
+| percent | whole number, 1 to 999 | `tolerance_percent`, a literal, or a fraction in a `mul` |
 | window | 5 minutes, 15 minutes, 20 minutes, 1 hour, 6 hours, 24 hours, 7 days | `{ "seconds": n }` |
 | comparison | is at least, is above, is at most, is below, equals, never equals | the opposite of `ge`, `gt`, `le`, `lt`, `eq`, `ne` |
 | event | a dropdown of the contract's events | the declaration-style signature |
@@ -250,9 +250,12 @@ the section says which applies where the action is picked:
 A call also takes an optional confirmation: a view function and the
 value it reads once the action has taken effect (a `paused()` that
 reads `true`), saved as the language's `call.verify` condition. With
-it the engine watches the effect every block and shows it beside
-controller trip state, skips a send whose effect already holds, and
-alerts when a confirmed call did not produce its effect.
+it the engine reads the effect every block and records whether it
+holds in trip state, alongside controller pauses, and skips a send
+whose effect already holds. The engine raises no alert of its own
+when a confirmed call has not taken effect; the contract's trip state
+shows whether it has (`ACTIVITY.md`), and the response's own
+notifications say whether its transaction landed (`RESPONSES.md`).
 
 The confirmation picker offers the contract's view functions with no
 inputs that return a `bool` or an integer. A `bool` is shown as **reads
@@ -290,16 +293,16 @@ list below it:
 | Action | Installation mode | Steps |
 |-|-|-|
 | notify only | any | rule trips, violation recorded, alert sent |
-| pause | prepare | as above, then pause prepared, waiting for approval in Responses |
-| pause | send | as above, then pause sent, paused |
-| pause | notify | as above, then pause skipped |
 | call | prepare | as above, then call prepared, waiting for approval in Responses |
 | call | send | as above, then call sent |
 | call | notify | as above, then call skipped |
+| controller pause | prepare | as above, then pause prepared, waiting for approval in Responses |
+| controller pause | send | as above, then pause sent, paused |
+| controller pause | notify | as above, then pause skipped |
 
-The list ends with the quiet period. The pause names its target, the
-whole contract or the chosen function; the call names the function it
-calls. The picture updates as the
+The list ends with the quiet period. The call names the function it
+calls; the controller pause names its target, the whole contract or
+the chosen function. The picture updates as the
 response changes. It illustrates the response, and makes no
 prediction about when or whether the rule will trip.
 
@@ -313,7 +316,12 @@ the response, and shows what the engine reads, the sentence from a
 check of the document. Beneath it, as they apply:
 
 - that the rule would trip right now, and at which block;
-- how long it warms up before it can trip (its longest window);
+- that it cannot be judged right now, naming the part of the rule the
+  engine could not evaluate and why (a read that reverts, a division
+  by zero), so a rule that would never fire is not mistaken for one
+  that holds;
+- how long it warms up before it can trip (its longest window), and
+  that it is still warming at the current block;
 - that an identical rule already watches the contract, in which case
   **Create** is disabled;
 - that the contract is disabled, so the rule starts off;
@@ -325,8 +333,9 @@ it and opens the rules list with the new rule highlighted.
 A rule created in the wizard is enabled at once: a person built and
 reviewed it. The exception is a contract a person has disabled, whose
 new rules start disabled so it stays quiet until it is enabled again
-(`DATABASE.md`); Review says so. One submitted over MCP arrives disabled and notify-only,
-and shows a "created via MCP" badge until a person enables it.
+(`DATABASE.md`); Review says so. One submitted over MCP arrives
+disabled and notify-only, and carries a **Via** badge with the agent's
+token label for good (`RULES.md`).
 
 ## Editing
 
@@ -350,14 +359,18 @@ another installation, it is not built yet.
 
 ## Units
 
-Not built yet. Reads are raw integers, which is exact but hard to read:
-a vault's `totalAssets` is a 24-digit number. The language's numbers
-are exact decimals and `scale` shifts a value by a power of ten, so a
-typed amount can be entered in whole tokens and compared against the
-read scaled by `-decimals`. For display, the wizard reads `decimals()`
-when the contract has it and keeps it in the rule's display settings
-(`display_decimals`, `DATABASE.md`). Until then, large values show in
-scientific notation and typed numbers are raw.
+Reads are raw integers, which is exact but hard to read: a vault's
+`totalAssets` is a 24-digit number. How a stored rule's values show is
+built, on the rule's page: decimals and a unit kept in the rule's
+display settings (**How values show**, `RULES.md`; `app.rule_prefs`,
+`DATABASE.md`).
+
+Not built yet in the wizard: reading `decimals()` when the contract
+has it to fill in those display settings, and entering amounts in
+whole tokens. The language's numbers are exact decimals and `scale`
+shifts a value by a power of ten, so a typed amount can be compared
+against the read scaled by `-decimals`. Until then, the wizard shows
+large values in scientific notation and typed numbers are raw.
 
 ## API
 
@@ -392,6 +405,8 @@ with the check:
   "evaluation": {
     "block": 21000000,
     "wouldTripNow": false,
+    "warming": false,
+    "error": null,
     "reads": [{ "call": "totalAssets()", "value": "1234567890000000000000" }]
   },
   "warmupSeconds": 0,
@@ -412,7 +427,12 @@ addresses) on the contract, trigger, condition and response, ignoring
 name, description and severity.
 
 Values in `reads` are decimal strings, because they exceed what a JSON
-number can hold.
+number can hold. `wouldTripNow`, `warming` and `error` are the engine's
+dry run: `warming` means a metric cannot be judged yet, which is not
+the same as would not trip; `error` is null, or `{ path, message }`
+naming the node the engine could not evaluate and why. `block` is the
+engine's last evaluated block (`api_v1.engine_status`), since the dry
+run itself does not return one.
 
 ### ABI lookup
 
@@ -430,17 +450,19 @@ address.
 ## Engine boundary
 
 The server forwards checks and submissions to the engine, which
-validates them again and owns the stored rules. Until the engine is
-available, a stand-in inside the server answers instead:
+validates them again and owns the stored rules. When the development
+stand-in runs instead of the engine (`ENGINE.md`), it answers in the
+engine's place:
 
 - it reports Ethereum as its chain and `prepare` as its response mode;
-- it keeps contracts and rules in memory, refuses rules for contracts
-  that are not registered and duplicates, and keeps names unique
-  per contract;
+- it keeps contracts and rules in its own tables, refuses rules for
+  contracts that are not registered and duplicates, and keeps names
+  unique per contract;
 - it checks rules against deterministic simulated values that drift
   slowly over time;
-- every metric is warming, as it would be for a new rule with no
-  history, so a rule over a metric never trips in a check.
+- a rule's metrics warm up from its creation for their longest window,
+  as they would for a new rule with no history, so a new rule over a
+  metric never trips in a check.
 
 Every answer from the stand-in is marked `simulated`.
 
@@ -461,15 +483,18 @@ Every answer from the stand-in is marked `simulated`.
 | WZ11 | Held for approval or sent at once | Per installation, not per rule. The engine treats it as response configuration, so the wizard chooses only what a trip does |
 | WZ12 | Chain | One per installation, reported by the engine. No chain picker |
 | WZ13 | Reads from functions that return several values | Always name `returns`, even for the first output, so a read never depends on how a missing index is treated |
-| WZ14 | Call responses | Offered, on the rule's own contract with fixed arguments and no ether. It covers contracts that already have an admin pause and were never registered with the controller; another target or a `value` is rare enough for JSON mode |
+| WZ14 | Call responses | The default on-chain action (`RESPONSES.md`, RS11): the rule's own contract, one of its functions, fixed arguments and no ether. Any contract with an admin pause can use it, with nothing to deploy or register; the controller's pauses are offered only for a contract registered with it. Another target or a `value` is rare enough for JSON mode |
 | WZ15 | Rules on unregistered contracts | Refused, as the engine refuses them. The wizard picks from registered contracts and registers one in place (`CONTRACTS.md`, CT1), so no rule is started for a contract nobody chose to watch |
 
 ## Open questions
 
-1. **Issue codes.** The mirror reports Zod's codes; the engine's own
-   codes should replace them once its schema is published with them.
-2. **Tuple reads.** Whether `returns` may be omitted for a function
-   that returns several values (WZ13 avoids depending on it).
+1. **Issue codes.** The mirror reports Zod's codes. The engine
+   reports a fixed set of its own, but does not publish the list with
+   its schema; the application asks for it to be published, and the
+   mirror adopts the engine's codes once it is.
+
+Answered: an omitted `returns` selects the first output, index 0. WZ13
+still names it always, so a read says what it means.
 
 ## Implementation notes
 
@@ -479,7 +504,7 @@ Every answer from the stand-in is marked `simulated`.
 | `packages/shared/src/describe.ts` | a rule read back as a sentence; number and duration formatting |
 | `packages/shared/src/api.ts` | the API's shapes: engine info, check, stored rule |
 | `packages/server/src/abi.ts` | the ABI lookup route and proxy merge |
-| `packages/server/src/mock-engine.ts` | the stand-in: store, checks, simulated values |
+| `packages/server/src/engine/stub.ts` | the stand-in: store, checks, simulated values |
 | `packages/web/src/lib/abi.ts` | extracting values, events and functions from an ABI |
 | `packages/web/src/lib/templates.ts` | the starting points and their defaults |
 | `packages/web/src/components/wizard/` | the sections, the contract picker, the sentence with blanks, the pinned stepper, the simulated trip |

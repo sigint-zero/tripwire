@@ -135,8 +135,9 @@ token` setting) and forwards to `/mcp`. Either way there is exactly one
 place the token is checked.
 
 Tool calls that create state record the token's label, which the rules
-list shows in its "created via MCP" badge, so a person can tell which
-agent proposed what.
+list and a rule's page show on the rule's **Via** badge, kept after the
+token is revoked (`RULES.md`), so a person can tell which agent
+proposed what.
 
 ## Routes
 
@@ -293,6 +294,13 @@ server stopped and is the recovery path.
 Passwords are read from the terminal with echo off, or from
 `TRIPWIRE_PASSWORD` for scripted installs, never from an argument where
 they would land in shell history.
+
+Commands that talk to a running server's API instead of `users.json`
+(`tripwire rules export` and `import`, `RULES.md`) log in as an
+account like the dashboard does: they prompt for the username and
+password, or read `TRIPWIRE_USERNAME` and `TRIPWIRE_PASSWORD` when
+both are set, and log out when done. Their login counts against the
+same failure limits as any other.
 
 `tripwire mcp` serves agents:
 

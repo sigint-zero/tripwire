@@ -43,18 +43,23 @@ engine stopping.
 Two sources, one feed. Every notification has a kind and a severity;
 channels filter on both.
 
-From the engine:
+From the engine, which records four kinds (`violation`, `response`,
+`action`, `health`). The application files each row under one of the
+feed's kinds, which are what channels filter on:
 
 | Kind | When | Severity |
 |-|-|-|
-| `violation` | a rule tripped | the rule's severity |
-| `evaluation_error` | a rule could not be evaluated (a violation row of that kind) | warning |
+| `violation` | a rule tripped (engine kind `violation`, payload kind `tripped`) | the rule's severity |
+| `violation` | a transaction seen in the mempool would trip a rule, with pending-transaction detection on (payload kind `pending`); the message says it is not yet on chain, and a landing records its own violation | the rule's severity |
+| `evaluation_error` | a rule could not be evaluated (engine kind `violation`, payload kind `evaluation_error`) | warning |
 | `response` | a response reached `confirmed` | info |
 | `response` | a response reached `failed` | critical |
 | `response` | a response reached `abandoned` (for example, already paused) | warning |
-| `response` | a response is waiting for approval (see requirement N1) | critical |
-| `health` | the engine became degraded (lag, RPC failure, missing signer) | warning |
-| `health` | the engine is ready again | info |
+| `response` | a response is parked at `pending` on a problem, such as a locked signing key; once per problem | critical |
+| `response` | a response is waiting for approval, once the engine records it (requirement N1) | critical |
+| `response` | a pause or unpause by hand settled (engine kind `action`): confirmed, or failed | info, or critical |
+| `health` | the engine became degraded, with its cause: the RPC failing, evaluation lagging the chain, the mode `send` with no key unlocked, or the mempool subscription down | warning |
+| `health` | the engine is starting, or ready again | info |
 
 From the application, kind `system`:
 
@@ -71,8 +76,9 @@ From the application, kind `system`:
 
 A rule's quiet period (`cooldown_seconds`) is applied by the engine: a
 trip inside it is recorded as a violation without a new notification.
-Evaluation errors have no quiet period, which is why channels exclude
-`evaluation_error` by default.
+Pending-transaction notifications have their own quiet period in the
+engine, separate from the rule's. Evaluation errors have no quiet
+period, which is why channels exclude `evaluation_error` by default.
 
 ## Channels
 
@@ -92,7 +98,7 @@ Every channel has:
 |-|-|
 | name | unique, up to 60 characters, shown in the dashboard and in failure alerts |
 | enabled | on or off; an off channel receives nothing and keeps its backlog for when it is turned back on |
-| kinds | any of `violation`, `evaluation_error`, `response`, `health`, `system`; default all but `evaluation_error` |
+| kinds | any of `violation`, `evaluation_error`, `response`, `health`, `system`, the feed's kinds above (so `violation` includes pending-transaction warnings and `response` includes pauses by hand); default all but `evaluation_error` |
 | minimum severity | `info`, `warning` or `critical`; default `info` |
 | storm limit | messages per minute before a digest takes over (see Storms); default 10, `0` turns digests off; webhooks default to `0` |
 
@@ -192,11 +198,21 @@ Each message has a title line, a body, and a link.
 | health | `[WARNING] Engine degraded: RPC failing` |
 | system | `[CRITICAL] Engine stopped` |
 
-The body adds the rule's sentence, the block, the transaction where
-there is one, the values that decided it, and, for a failure, the
-reason. The link opens the violation, response or status page, built
-from `notifications.dashboard_url`; without that setting, messages
-carry no link and say so once in the channel settings.
+The body adds the rule's description, the block, the transaction
+where there is one, and, for a failure, a parked response or an
+evaluation error, the reason (for an evaluation error, what failed and
+where, from its evidence). The link opens the violation, response,
+Activity or status page, built from `notifications.dashboard_url`;
+without that setting, messages carry no link and say so once in the
+channel settings.
+
+A message is rendered from its row and the rows it names. A violation
+row carries the rule, contract, severity, block and transaction
+itself. A settlement row, written when a transaction's receipt lands,
+carries only `{ id, status, tx_hash, block_number, error }`, so the
+server fills in the rule, contract and action from `api_v1.responses`,
+or the kind, target, selector and note from `api_v1.actions`, by that
+id before rendering.
 
 The webhook body is one JSON envelope for every kind:
 
@@ -210,7 +226,7 @@ The webhook body is one JSON envelope for every kind:
   "title": "Treasury vault: totalAssets floor tripped",
   "text": "On every block, notify when totalAssets() falls below totalSupply(). Block 21000000.",
   "url": "https://tripwire.example/violations/9121",
-  "event": { "…": "the engine's payload, unchanged" }
+  "event": { "…": "the engine's payload, with the fields the server filled in" }
 }
 ```
 
@@ -297,11 +313,15 @@ secrets never appear in logs.
 
 ## What the application requires of the engine
 
+The engine's view reference lists each kind's payload fields, and its
+`[retention] notifications_days` accepts any whole number of days from
+1; the application never writes less than 7, so the dispatcher's
+seven-day window stays inside what the engine keeps. One requirement
+is open:
+
 | # | Requirement | Why |
 |-|-|-|
-| N1 | A `response` notification when a response enters `awaiting_approval`, not only at terminal statuses | in prepare mode the approval is the moment a person must act; a notification only at the end arrives after it no longer helps |
-| N2 | The view reference lists each kind's payload fields: for a violation the violation, rule and contract ids and names, severity, block, transaction and the values that decided it; for a response its id, rule, action, status, reason and transaction; for health the new status and cause | messages are rendered from the row alone, and the application's types are generated from that file |
-| N3 | `[retention] notifications_days` accepts any value of 7 or more | the dispatcher's seven-day window must stay inside what the engine keeps; the application never writes less |
+| N1 | A `response` notification when a response enters `awaiting_approval`, not only when it is parked or settles | in prepare mode the approval is the moment a person must act; a notification only at the end arrives after it no longer helps |
 
 The application does not depend on notification ids committing in
 order: dispatch looks for rows it has not dispatched rather than

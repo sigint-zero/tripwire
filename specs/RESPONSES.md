@@ -58,12 +58,16 @@ the few seconds of the restart and resumes from the engine's cursor.
 | to `send` | the account's password, entered again; `TRIPWIRE_KEYS_PASSPHRASE` set in the application's environment; the signing key (below) exists |
 
 `send` needs a signer the moment the engine starts, and the engine
-refuses to start in `send` without one. After any restart, planned or
-not, keys are locked unless the passphrase is in the environment, so
-the application refuses the switch without it and names the variable.
-If the passphrase does not open the signing key, the engine refuses the
-configuration, the application restores the previous mode, and the
-engine's message is shown.
+refuses to start in `send` when no key at all is unlocked. After any
+restart, planned or not, keys are locked unless the passphrase is in
+the environment, so the application refuses the switch without it and
+names the variable. The engine's check is only that some key opened:
+with several keys, the passphrase may open another key and not the
+signing key. So once the engine is back, the application reads
+`GET /v1/keys` and requires the signing key to be unlocked; if it is
+not, or the engine refused to start, the application restores the
+previous mode and says why ("the passphrase does not open the signing
+key", or the engine's message).
 
 A mode change governs new violations only. Responses already in the
 queue keep their status; the queue shows them as the engine has them,
@@ -81,19 +85,19 @@ by restart:
 | Setting | Values | Meaning |
 |-|-|-|
 | signing key | one of the keys; empty means the only key | the address every response is signed with |
-| maximum fee | gwei, empty for the engine's default | cap on the fee per gas a response may pay |
-| maximum priority fee | gwei, empty for the engine's default | cap on the tip |
+| maximum fee | whole gwei, 1 or more; empty for the engine's default of 100 | hard cap on the fee per gas a response may pay, escalations included |
+| starting priority fee | whole gwei, 0 up to the maximum fee; empty for the engine's default of 2 | the tip offered on the first attempt; each replacement raises it, never past the maximum fee |
 | replace after | blocks, 1 to 50, default 5 | a transaction not included within this many blocks is resent with a higher fee, same nonce |
 | attempts | 1 to 10, default 3 | fee escalations before the response is `failed` |
 | submission | `private` (default), `private_strict`, `public` | how the signed transaction reaches the chain, below |
-| private endpoints | list of URLs, empty for the engine's built-in set | replaces the endpoints private submission sends to |
+| private endpoints | list of `http` or `https` URLs, empty for the engine's built-in set | replaces the endpoints private submission sends to. The application never writes an empty list: to the engine an empty list is a set with nothing in it |
 | controller address | address, empty for the known deployment | overrides the known controller for this chain (stored as `chain.controllerAddress`, with its deployment block) |
 
 Submission, explained where it is chosen:
 
 | Value | Behaviour |
 |-|-|
-| `private` | sent to private submission endpoints that do not broadcast to the public mempool, so the pause cannot be seen and raced before it lands. If every attempt fails to be included, one last attempt goes public, with an alert saying so |
+| `private` | sent to private submission endpoints that do not broadcast to the public mempool, so the pause cannot be seen and raced before it lands. If every attempt fails to be included, one last attempt goes public, with an alert saying so. On a chain with no built-in endpoints and none configured, every attempt goes public; the engine warns at start and Settings says so beside the choice |
 | `private_strict` | private only; never public. A chain with no private endpoints refuses to start in this setting |
 | `public` | through the configured RPC endpoint, visible to everyone the moment it is sent |
 
@@ -107,16 +111,17 @@ files in `TRIPWIRE_HOME/engine/keys/`, one per key; any standard
 Ethereum tool opens them, and a keystore made elsewhere can be
 imported.
 
-The list shows each key's address, whether it is unlocked, its balance
-(requirement R1), whether it is the signing key and, for contracts
+The list shows each key's address, whether it is unlocked, its native
+balance at the current block (the engine reports it with each key),
+whether it is the signing key and, for contracts
 that use the controller, the ones it is an authorised operator on (from
 the controller's events, below). A zero balance is flagged: a key that
 cannot pay for gas cannot respond.
 
 | Action | Does |
 |-|-|
-| **Create** | a passphrase, typed twice, 12 characters or more. The engine generates the key and returns its address. The dialog then says where the file is and that the passphrase cannot be recovered |
-| **Import** | a keystore file (JSON, up to 64 KB) and its passphrase. The engine checks it opens before storing it |
+| **Create** | a passphrase, typed twice, 12 characters or more. The engine generates the key and returns its address; the new key starts unlocked. The dialog then says where the file is and that the passphrase cannot be recovered |
+| **Import** | a keystore file (JSON, up to 64 KB) and its passphrase. The engine checks it opens before storing it; the imported key starts locked, so the dialog offers **Unlock** next. The engine would replace a key it already holds, so the server refuses a keystore whose address is already in the list before forwarding it |
 | **Unlock** | the passphrase; the key signs until it is locked or the engine restarts |
 | **Lock** | the key stops signing at once; responses wait at `pending` with the reason |
 
@@ -136,8 +141,11 @@ server's memory as a string for the length of the request; the
 engine, which holds the unlocked key, is where memory is locked and
 wiped.
 
-Unlocking is limited to five attempts per key per minute; the engine's
-answer to a wrong passphrase says nothing more than that.
+Unlocking through the dashboard is limited to five attempts per key
+per minute, a limit the server keeps; the engine's answer to a wrong
+passphrase says nothing more than that. The command line reaches the
+engine directly (below) and is not under this limit: whoever can run
+it already holds the keystore files.
 
 For unattended restarts the passphrase comes only from
 `TRIPWIRE_KEYS_PASSPHRASE` in the application's environment, which the
@@ -227,11 +235,11 @@ on the controller, its mirrored events:
 | signing key | a key exists, is unlocked and has a balance | links to Keys |
 | rules that act | at least one enabled rule on the contract has an on-chain action | links to the rule wizard |
 | permission | **Test the response** passed for each of those rules: the key can make the call | shows the revert reason, which usually names the missing role |
-| least power | the key is not the contract's owner or admin (above) | a warning with what to grant instead; does not block |
+| least power | the key is not the contract's owner and does not hold `DEFAULT_ADMIN_ROLE` (above); not applicable when the ABI has neither `owner()` nor `hasRole(bytes32,address)` | a warning with what to grant instead; does not block |
 | mode | not `notify` | links to Settings, Response |
 
-For a contract whose rules use the controller's pause actions, two
-steps join the list before **permission**:
+For a contract whose enabled rules use the controller's pause actions,
+two steps join the list before **permission**:
 
 | Step | Done when | Otherwise |
 |-|-|-|
@@ -250,9 +258,10 @@ on every `block` event (`LIVE-UPDATES.md`).
 
 **Test the response.** For a chosen rule with an on-chain action, the
 engine builds that rule's action from the signing key and simulates it
-at the current block, sending nothing (requirement R2). A pass shows
-the gas it would use and the most it could cost at the configured
-caps, and compares that with the key's balance. A failure shows the
+at the current block, sending nothing (`POST /v1/responses/dry-run`). A
+pass shows the call as the engine built it, the key it would be sent
+from, the gas it would use and the most it could cost (the gas times
+the maximum fee), compared with the key's balance. A failure shows the
 revert reason, for example that the key lacks the role the call
 needs, or is not an operator on the controller. The last result per rule
 is kept in memory by the server and shown until the next test or
@@ -280,7 +289,8 @@ block, and "seen in the mempool" for a pending-transaction violation),
 and its age.
 
 A waiting row opens to show exactly what would be sent, from the
-engine's prepared transaction (requirement R3):
+engine's prepared transaction (the `tx` object of `api_v1.responses`,
+documented in the engine's view reference):
 
 - to: the controller or the contract, by name and address;
 - the function and its decoded arguments, with a selector shown as
@@ -291,8 +301,9 @@ engine's prepared transaction (requirement R3):
 - a note when the engine rebuilt and re-signed it because the chain
   moved (nonce used, fees stale).
 
-An in-flight row adds any problem the engine recorded (a locked key,
-with an **Unlock** link) and, once submitted, each attempt with its
+An in-flight row adds any problem the engine recorded (a locked key
+parks the response at `pending` with the problem, shown with an
+**Unlock** link) and, once submitted, each attempt with its
 hash and fees. A history row adds the reason for `failed` or
 `abandoned` (for example, already paused), and for `confirmed` the
 block and gas used.
@@ -300,8 +311,8 @@ block and gas used.
 ### Approving and rejecting
 
 **Approve** opens a confirmation that names what will be sent:
-"Send `tripGlobal(Treasury vault)` to the controller from `0x1a2b…`,
-paying at most 0.0042 ETH." Confirming passes the approval to the
+"Send `pause()` to Treasury vault from `0x1a2b…`, paying at most
+0.0042 ETH." Confirming passes the approval to the
 engine, which re-checks its preconditions, rebuilds if the chain moved,
 and sends. The row moves to In flight. If the engine instead abandons
 it (the pause is already in place), the row says so.
@@ -310,9 +321,13 @@ it (the pause is already in place), the row says so.
 response becomes `abandoned`.
 
 Any account may approve or reject, as accounts are equal
-(`AUTHENTICATION.md`); both are logged at info with the username. When
-someone else decided first, the engine answers `409` and the dashboard
-says what happened ("already approved") and refreshes the row.
+(`AUTHENTICATION.md`); both are logged at info with the username. The
+engine refuses a decision two ways, and the server keeps them apart:
+
+| Engine answer | Server answer | The dashboard says |
+|-|-|-|
+| `409 wrong_status` | `409 not_waiting` | what happened ("already approved", "already rejected") and refreshes the row |
+| `409 busy` (approve only) | `409 busy` | another transaction is in flight on the signing key; the response stays waiting, try again once it settles |
 
 ### No resend
 
@@ -326,35 +341,40 @@ During an incident a person may need to pause before, or instead of,
 a rule. On a contract's page, a **Pause** control offers the calls the
 contract's rules would make (its `pause()`, say) and any other function
 of the contract a person picks, with its arguments, such as
-`unpause()` afterwards. Each opens a confirmation naming the call. The
-engine sends it from the signing key through the same path as a
-response: pre-flight simulation, the fee caps, the one nonce lane, the
-receipt watch (requirement R4). The mode does not gate it, since a
-person is acting, not a rule.
+`unpause()` afterwards. Each opens a confirmation naming the call.
+
+The engine does not yet make a call to a contract's own function by
+hand (requirement R4), so for these the server encodes the call and
+answers with what to send from a wallet that holds the permission: the
+contract's address, the value and the calldata, each with a copy
+button.
 
 For a contract on the controller, where the signing key is an
 authorised operator, the control also offers the controller's pause of
 the contract or of one function, and unpause for whatever the mirror
-shows paused. Unpausing there says what it lifts: unpausing the
-contract leaves paused functions paused.
-
-Until the engine offers manual actions, the control shows the call to
-make from a wallet instead: for the contract's own functions, the
-contract's address and the calldata; for the controller, the
-controller's address, value zero and the calldata for `tripGlobal`
-(`0x51dd019f`), `trip` (`0xe5ba719d`), `resetGlobal` (`0x326a8018`) or
-`reset` (`0x2de63ca2`) with the contract's address and, for a
-function, its selector.
+shows paused. The engine sends these itself (`POST /v1/actions`) from
+the signing key through the same path as a response: pre-flight
+simulation, the fee caps, the one nonce lane, the receipt watch. The
+mode does not gate them, since a person is acting, not a rule. Each
+is recorded in `api_v1.actions` with the person's username and note,
+and notifies at its final status. A contract not registered with the
+controller is refused before anything is sent. Unpausing says what it
+lifts: unpausing the contract leaves paused functions paused.
 
 ## Notifications
 
 A response raises notifications through the engine's record
-(`NOTIFICATIONS.md`): waiting for approval, which is the moment a
-person must act (requirement N1 there), confirmed, failed and
-abandoned. A locked signing key makes the engine degraded, which is a
-`health` notification naming the missing signer. Each message links to
-the response on this page. The page itself refreshes on the `response`
-stream event (`LIVE-UPDATES.md`).
+(`NOTIFICATIONS.md`): confirmed, failed and abandoned, and, once the
+engine records it, waiting for approval, which is the moment a person
+must act (requirement N1 there; until then the navigation's waiting
+count and the stream carry it). A response parked on a locked signing
+key raises one `response` notification with status `pending` and the
+problem. The engine itself becomes degraded, a `health` notification,
+only when the mode is `send` and no key at all is unlocked. A manual
+action through the controller notifies at its final status the same
+way. Each message links to the response on this page, or for a manual
+action to Activity. The page itself refreshes on the `response` stream
+event (`LIVE-UPDATES.md`).
 
 ## API
 
@@ -368,16 +388,16 @@ the API's error envelope. No MCP tool reads or changes any of it.
 | GET | `/responses` | `?status=waiting\|in_flight\|history&contract&before&limit`; items `{ id, status, action, mode, rule: { id, name }, contract: { address, name }, violation: { id, kind, blockNumber }, tx, error, createdAt, updatedAt }` |
 | GET | `/responses/counts` | `{ waiting, inFlight }` for the navigation |
 | GET | `/responses/:id` | one response, with `tx` in full: `{ to, function, args, value, nonce, gasLimit, maxFeeGwei, maxPriorityFeeGwei, maxCostWei, hash, rebuilt, attempts }` |
-| POST | `/responses/:id/approve` | the resulting response; `409 not_waiting` |
+| POST | `/responses/:id/approve` | the resulting response; `409 not_waiting`, `409 busy` |
 | POST | `/responses/:id/reject` | `{ reason? }`; the resulting response; `409 not_waiting` |
-| GET | `/keys` | `[{ address, unlocked, balanceWei, signing, operatorOn: [address] }]` and `directory` |
+| GET | `/keys` | `{ keys: [{ address, unlocked, balanceWei, signing, operatorOn: [address], file }], directory }` |
 | POST | `/keys` | `{ passphrase }`; `201 { address, file }` |
 | POST | `/keys/import` | `{ keystore, passphrase }`; `201 { address, file }`; `400 invalid_keystore`, `400 wrong_passphrase`, `409 key_exists` |
 | POST | `/keys/:address/unlock` | `{ passphrase }`; the key; `400 wrong_passphrase`, `429 too_many_attempts` |
 | POST | `/keys/:address/lock` | the key |
-| GET | `/readiness` | per contract: `{ address, name, steps: [{ step, state: done\|todo\|not_applicable, detail }], guardianCall? }` |
-| POST | `/readiness/:ruleId/test` | `{ ok, revertReason?, gasEstimate, maxCostWei, balanceWei }` |
-| POST | `/contracts/:address/actions` | `{ call: { function, args, value? } }` for one of the contract's own functions, or `{ controller: pause\|unpause, scope: contract\|function, selector? }` for a contract on the controller; the recorded action; `501 not_available` until the engine offers it |
+| GET | `/readiness` | `?contract`; per contract: `{ address, name, steps: [{ step, state: done\|todo\|not_applicable, detail }], guardianCall: { to, value, data, from } \| null, rules: [{ id, name, action, test }] }`; `step` one of `signing_key`, `rules`, `registered`, `operator`, `permission`, `least_power`, `mode` |
+| POST | `/readiness/:ruleId/test` | `{ ok, revertReason, gasEstimate, sender, balanceWei, function, args, testedAt }` |
+| POST | `/contracts/:address/actions` | `{ controller: pause\|unpause, scope: contract\|function, selector?, note? }`: `201` the recorded action `{ id, kind, target, selector, note, status, error, txHash, createdAt }`, `409 not_on_controller` when the contract is not registered with it. `{ call: { function, args, value? }, note? }` for one of the contract's own functions: `501 not_available` carrying `wallet: { to, value, data }`, the call to send from a wallet, until the engine makes calls by hand (R4). `400 invalid_action` for a malformed request or a function selector missing |
 
 Key, approval, rejection, manual action and mode changes are logged at
 info with the username; passphrases and passwords never are.
@@ -409,12 +429,19 @@ stopped, each command says so and exits non-zero.
 
 ## What the application requires of the engine
 
+The engine's published interface already carries most of what this
+spec needs: each key's native balance at the current block in
+`GET /v1/keys` (field `balance`, wei as a decimal string), the
+simulation behind **Test the response** in
+`POST /v1/responses/dry-run { rule_id }` (`{ ok, revert_reason,
+gas_estimate, preview }`), the `responses.tx` object documented in the
+view reference, and manual pauses and unpauses through the controller
+in `POST /v1/actions`, recorded in `api_v1.actions`. One requirement
+is open:
+
 | # | Requirement | Why |
 |-|-|-|
-| R1 | `GET /v1/keys` includes each key's native balance at the current block, in wei as a decimal string | the dashboard warns that a key cannot pay for gas without talking to the chain itself |
-| R2 | `POST /v1/responses/dry-run { rule_id }`: builds the rule's on-chain action from the signing key and simulates it at the current block, sending nothing, returning `{ ok, revert_reason?, gas_estimate, preview }` | **Test the response** in the readiness checklist: a missing operator grant or role shows before an incident, not during one |
-| R3 | The view reference documents the `responses.tx` object: target, function signature, decoded arguments, value, nonce, gas limit, maximum fee, maximum priority fee, hash, the attempts (each with hash, fees and the block it was submitted at) and whether approval rebuilt it | a person approves exactly what will be sent, and the application's types are generated from that file |
-| R4 | `POST /v1/actions { action: call \| trip_function \| trip_global \| reset_function \| reset_global, target, call?, selector?, note? }`, where `call` has the shape of a rule's call action, going through the same pre-flight, signing, submission and receipt watch as a response, with a record of its own in a view and a notification at its final status | pausing and unpausing from the dashboard during an incident, attributed to the person through `note` |
+| R4 | `POST /v1/actions` accepts a `call` kind, `{ action: call, target, call, note? }` where `call` has the shape of a rule's call action, for any watched contract whether or not it is on the controller, going through the same pre-flight, signing, submission and receipt watch as the controller kinds | pausing and unpausing a contract through its own functions from the dashboard, which is the default setup; until then the dashboard hands a person the call to send from a wallet |
 
 ## Decisions
 
@@ -423,10 +450,10 @@ stopped, each command says so and exits non-zero.
 | RS1 | Where the mode lives | The installation, in the application's configuration, applied by restart. A per-rule mode would make "is anything sending on its own?" a question with a hundred answers |
 | RS2 | Guarding `send` | The account password again, and the passphrase in the environment. `send` is the one setting that lets Tripwire spend and act with no person in between, and without the passphrase it would stop protecting at the first restart |
 | RS3 | Passphrase for unattended starts | Environment only, never a file the application writes. A passphrase stored beside the keystore would make the encryption decorative |
-| RS4 | Readiness source | For the call a rule makes, a simulation from the key (R2): it answers "can this key do this?" for any permission scheme without the application knowing the scheme. For the controller steps, its mirrored events, which are reorg-consistent and carry who did what |
+| RS4 | Readiness source | For the call a rule makes, a simulation from the key (the engine's response dry run): it answers "can this key do this?" for any permission scheme without the application knowing the scheme. For the controller steps, its mirrored events, which are reorg-consistent and carry who did what |
 | RS5 | Getting the operator authorised | Show the guardian call with its calldata; no wallet connection in the dashboard. Connecting a wallet would put chain access and a large dependency in the application for one call a person makes once per contract |
 | RS6 | Resending a failed response | Not offered. The engine keeps `failed` final; a person who needs to act now pauses by hand, which is the clearer action |
-| RS7 | Manual pause and unpause | Through the engine (R4), in any mode, behind a confirmation; the call to make from a wallet until then. It is a person's decision, and the dashboard is where they are during an incident |
+| RS7 | Manual pause and unpause | Through the engine, in any mode, behind a confirmation: the controller's pauses now, a contract's own functions once the engine makes calls by hand (R4), and the call to send from a wallet until then. It is a person's decision, and the dashboard is where they are during an incident |
 | RS8 | Controller address | Known deployments shipped as data, overridable in Settings, for contracts that use the controller |
 | RS9 | Deleting and exporting keys | Neither, in the dashboard. The file is the key; a delete button next to the only copy of a funded key is a trap |
 | RS10 | Who may approve | Any account, logged with the username. Accounts are equal; a two-person rule can come later if owners ask |
@@ -449,21 +476,28 @@ role and one contract that uses the controller:
    and the test for a controller pause rule then passes.
 4. Switching to `send` without `TRIPWIRE_KEYS_PASSPHRASE` is refused
    naming the variable; with a wrong password it is refused; with a
-   passphrase that does not open the key, the engine refuses, the
-   previous mode is restored, and the engine's message is shown.
+   passphrase that opens no key, the engine refuses to start; with
+   two keys and a passphrase that opens only the other one, the
+   application finds the signing key locked after the restart. In both
+   cases the previous mode is restored and the reason is shown.
 5. In `prepare`, an induced violation appears under Waiting with the
    decoded call, the key and the maximum cost; approving it confirms
    on chain, and the row moves through In flight to History.
 6. Two sessions approve the same response; one succeeds and the other
-   is told it was already approved.
+   is told it was already approved. Approving while another
+   transaction is in flight on the key says so, and the response stays
+   waiting.
 7. A rejected response is `abandoned` with its reason, and nothing is
    sent.
 8. A locked signing key leaves a new response in In flight with the
-   problem and an **Unlock** link; unlocking lets it proceed.
+   problem and an **Unlock** link, and raises one notification saying
+   so; unlocking lets it proceed.
 9. No passphrase appears in any log line, response body or file under
    `TRIPWIRE_HOME` other than the engine's keystores, checked by a test
    that unlocks with a known passphrase and searches for it.
-10. With manual actions available, calling the contract's `pause()`
-   from its page confirms on chain and shows in the pause state and
-   the Activity page; without them, the control shows the call to
-   make from a wallet instead.
+10. On the controller contract, a pause by hand from its page
+   confirms on chain and shows in trip state and on Activity, naming
+   the person; on a contract not registered with the controller the
+   same request is refused. On the pausable contract, the **Pause**
+   control for `pause()` returns the address and calldata to send, and
+   sending them from the wallet that holds the role pauses it.

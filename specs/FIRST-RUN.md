@@ -53,11 +53,13 @@ Creating the account logs the person in and moves to the next step.
 The database is chosen before the server starts, because the server
 runs on it from its first request (`DATABASE.md`). The chain step
 therefore shows it as a fact above the form: "Data is stored in a
-local database in `~/.tripwire/db`" or "Data is stored in PostgreSQL
-at db.example.org:5432/tripwire", with a line on how to change it
-(`SETTINGS.md`, Database). The default is local mode, which needs no
-setup. A person who wants their own server starts Tripwire with
-`--database-url`, `TRIPWIRE_DATABASE_URL`, or `tripwire setup`.
+local database in `~/.tripwire/db/data`" (`TRIPWIRE_HOME/db/data`,
+with the actual home shown; it defaults to `~/.tripwire`) or "Data is
+stored in PostgreSQL at db.example.org:5432/tripwire", with a line on
+how to change it (`SETTINGS.md`, Database). The default is local
+mode, which needs no setup. A person who wants their own server
+starts Tripwire with `--database-url`, `TRIPWIRE_DATABASE_URL`, or
+`tripwire setup`.
 
 ### 2. Chain and RPC
 
@@ -69,20 +71,22 @@ At `/setup/chain`:
 | RPC endpoint (HTTP) | required; a literal URL or `env:NAME` |
 | RPC endpoint (WebSocket) | optional, needed only to watch pending transactions |
 
-**Verify** runs the engine's verify invocation (`ENGINE.md`, ask G2)
-on the proposed values and shows the result line by line: the chain
-id the node reports, the receipts method it serves, the latest block
-and its age. A mismatch names both chain ids ("this endpoint serves
-Base (8453), not Ethereum (1)"). Continue is enabled only after a
-passing verification of the values as they stand; editing a field
-clears it.
+**Verify** runs the engine's verify invocation (`ENGINE.md`, G2) on
+the proposed values and shows the result line by line as
+`SETTINGS.md` does: the chain id matching, the receipts method the
+node serves, the latest block number, and the pending-transaction
+subscription when a WebSocket endpoint was given. A mismatch names
+both chain ids, taken from the engine's `wrong_chain` message ("this
+endpoint serves Base (8453), not Ethereum (1)"). Continue is enabled
+only after a passing verification of the values as they stand; editing
+a field clears it.
 
 **Continue** saves the chain as `SETTINGS.md` applies any engine
 setting, then starts the engine and waits for it. The step shows the
 engine's state as it moves (`ENGINE.md`):
 
 ```
-Engine 1.4.2  downloading  18.2 of 31.0 MB
+Engine 0.1.0  downloading  18.2 of 31.0 MB
               verifying signature
               starting
               ready at block 21,904,112

@@ -27,8 +27,8 @@ Every rule has one status, worked out by the server in this order:
 | Status | When |
 |-|-|
 | off | `enabled` is false |
-| tripped | the rule's newest violation is `tripped` and at its last evaluated block: the condition holds now |
-| error | the rule's newest violation is `evaluation_error` and at its last evaluated block: it cannot be evaluated now |
+| tripped | the rule's newest violation that is not `pending` is `tripped` and at its last evaluated block: the condition holds now |
+| error | the rule's newest violation that is not `pending` is `evaluation_error` and at its last evaluated block: it cannot be evaluated now |
 | warming | a metric the rule reads has too little history to be judged; the rule cannot trip until it has |
 | holding | on, evaluated, and the condition does not hold |
 
@@ -37,6 +37,14 @@ Alongside the status, the count of the rule's open violations
 run nobody has looked at. An event-triggered rule is only evaluated
 when its event appears, so it is **tripped** only at the block of its
 newest firing, and holding after.
+
+A `pending` violation, recorded when the engine sees a transaction in
+the mempool that would trip the rule (`VIOLATIONS.md`), never sets the
+status: it carries the head it was judged against as its block, and
+the transaction may never land. It counts among the open violations
+like any other. The same status words are used by every surface: the
+list, the rule's page, the Overview, the API and the MCP server's
+`list_rules` (`MCP-SERVER.md`).
 
 ## The list
 
@@ -92,10 +100,17 @@ among the rules the contract's enable restores (`DATABASE.md`).
 - the chart;
 - **Check now**.
 
-**Origin.** A rule stored by the dashboard carries no badge; one stored
-through the API by a script or an import shows **Via API**; one stored
-by an agent shows **Via** and its token's label, which survives the
-token being revoked (`MCP-SERVER.md`).
+**Origin.** The engine records one of three origins with every rule,
+and the badge follows it:
+
+| Origin | Stored by | Badge |
+|-|-|-|
+| `app` | the application: the wizard, or `tripwire rules import` | none |
+| `mcp` | an agent, through the MCP server | **Via** and its token's label, kept for good, even after the token is revoked (`MCP-SERVER.md`) |
+| `api` | a script talking to the engine's interface directly, not through the application | **Via API** |
+
+A rule an agent submits arrives disabled; its **Off** state says so,
+and the badge stays after a person enables it.
 
 ## Charts
 
@@ -103,14 +118,25 @@ One chart per rule, drawn in hand-rolled SVG like every chart in the
 dashboard, with a line per series.
 
 **Which series.** The engine assigns series keys and the application
-never derives them. The views do not yet say which series belong to
-which rule (ask C1); until they do, the server takes the series from a
-dry run of the stored document, whose needs list the calls the rule
-records as metric inputs, and finds each in `api_v1.series` by its
-address, function, arguments and tuple position, and the computed
-series over it by metric and window. A rule whose reads are not metric
-inputs has no chart until C1 lands, and its page says so; its current
-values and evidence still show.
+never derives them. `api_v1.rule_series` links each rule to the series
+it records, written by the engine together with the rule: the rule id,
+the series id, its `role` and the `path` of the node in the document
+that draws it. The roles:
+
+| Role | Series |
+|-|-|
+| `read` | a numeric value the rule reads, recorded while the rule is evaluated every block |
+| `metric` | the base a windowed metric is computed over, recorded every block whatever the trigger |
+
+The server reads the links joined to `api_v1.series`, reads first and
+then metric bases, each series once, in the order of their paths
+(as built). A `metric` link names the base series, not the metric's
+output. **Added:** the computed series a windowed metric records is
+found in `api_v1.series` as the row with the base's address, function,
+arguments and `returns`, and the metric's `metric` and
+`window_seconds`. A rule with no links (an event-triggered rule over
+no metric, or one reading only non-numeric values) has no chart, and
+its page says so; its current values and evidence still show.
 
 **Windows:** 1 hour, 24 hours (the default), 7 days, 30 days, 90 days,
 and all, remembered per browser. The time axis runs to now; a window
@@ -170,7 +196,9 @@ follows the window as new blocks arrive (`LIVE-UPDATES.md`).
 the current block, through the same dry run the wizard uses, and shows
 the answer beside the chart: whether it would trip now, whether it is
 still warming (with how long is left), and the evidence tree as the
-Violations page draws it (`VIOLATIONS.md`). It records nothing: no
+Violations page draws it (`VIOLATIONS.md`). When the engine cannot
+evaluate the rule it says so, naming the node and the engine's
+message, rather than showing "would not trip". It records nothing: no
 value, no violation, no notification, no response. It works on a rule
 that is off, which is how a person checks a rule before switching it
 on.
@@ -246,7 +274,7 @@ the API's error envelope. Creating and replacing rules is specified in
 | GET | `/rules/:id/current` | **added:** the newest point of each of those series: `{ seriesId, value, blockNumber, blockTime }` |
 | GET | `/series/:id/points` | **added:** `?from&to&points`, `points` at most 500: `{ resolution, buckets: [{ start, first, last, min, max, count }] }` or, when the range holds no more than `points` values, `{ resolution: "block", points: [{ blockNumber, blockTime, value }] }` |
 | GET | `/sparklines` | **added:** `?rules=1,2,3&window=24h`, at most 200 rules: 48 buckets per rule's first series |
-| POST | `/rules/:id/check` | **added:** a dry run of the stored document: `{ block, wouldTripNow, warming, warmupSecondsLeft, evidence }`; stores nothing |
+| POST | `/rules/:id/check` | **added:** a dry run of the stored document: `{ block, wouldTripNow, warming, warmupSecondsLeft, evaluationError, evidence }`; `evaluationError` is null or `{ path, message }`, the node that could not be evaluated; `block` is the engine's last evaluated block (`api_v1.engine_status`); stores nothing |
 
 Every value is a decimal string. A rule's status is computed from the
 views in the same request: the newest violation per rule is read with
@@ -255,20 +283,14 @@ one bounded query, never one query per rule.
 No MCP tool reads charts or changes a rule's switch, display or pin;
 agents read rules through `list_rules` (`MCP-SERVER.md`).
 
-## What the application requires of the engine
-
-| # | Requirement | Why |
-|-|-|-|
-| C1 | A view linking rules to the series they record: `api_v1.rule_series` with the rule id, the series id, its role (`read` or `metric`) and the path of the node in the document that produced it | series keys are the engine's; without the link the application must guess which series a rule draws from its needs, which covers metric inputs only, and a chart built on a guess can show the wrong line |
-
 ## Decisions
 
 | # | Decision | Recommendation and reason |
 |-|-|-|
 | RL1 | Where status is worked out | The server, from the views, one bounded query per list. The list, the rule page, the Overview and scripts then agree on what "tripped" means |
-| RL2 | "Tripped" | The newest violation is at the last evaluated block. Open violations alone would call a rule tripped long after its condition cleared |
+| RL2 | "Tripped" | The newest violation that is not pending is at the last evaluated block. Open violations alone would call a rule tripped long after its condition cleared, and a pending violation is a warning about a transaction that may never land |
 | RL3 | Downsampling | On the server, to at most 500 buckets with minimum and maximum kept. Sending a month of per-block points to a browser is slow, and averaging hides exactly the spike a person is looking for |
-| RL4 | Series before C1 | The dry run's needs, matched on the series view's columns, with no chart when that does not cover the rule. A missing chart is honest; a wrong one is not |
+| RL4 | Which series a rule charts | The engine's own link, `api_v1.rule_series`, never a guess from the document. A missing chart is honest; a wrong one is not |
 | RL5 | Sparklines | One request for the visible rows, not one per row. A list of 50 rules should not cost 50 round trips to a database that, in local mode, has one session |
 | RL6 | Check now | A dry run of the stored document: the engine's own judgement, with nothing recorded. Re-evaluating "for real" would record a violation nobody asked for |
 | RL7 | Export and import | Through the API with a login, not the database, so an import is checked by the engine exactly as a person's rule is. Per rule, not all or nothing, because rules are independent and one bad rule should not block forty good ones |
@@ -288,9 +310,12 @@ Rules are done when, provably and repeatably:
    status reads off, then holding once it is on again (or warming, if
    its metrics need to warm up again).
 5. Tripped means tripped now: a rule whose condition held and then
-   cleared reads holding with an open count, not tripped.
+   cleared reads holding with an open count, not tripped; a pending
+   violation newer than the rule's last evaluation leaves it holding.
 6. Check now on a rule that is off returns the evidence, and the
-   engine's views are identical before and after.
+   engine's views are identical before and after; on a rule whose read
+   reverts it names the failing node instead of saying it would not
+   trip.
 7. The list of 50 rules with sparklines loads with a fixed number of
    requests, whatever the number of rules.
 8. An export imported into an empty installation on the same chain,

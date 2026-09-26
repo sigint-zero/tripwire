@@ -113,8 +113,8 @@ source.
 |-|-|
 | what | the contract's name, and the function's name for a function-level pause or "whole contract" for a global one |
 | how | "confirmed call" (a rule's call whose confirmation reads as in effect) or, for a contract using the optional TripwireController, "controller" |
-| since | the block, and its time as "2 h ago" |
-| by | "Tripwire" with a link to the response when the pausing transaction was a Tripwire response, else the address that sent it; nothing for a confirmed call, whose state is observed rather than sent |
+| since | the block, and for a controller pause its time as "2 h ago" |
+| by | "Tripwire" with a link to the response when the pausing transaction was a Tripwire response, "Tripwire, by *username*" for a pause by hand, else the address that sent it; nothing for a confirmed call, whose state is observed rather than sent |
 
 A row links to the contract's page. When nothing is paused the section
 shows "Nothing paused". A pause on a contract that is not registered
@@ -183,11 +183,14 @@ The Overview is done when, provably and repeatably:
    every other section shows what the views hold.
 2. A rule tripping on the connected chain raises "Open violations"
    and adds its run within two seconds, with no poll running.
-3. A controller trip sent from an independent wallet on a registered
-   contract appears under Tripped now with that wallet's address, and
-   a trip sent by a Tripwire response appears as "Tripwire" linking
-   to the response; a trip on an unregistered contract does not
-   appear.
+3. A rule whose `call` action pauses a contract through its own
+   `pause()`, with a confirmation, appears under Tripped now as a
+   "confirmed call" naming the rule once the call lands, and goes when
+   the contract is unpaused. A controller trip sent from an
+   independent wallet on a registered contract appears with that
+   wallet's address, and a trip sent by a Tripwire response appears as
+   "Tripwire" linking to the response; a trip on an unregistered
+   contract does not appear.
 4. In `prepare` mode a response awaiting approval shows the fourth
    tile in red; approving it elsewhere brings the tile to zero without
    a refresh.

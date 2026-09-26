@@ -8,8 +8,9 @@ database, your keys.
 
 ## What it does
 
-Tripwire continuously re-checks a set of **invariants**, statements about
-your protocol that should always hold:
+Tripwire continuously re-checks a set of **rules**, statements about
+your protocol that should always hold and things that should never
+happen:
 
 E.g.
 
@@ -20,7 +21,7 @@ E.g.
 - "this oracle updates at least every hour"
 - "this event never appears in a transaction touching our pool"
 
-When an invariant breaks, Tripwire:
+When a rule trips, Tripwire:
 
 1. **Records it** with full evidence: the values, the block, the
    transaction that caused it.
@@ -41,10 +42,9 @@ itself.
   a local HTTP API your own tools can use.
 - **The engine** is the detection and response core. It ships as a signed
   native binary that is installed into the application.
-- **[The contracts](https://github.com/sigint-zero/tripwire-contracts)**
-  are an optional on-chain circuit breaker, the TripwireController, for
-  contracts that want pause-only power they can hand to Tripwire.
-  Tripwire works without them.
+- **The contracts** are an optional on-chain circuit breaker, the
+  TripwireController, for contracts that want pause-only power they can
+  hand to Tripwire. Tripwire works without them.
 
 The application talks to the engine over a local connection.
 
@@ -54,7 +54,7 @@ components and design.
 ## Getting started
 
 Setup is a guided install: point Tripwire at an RPC endpoint, open the
-dashboard, add a contract, and create your first rule from a template.
+dashboard, add a contract, and create your first rule from a starting point.
 Monitoring needs no keys and no on-chain changes.
 
 On-chain response is a separate, deliberate step: you create a key in
@@ -74,7 +74,8 @@ Full installation instructions will land here with the first release.
   TripwireController, where the key you hand Tripwire can pause and
   un-pause and nothing else.
 - **Local by default.** The dashboard and interface are only reachable
-  from your machine unless you deliberately expose them.
+  from your machine unless you deliberately expose them, and every
+  request needs a login even then.
 
 ## Status
 

@@ -20,18 +20,27 @@ shown here; `LIVE-UPDATES.md` keeps both current.
 
 ## Where it comes from
 
-Three views:
+Four views:
 
 - `api_v1.responses`: every on-chain action Tripwire took for a rule,
-  with the call, its transaction and its final status, and the
-  actions a person took by hand (`RESPONSES.md`, ask R4). This is the
+  with the call, its transaction and its final status. This is the
   whole of the timeline for a contract that does not use the
   controller.
-- `api_v1.controller_events`, for contracts on the controller: every event the controller has emitted
-  since its deployment, in block order, with the block, transaction,
-  log index, event name and decoded arguments. Events from a newer
-  controller than the engine knows are kept undecoded, with their raw
-  topics.
+- `api_v1.actions`: the pauses and unpauses a person asked Tripwire to
+  send by hand (`RESPONSES.md`, Pausing and unpausing by hand), each
+  with its kind, target, selector, note, status and transaction (the
+  same `tx` shape as a response's). They are numbered on their own,
+  apart from responses. A call to a contract's own function that a
+  person sends from a wallet is not Tripwire's and is not recorded
+  here; it shows in trip state when a confirmation reads it.
+- `api_v1.controller_events`, for contracts on the controller: every
+  event the controller has emitted since its deployment, in block
+  order, with the block, its time, the transaction, log index, event
+  name and decoded arguments. `address` is the event's target contract,
+  indexed with the block number, so filtering by the registered
+  contracts is an index read. Events from a newer controller than the
+  engine knows are kept with `event_name` `unknown`, `address` the
+  controller's own, and the raw `{ topics, data }` as their payload.
 - `api_v1.trip_state`: the current pause state, one row per contract,
   selector and source. The global row has selector `''`. Source
   `controller` rows are the mirror of the controller; source `verify`
@@ -54,7 +63,7 @@ concern other people's contracts; of those the application shows only:
 - operator events (`OperatorAdded`, `OperatorRemoved`) naming one of
   this installation's operator keys, whatever the target, so a key
   authorised on a contract that is not registered here is still seen;
-- undecoded events, only when one of their indexed topics is a
+- undecoded events, only when one of their raw topics is a
   registered contract's address or one of the keys, padded to 32
   bytes; they show as "Unrecognised controller event" with the
   transaction, and the Activity page suggests updating Tripwire.
@@ -65,8 +74,7 @@ only.
 ## The timeline
 
 At `/activity`, newest first. Each event is one line: a sentence, the
-contract's name, the block and, once the view carries it (ask T1), the
-time; the transaction links to the chain's block explorer for the
+contract's name, the block and its time; the transaction links to the chain's block explorer for the
 installation's chain (the shared chain list gains an explorer URL per
 chain; a chain without one shows the hash unlinked).
 
@@ -74,7 +82,8 @@ chain; a chain without one shows the hash unlinked).
 |-|-|
 | a response confirmed | Treasury vault: `pause()` called by Tripwire, responding to *rule* |
 | a response failed | Treasury vault: Tripwire's `pause()` failed: *reason* |
-| a manual action confirmed | Treasury vault: `unpause()` called by Tripwire, by *username* |
+| a manual action confirmed | Treasury vault: paused through the controller by Tripwire, by *username* |
+| a manual action failed | Treasury vault: Tripwire's pause by hand failed: *reason* |
 | `FunctionTripped` | Treasury vault: `withdraw()` paused by *actor* |
 | `FunctionReset` | Treasury vault: `withdraw()` unpaused by *actor* |
 | `GlobalTripped` | Treasury vault: every function paused by *actor* |
@@ -90,6 +99,15 @@ The `GlobalReset` sentence says that function pauses stay because
 that is how the controller behaves, and people reliably expect the
 opposite.
 
+**One line per transaction.** A response or manual action sent to the
+controller also produces a controller event. That transaction is
+shown once, as the controller event, attributed to Tripwire (below);
+the response or action line appears only when its transaction emitted
+no controller event: a call to the contract's own function, or a
+failure. A response or action that failed before anything was sent
+has no transaction and no line here; it is on the Responses page or
+in the notification that reported it.
+
 **Function names.** A selector is resolved to the function's name
 through the contract's ABI as the engine stores it (for a proxy, the
 implementation's functions are included): the server computes each
@@ -103,8 +121,9 @@ order:
    hash of a response's transaction or of any of its attempts
    (`api_v1.responses`); the sentence names the rule and links to the
    response.
-2. **Tripwire, by hand**: the hash matches a manual pause or unpause
-   (`RESPONSES.md`, ask R4).
+2. **Tripwire, by hand**: the hash equals the hash of a manual
+   action's transaction or of any of its attempts (`api_v1.actions`);
+   the sentence names the person from the action's note.
 3. **This installation's operator key**, otherwise: the address is one
    of the keys (`RESPONSES.md`) but no Tripwire record matches, for
    example a transaction sent with the same key from other tooling.
@@ -123,8 +142,11 @@ own actions, pauses (`FunctionTripped`, `GlobalTripped`), unpauses
 guardianship), and unrecognised.
 
 **Paging** is by an opaque cursor, 100 events at a time, with
-**Older**. The two sources are merged in block order (block, then log
-index or response id), and the cursor carries the position in both.
+**Older**. The three sources are merged in block order (block, then
+log index, response id or action id), and the cursor carries the
+position in each. A response or action is placed at the block its
+transaction landed in, or, when it never landed, the block of its
+last attempt.
 After a reorg the rewound entries are simply gone; the page does not
 care.
 
@@ -147,11 +169,12 @@ Each paused row shows:
 
 - what is paused: every function, or the function's name resolved as
   above;
-- how: **the contract's own pause**, or **controller**; for the first,
-  naming the
-  rule or rules whose confirmation reads true (enabled rules on that
-  contract with a `call` action whose function has that selector);
-- since which block, with how long ago once block times are available;
+- how: **confirmed call**, or **controller**; for the first, naming
+  the rule or rules whose confirmation reads true (enabled rules on
+  that contract with a `call` action whose function has that
+  selector);
+- since which block and, for a controller row, how long ago, from the
+  time of the controller event with the row's transaction;
 - for a controller row, the transaction that paused it, attributed as
   in the timeline.
 
@@ -169,9 +192,12 @@ where a person looks during an incident.
 When no contract uses the controller, or the chain has no known
 deployment and none is configured (`ENGINE.md`), the page shows
 Tripwire's own actions and nothing is missing: controller events simply
-do not appear, and trip state holds only `verify` rows. While the engine has not caught up with the
-controller's history (reported in its health), the page says the
-history is still being read.
+do not appear, and trip state holds only `verify` rows.
+
+With a controller configured, the engine reads the controller's whole
+history before it follows new blocks, and reports `starting`, with no
+controller in its health, until that is done. While it is starting
+the page says the controller's history is still being read.
 
 ## API
 
@@ -190,7 +216,7 @@ An activity item:
   "id": "controller:5521",
   "event": "FunctionTripped",
   "blockNumber": 21000003,
-  "blockTime": null,
+  "blockTime": "2026-09-26T07:12:44Z",
   "txHash": "0x…",
   "contract": { "address": "0x…", "name": "Treasury vault" },
   "selector": "0x2e1a7d4d",
@@ -206,13 +232,15 @@ An activity item:
 }
 ```
 
-`id` is `response:7` for Tripwire's own actions and `controller:5521`
-for controller events, and `event` is `response_confirmed`,
-`response_failed`, `manual_confirmed` or the controller event's name.
-`actor.is` is one of `tripwire_response`, `tripwire_manual`, `key`,
-`guardian`, `operator`, `unknown`. `subject` is the other address an
-event names: the operator added or removed, or the proposed or new
-guardian. `blockTime` is `null` until the view carries it (T1).
+`id` is `response:7` for a rule's response, `action:3` for a manual
+action and `controller:5521` for a controller event, and `event` is
+`response_confirmed`, `response_failed`, `manual_confirmed`,
+`manual_failed` or the controller event's name. `actor.is` is one of
+`tripwire_response`, `tripwire_manual`, `key`, `guardian`, `operator`,
+`unknown`; a `tripwire_response` actor carries `responseId` and the
+rule, a `tripwire_manual` actor carries `actionId` and the note.
+`subject` is the other address an event names: the operator added or
+removed, or the proposed or new guardian.
 
 A trip-state item:
 
@@ -239,19 +267,14 @@ A trip-state item:
 `scope` is `global` or `function`. `actor` is the tripping
 transaction's sender, attributed exactly as on the timeline, so the
 Overview's Tripped now can say "Tripwire" and link the response
-(`OVERVIEW.md`). `sinceTime` is the block's time once the view
-carries it (T1). For `source: "verify"`, `txHash` and `actor` are
-`null` and `rules` lists the ids and names of the rules whose
-confirmation reads true.
+(`OVERVIEW.md`). `api_v1.trip_state` has no time column, so
+`sinceTime` is the `block_time` of the controller event with the
+row's `txHash`. For `source: "verify"`, `txHash`, `actor` and
+`sinceTime` are `null` and `rules` lists the ids and names of the
+rules whose confirmation reads true.
 
 Both lists are read with bounded queries and a statement timeout, per
 `DATABASE.md`.
-
-## What the application requires of the engine
-
-| # | Requirement | Why |
-|-|-|-|
-| T1 | `api_v1.controller_events` carries `block_time`, and its target address as a column, indexed, so the application can filter by the registered contracts without scanning every guarded contract's history | the controller is shared by the whole chain; a timeline needs times, and filtering in jsonb over the chain's full history does not stay inside a few seconds |
 
 ## Decisions
 
@@ -283,13 +306,16 @@ one contract on the controller:
 4. A pause sent by a response in `prepare` mode is attributed to
    Tripwire and names its rule; the same key sending the same call
    from other tooling is attributed to the key, not to a response.
+   The response's transaction appears once, as the controller event.
 5. Events for a guarded contract that is not registered here never
    appear; `OperatorAdded` for this installation's key on such a
    contract does.
-6. A rule with a `call` action and a confirmation shows a pause
-   "through the contract's own pause" once the call lands, naming the
-   rule, and the row goes when the contract is unpaused.
-7. A reorg that removes a pause removes it from the timeline and from
+6. A rule with a `call` action and a confirmation shows a
+   "confirmed call" pause once the call lands, naming the rule, and
+   the row goes when the contract is unpaused.
+7. A pause by hand through the controller appears as Tripwire's,
+   naming the person, and one that fails appears with its reason.
+8. A reorg that removes a pause removes it from the timeline and from
    trip state, with no reload.
-8. On a chain with no controller, the page shows Tripwire's own
+9. On a chain with no controller, the page shows Tripwire's own
    actions, and trip state shows confirmation rows only.

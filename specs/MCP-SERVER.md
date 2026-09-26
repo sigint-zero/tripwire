@@ -63,7 +63,11 @@ point at the resources for depth. Required content, in this order:
 
 1. What Tripwire is in two sentences: it watches contracts every block,
    evaluates rules, records violations with evidence, alerts, and can
-   pause a contract through its on-chain circuit breaker.
+   act on-chain by calling the contract's own pause or admin function
+   from a key a person granted that permission (or, for a contract
+   registered with the optional TripwireController, by pausing it
+   there). The as-built `content/instructions.md` still names only the
+   controller's circuit breaker and is brought in line with this.
 2. What a rule is: one watchable statement whose `trip_when` states the
    bad condition, plus a trigger and a consequence. Most rules encode
    invariants; some watch occurrences. Warm-up never trips. Unknown
@@ -189,7 +193,7 @@ identities; comparing a raw integer against a human number; windows
 shorter than the value's update interval; deviation bands around a
 reference that is itself the monitored value; event filters on
 arguments the event does not have; event signatures written without
-parameter names; array or tuple parameters, which the language does
+parameter names; reads written without their return declaration; array or tuple parameters, which the language does
 not take in version 1; `every_block` rules with many
 `view_call`s on a busy chain; duplicating an existing rule with
 different wording; thresholds copied from another protocol; forgetting
@@ -246,7 +250,7 @@ Returns:
 {
   "contract": { "id": "c_3f2a", "name": "…", "address": "0x…", "chain_id": 1, "active": true },
   "abi": {
-    "views":    [ { "signature": "totalAssets()", "inputs": [], "outputs": ["uint256"] } ],
+    "views":    [ { "signature": "totalAssets()", "call": "totalAssets() returns (uint256)", "inputs": [], "outputs": ["uint256"] } ],
     "mutators": [ { "signature": "withdraw(uint256,address,address)", "inputs": ["uint256","address","address"] } ],
     "events":   [ { "signature": "Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)" } ]
   },
@@ -265,10 +269,16 @@ Returns:
 }
 ```
 
-- Signatures are given exactly as the rule language wants them:
-  functions as bare positional signatures, events in declaration style
-  with parameter names and `indexed` markers, so the agent can paste
-  them into `function`, `event`, `filters` and `event_arg` unchanged.
+- Signatures are given exactly as the rule language wants them, so
+  the agent can paste them unchanged. A view's `call` is the form a
+  `view_call` and a metric's `of` take, with its return declaration
+  (`totalAssets() returns (uint256)`); the engine refuses a read
+  without one. `signature` is the bare positional form, for
+  `on_trip.call` and for a `simulate` judged on whether it reverts; a
+  mutator has only that. Events are in declaration style with
+  parameter names and `indexed` markers, for `event`, `filters` and
+  `event_arg`. A view whose outputs cannot be declared in version 1
+  has no `call`.
   Functions and events with array or tuple parameters carry
   `"unsupported": "array or tuple parameters are not available in
   language version 1"` so the agent does not draft against them.
@@ -302,10 +312,10 @@ Returns each rule mapped onto the contract with its detection state:
     "sentence": "On every block, notify when totalAssets() falls below totalSupply() (critical).",
     "enabled": true,
     "origin": "dashboard",
-    "status": "ok",
+    "status": "holding",
     "current": { "series": "totalAssets()", "value": "1234567890000000000000", "block": 21000000 },
     "warmup_remaining_seconds": 0,
-    "violations_24h": 0,
+    "open_violations": 0,
     "created_at": "2026-09-20T10:00:00Z"
   }
 ]
@@ -314,12 +324,17 @@ Returns each rule mapped onto the contract with its detection state:
 - `rule` is the canonical document, so the agent sees exactly what the
   engine evaluates and can avoid restating it.
 - `sentence` is the engine's `describe` output.
-- `origin` is `"dashboard"` for rules the application created (the
-  wizard or an import), `{ "mcp": "<token label>" }` for agent
-  submissions, with the label read from `app.rule_submissions`, or
+- `origin` is `"dashboard"` for the engine's origin `app`, rules the
+  application created (the wizard or an import);
+  `{ "mcp": "<token label>" }` for the engine's origin `mcp`, agent
+  submissions, with the label read from `app.rule_submissions`; or
   `"api"` for rules created directly against the engine's interface.
-- `status` is one of `ok`, `violated`, `warming_up`, `eval_error`,
-  `disabled`.
+- `status` is the rule's status as every other surface shows it,
+  worked out the same way (`RULES.md`): `off`, `tripped`, `error`,
+  `warming` or `holding`. `open_violations` counts the violations
+  nobody has acknowledged. The as-built tool returns an older set
+  (`ok`, `violated`, `warming_up`, `eval_error`, `disabled`) with
+  `violations_24h`, and follows this.
 - `current` is the first recorded series of the rule at its last
   evaluation, when there is one.
 
@@ -371,6 +386,8 @@ real submission:
   "evaluation": {
     "block": 21000000,
     "would_trip_now": false,
+    "warming": false,
+    "error": null,
     "reads": [ { "call": "totalAssets()", "value": "1234567890000000000000" } ]
   },
   "warmup_seconds": 0,
@@ -380,6 +397,12 @@ real submission:
   "next": "This rule is disabled until a person enables it in the dashboard."
 }
 ```
+
+`warming` true means a metric cannot be judged yet, which is not the
+same as would not trip. `error` is null, or `{ path, message }` naming
+the node the engine could not evaluate at the head and why; a rule
+that cannot be evaluated never fires, so the agent treats it like an
+invalid one. `block` is the engine's last evaluated block.
 
 An invalid document returns `valid: false` with `issues` and nothing
 stored. A duplicate returns `duplicate_of` and nothing stored. If the
@@ -392,7 +415,7 @@ is no submission path that skips validation.
 |-|-|
 | response | `on_trip.action` must be `notify`; the person upgrades it |
 | arming | every submission lands `enabled: false` |
-| attribution | the engine records the rule's origin as `mcp`; the token id and label are kept in `app.rule_submissions` (`DATABASE.md`), and the dashboard shows the label on the "created via MCP" badge |
+| attribution | the engine records the rule's origin as `mcp`; the token id and label are kept in `app.rule_submissions` (`DATABASE.md`), and the dashboard shows the rule's **Via** badge with the label, for good (`RULES.md`) |
 | duplicates | canonical-form match against existing rules on the same contract is refused |
 | volume | 50 stored submissions per token per hour, counted from `app.rule_submissions`, configurable as `mcp.submissions_per_hour`; `check_only` calls do not count against it |
 | size | document caps are the engine's (depth 32, 256 nodes, 32 calls); source responses cap at 200 KB |
@@ -409,11 +432,14 @@ the agent can still study a contract and the mapped rules but cannot
 check or submit. The tools say so explicitly rather than degrading
 quietly.
 
-The rule schema and the example corpus are the engine's published
-contract files, pinned by the application. The curated catalogue in
-`tripwire://guide/examples` is the application's own content built on
-top of that corpus: the engine judges documents and deliberately ships
-no templates, so the starting points live here.
+The rule schema is one of the engine's published contract files, and
+every engine release also publishes a set of valid example rule
+documents (`rule-examples.tar.gz`, covered by the release's checksums
+like the binaries); the application pins both to the engine version
+it runs. The curated catalogue in `tripwire://guide/examples` is the
+application's own content, built on the schema and checked against
+those examples: the engine judges documents and deliberately ships no
+templates, so the starting points live here.
 
 ## Errors
 
@@ -478,7 +504,7 @@ other.
 | MC3 | Contract registration by agents | no. Registering is where a person decides what Tripwire watches; agents work inside that |
 | MC4 | Source fetching | the server serves what the application stored and never reaches the internet for an agent. Predictable, offline-safe, no new trust |
 | MC5 | Protocol implementation | the reference MCP SDK. Hand-rolling a protocol is the wrong place to spend care |
-| MC6 | Where the catalogue lives | here, on top of the engine's corpus. The engine judges, the application teaches |
+| MC6 | Where the catalogue lives | here, on the engine's schema and its released example rules. The engine judges, the application teaches |
 | MC7 | Server memory | none. Stateless tools; the agent's context is its memory |
 | MC8 | Violations access | not yet. It is the obvious next capability once proposals prove useful, and it needs its own thinking about evidence size |
 | MC9 | Teaching quality | measured by a fixture eval with a written pass bar, run on content changes |

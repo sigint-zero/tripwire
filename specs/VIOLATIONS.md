@@ -34,7 +34,10 @@ transaction lands and the condition holds on chain, the engine records
 its own `tripped` violation at that block, independently; the page
 shows both, and neither replaces the other. A pending transaction that
 never lands leaves its pending violation standing as a record of what
-was seen.
+was seen. A pending violation never makes its rule read as tripped
+(`RULES.md`), and it starts a response only when pending transactions
+may respond (`SETTINGS.md`, Detection); otherwise it is recorded and
+notified only.
 
 ## Runs
 
