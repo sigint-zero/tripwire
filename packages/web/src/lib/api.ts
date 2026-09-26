@@ -1,5 +1,12 @@
 import type {
   AccountSession,
+  Channel,
+  ChannelDelivery,
+  ChannelInput,
+  ChannelTest,
+  NotificationKind,
+  NotificationPage,
+  NotificationSettings,
   AccountSummary,
   Contract,
   ContractAbi,
@@ -18,6 +25,7 @@ import type {
   RuleSeries,
   SeriesWindow,
   SetupState,
+  Severity,
   Sparkline,
   TripStateItem,
   RuleCheck,
@@ -208,6 +216,51 @@ export const api = {
     request<Violation[]>("/violations/acknowledge", { json: { ids, note } }),
   responses: (tab: ResponseTab, signal?: AbortSignal) =>
     request<ResponseItem[]>(`/responses?status=${tab}`, { signal }),
+  notifications: (
+    filter: {
+      cursor?: string;
+      kind?: NotificationKind;
+      severity?: Severity;
+      unread?: boolean;
+    },
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams();
+    if (filter.cursor) query.set("cursor", filter.cursor);
+    if (filter.kind) query.set("kind", filter.kind);
+    if (filter.severity) query.set("severity", filter.severity);
+    if (filter.unread) query.set("unread", "true");
+    const qs = query.toString();
+    return request<NotificationPage>(`/notifications${qs ? `?${qs}` : ""}`, {
+      signal,
+    });
+  },
+  unreadCount: (signal?: AbortSignal) =>
+    request<{ count: number }>("/notifications/unread-count", { signal }),
+  markRead: (read: { ids: string[] } | { all: true }) =>
+    request<{ count: number }>("/notifications/read", { json: read }),
+  notificationSettings: (signal?: AbortSignal) =>
+    request<NotificationSettings>("/notification-settings", { signal }),
+  setNotificationSettings: (settings: NotificationSettings) =>
+    request<NotificationSettings>("/notification-settings", {
+      method: "PUT",
+      json: settings,
+    }),
+  channels: (signal?: AbortSignal) =>
+    request<Channel[]>("/channels", { signal }),
+  createChannel: (channel: ChannelInput) =>
+    request<Channel & { signingKey?: string }>("/channels", { json: channel }),
+  updateChannel: (id: string, channel: ChannelInput) =>
+    request<Channel>(`/channels/${id}`, { method: "PUT", json: channel }),
+  deleteChannel: (id: string) =>
+    request<{ dropped: number }>(`/channels/${id}`, { method: "DELETE" }),
+  testChannel: (id: string) =>
+    request<ChannelTest>(`/channels/${id}/test`, { method: "POST" }),
+  channelDeliveries: (id: string, signal?: AbortSignal) =>
+    request<{ items: ChannelDelivery[]; nextCursor: string | null }>(
+      `/channels/${id}/deliveries`,
+      { signal },
+    ),
   tripState: (signal?: AbortSignal) =>
     request<TripStateItem[]>("/trip-state", { signal }),
   setup: (signal?: AbortSignal) => request<SetupState>("/setup", { signal }),

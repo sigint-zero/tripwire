@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useLogout } from "../components/AccountMenu";
+import { AlertChannels, MessageLinks } from "../components/Channels";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -23,11 +24,17 @@ export function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description="Your account, who else can log in, and the AI agents that can reach Tripwire."
+        description="Your account, who else can log in, where alerts go, and the AI agents that can reach Tripwire."
       />
       <div className="space-y-14">
         <Account />
         <Accounts />
+        <Section title="Alert channels">
+          <AlertChannels />
+        </Section>
+        <Section title="Message links">
+          <MessageLinks />
+        </Section>
         <AgentTokens />
       </div>
     </div>

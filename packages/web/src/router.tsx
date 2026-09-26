@@ -18,7 +18,10 @@ import { FirstRunPage } from "./pages/FirstRun";
 import { LoginPage } from "./pages/Login";
 import { NewRulePage } from "./pages/NewRule";
 import { NotFoundPage } from "./pages/NotFound";
-import { NotificationsPage } from "./pages/Notifications";
+import {
+  NotificationsPage,
+  readNotificationsSearch,
+} from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
 import { readResponsesSearch, ResponsesPage } from "./pages/Responses";
 import { RulePage } from "./pages/Rule";
@@ -180,7 +183,17 @@ const activityRoute = createRoute({
 const notificationsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/notifications",
-  component: NotificationsPage,
+  validateSearch: readNotificationsSearch,
+  component: function Notifications() {
+    const search = notificationsRoute.useSearch();
+    const navigate = notificationsRoute.useNavigate();
+    return (
+      <NotificationsPage
+        search={search}
+        onSearch={(next) => void navigate({ search: next, replace: true })}
+      />
+    );
+  },
 });
 
 const settingsRoute = createRoute({
