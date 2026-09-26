@@ -130,3 +130,38 @@ export interface Violation {
   createdAt: string;
   acknowledged: { by: string; note: string | null; at: string } | null;
 }
+
+/** The logged-in account and its session. */
+export interface AccountSession {
+  user: { id: string; username: string };
+  createdAt: string;
+  /** Sessions end a day after login, however busy. */
+  expiresAt: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  address: string;
+  userAgent: string;
+  /** The session making this request. */
+  current: boolean;
+}
+
+export interface AccountSummary {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
+/** An AI agent's MCP token, without the token, which is shown only once. */
+export interface McpTokenSummary {
+  id: string;
+  label: string;
+  owner: { id: string; username: string } | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}

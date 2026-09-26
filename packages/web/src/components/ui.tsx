@@ -28,6 +28,12 @@ export function Button({
   );
 }
 
+/** A form field's label, and the field. */
+export const labelClass =
+  "mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+export const fieldClass =
+  "w-full bg-white/4 px-3 py-2.5 text-sm text-white transition-colors placeholder:text-gray-600 hover:bg-white/6 focus:bg-white/6 focus:outline-none";
+
 /** A row of choices on one filled track; the chosen one lit. */
 export const track = "flex w-fit bg-white/3 p-1";
 export const choice = (active: boolean) =>

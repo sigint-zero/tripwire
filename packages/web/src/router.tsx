@@ -1,9 +1,12 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
-  createRootRoute,
+  createRootRouteWithContext,
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
+import { auth, isLoggedOut } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
@@ -11,6 +14,7 @@ import { ContractPage } from "./pages/Contract";
 import { ContractsPage } from "./pages/Contracts";
 import { EditRulePage } from "./pages/EditRule";
 import { FirstRunPage } from "./pages/FirstRun";
+import { LoginPage } from "./pages/Login";
 import { NewRulePage } from "./pages/NewRule";
 import { NotFoundPage } from "./pages/NotFound";
 import { NotificationsPage } from "./pages/Notifications";
@@ -21,7 +25,7 @@ import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { ViolationsPage } from "./pages/Violations";
 
-const rootRoute = createRootRoute({
+const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: () => (
     <>
       <Outlet />
@@ -31,11 +35,38 @@ const rootRoute = createRootRoute({
   notFoundComponent: NotFoundPage,
 });
 
-// Every area except first run shares the navigation shell.
+const setupQuery = {
+  queryKey: ["auth", "setup"],
+  queryFn: ({ signal }: { signal: AbortSignal }) => auth.setup(signal),
+};
+const sessionQuery = {
+  queryKey: ["auth", "session"],
+  queryFn: ({ signal }: { signal: AbortSignal }) => auth.session(signal),
+};
+
+/** Only a path on this site is followed back after logging in. */
+const safeRedirect = (value: unknown): string | undefined =>
+  typeof value === "string" && value.startsWith("/") && !value.startsWith("//")
+    ? value
+    : undefined;
+
+// Every area except login and first run shares the navigation shell, and
+// needs a session: a fresh installation goes to first run, anyone else
+// logged out to the login page.
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
   component: AppShell,
+  beforeLoad: async ({ context: { queryClient }, location }) => {
+    const setup = await queryClient.fetchQuery(setupQuery);
+    if (setup.required) throw redirect({ to: "/setup" });
+    try {
+      await queryClient.fetchQuery({ ...sessionQuery, staleTime: 60_000 });
+    } catch (error) {
+      if (!isLoggedOut(error)) throw error;
+      throw redirect({ to: "/login", search: { redirect: location.href } });
+    }
+  },
 });
 
 const overviewRoute = createRoute({
@@ -132,7 +163,24 @@ const settingsRoute = createRoute({
 const firstRunRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
+  beforeLoad: async ({ context: { queryClient } }) => {
+    const setup = await queryClient.fetchQuery(setupQuery);
+    if (!setup.required) throw redirect({ to: "/login" });
+  },
   component: FirstRunPage,
+});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  validateSearch: (search): { redirect?: string } => {
+    const to = safeRedirect(search.redirect);
+    return to ? { redirect: to } : {};
+  },
+  component: function Login() {
+    const { redirect: to } = loginRoute.useSearch();
+    return <LoginPage redirect={to} />;
+  },
 });
 
 const routeTree = rootRoute.addChildren([
@@ -151,9 +199,14 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
   ]),
   firstRunRoute,
+  loginRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+  routeTree,
+  // Supplied by RouterProvider.
+  context: { queryClient: undefined! },
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -1,14 +1,18 @@
 import type {
+  AccountSession,
+  AccountSummary,
   Contract,
   ContractAbi,
   ContractDetail,
   ContractRegistration,
   EngineInfo,
   Issue,
+  McpTokenSummary,
   Rule,
   RuleChange,
   RuleCheck,
   SavedRule,
+  SessionSummary,
   StoredRuleCheck,
   Violation,
 } from "@tripwire/shared";
@@ -51,6 +55,48 @@ async function request<T>(
   }
   return body as T;
 }
+
+/** A request refused because nobody is logged in. */
+export const isLoggedOut = (error: unknown) =>
+  error instanceof ApiError &&
+  error.status === 401 &&
+  error.code === "unauthenticated";
+
+export const auth = {
+  setup: (signal?: AbortSignal) =>
+    request<{ required: boolean }>("/auth/setup", { signal }),
+  createFirstAccount: (username: string, password: string) =>
+    request<{ user: { id: string; username: string } }>("/auth/setup", {
+      json: { username, password },
+    }),
+  login: (username: string, password: string) =>
+    request<null>("/auth/login", { json: { username, password } }),
+  logout: () => request<null>("/auth/logout", { method: "POST" }),
+  session: (signal?: AbortSignal) =>
+    request<AccountSession>("/auth/session", { signal }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<null>("/auth/password", {
+      json: { currentPassword, newPassword },
+    }),
+  sessions: (signal?: AbortSignal) =>
+    request<SessionSummary[]>("/auth/sessions", { signal }),
+  revokeSession: (id: string) =>
+    request<null>(`/auth/sessions/${id}`, { method: "DELETE" }),
+  users: (signal?: AbortSignal) =>
+    request<AccountSummary[]>("/auth/users", { signal }),
+  addUser: (username: string, password: string) =>
+    request<AccountSummary>("/auth/users", { json: { username, password } }),
+  removeUser: (id: string) =>
+    request<null>(`/auth/users/${id}`, { method: "DELETE" }),
+  tokens: (signal?: AbortSignal) =>
+    request<McpTokenSummary[]>("/auth/mcp-tokens", { signal }),
+  createToken: (label: string, expiresAt: string | null) =>
+    request<{ id: string; token: string }>("/auth/mcp-tokens", {
+      json: { label, expiresAt },
+    }),
+  revokeToken: (id: string) =>
+    request<null>(`/auth/mcp-tokens/${id}`, { method: "DELETE" }),
+};
 
 export const api = {
   engine: (signal?: AbortSignal) => request<EngineInfo>("/engine", { signal }),

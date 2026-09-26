@@ -43,6 +43,21 @@ export default defineConfig(
       pluginRouter.configs["flat/recommended"],
     ],
     languageOptions: { globals: globals.browser },
+    rules: {
+      // TanStack Router redirects by throwing redirect(), a Response.
+      "@typescript-eslint/only-throw-error": [
+        "error",
+        {
+          allow: [
+            {
+              from: "package",
+              package: "@tanstack/router-core",
+              name: "Redirect",
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     files: ["**/*.{ts,mjs}"],
