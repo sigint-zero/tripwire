@@ -3,15 +3,22 @@ import type { ReactNode } from "react";
 import { ServerStatus } from "./ServerStatus";
 import { Wordmark } from "./Wordmark";
 
-const areas = [
-  { to: "/", label: "Overview" },
-  { to: "/contracts", label: "Contracts" },
-  { to: "/rules", label: "Rules" },
-  { to: "/violations", label: "Violations" },
-  { to: "/responses", label: "Responses" },
-  { to: "/activity", label: "Activity" },
-  { to: "/notifications", label: "Notifications" },
-  { to: "/settings", label: "Settings" },
+// Grouped: what is watched, what happened, and how Tripwire is set up.
+const groups = [
+  [
+    { to: "/", label: "Overview" },
+    { to: "/contracts", label: "Contracts" },
+    { to: "/rules", label: "Rules" },
+  ],
+  [
+    { to: "/violations", label: "Violations" },
+    { to: "/responses", label: "Responses" },
+    { to: "/activity", label: "Activity" },
+  ],
+  [
+    { to: "/notifications", label: "Notifications" },
+    { to: "/settings", label: "Settings" },
+  ],
 ] as const;
 
 export function AppShell() {
@@ -29,30 +36,34 @@ export function ShellLayout({ children }: { children: ReactNode }) {
         <Link to="/" className="mb-8 block px-3 pt-2">
           <Wordmark className="h-7" />
         </Link>
-        <ul className="space-y-1">
-          {areas.map((area) => (
-            <li key={area.to}>
-              <Link
-                to={area.to}
-                activeOptions={{
-                  exact: area.to === "/",
-                  includeSearch: false,
-                }}
-                className="block border-l-2 px-3 py-2 text-xs font-bold tracking-[0.2em] uppercase transition-colors"
-                activeProps={{
-                  className:
-                    "border-emerald-500 bg-emerald-500/5 text-emerald-400",
-                }}
-                inactiveProps={{
-                  className:
-                    "border-transparent text-gray-500 hover:bg-emerald-500/5 hover:text-emerald-400",
-                }}
-              >
-                {area.label}
-              </Link>
-            </li>
+        <div className="space-y-6">
+          {groups.map((areas) => (
+            <ul key={areas[0].to} className="space-y-1">
+              {areas.map((area) => (
+                <li key={area.to}>
+                  <Link
+                    to={area.to}
+                    activeOptions={{
+                      exact: area.to === "/",
+                      includeSearch: false,
+                    }}
+                    className="block border-l-2 px-3 py-2 text-xs font-bold tracking-[0.2em] uppercase transition-colors"
+                    activeProps={{
+                      className:
+                        "border-emerald-500 bg-emerald-500/5 text-emerald-400",
+                    }}
+                    inactiveProps={{
+                      className:
+                        "border-transparent text-gray-500 hover:bg-emerald-500/5 hover:text-emerald-400",
+                    }}
+                  >
+                    {area.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           ))}
-        </ul>
+        </div>
         <div className="mt-auto border-t border-emerald-500/10 pt-4">
           <ServerStatus />
         </div>

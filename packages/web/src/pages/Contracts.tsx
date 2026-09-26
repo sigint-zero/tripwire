@@ -26,21 +26,20 @@ export function ContractsPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-6">
-        <PageHeader
-          title="Contracts"
-          description="The contracts Tripwire watches, and the rules on each."
-        />
-        {!none && (
-          <Button
-            variant={adding ? "ghost" : "primary"}
-            className="shrink-0"
-            onClick={() => setAdding(!adding)}
-          >
-            {adding ? "Cancel" : "Add contract"}
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Contracts"
+        description="The contracts Tripwire watches, and the rules on each."
+        action={
+          !none && (
+            <Button
+              variant={adding ? "ghost" : "primary"}
+              onClick={() => setAdding(!adding)}
+            >
+              {adding ? "Cancel" : "Add contract"}
+            </Button>
+          )
+        }
+      />
 
       {error && <p className="text-sm text-red-400">{error.message}</p>}
 

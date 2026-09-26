@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PageHeader } from "../components/PageHeader";
 import { RuleList } from "../components/RuleList";
-import { buttonClass } from "../components/ui";
+import { buttonClass, EmptyState } from "../components/ui";
 import { api } from "../lib/api";
 
 export function RulesPage({ created }: { created?: string }) {
@@ -17,30 +17,30 @@ export function RulesPage({ created }: { created?: string }) {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-6">
-        <PageHeader
-          title="Rules"
-          description="Every rule with its current value and status."
-        />
-        <Link to="/rules/new" className={`${buttonClass()} shrink-0`}>
-          New rule
-        </Link>
-      </div>
+      <PageHeader
+        title="Rules"
+        description="Every rule with its current value and status."
+        action={
+          rules &&
+          rules.length > 0 && (
+            <Link to="/rules/new" className={buttonClass()}>
+              New rule
+            </Link>
+          )
+        }
+      />
 
       {error && <p className="text-sm text-red-400">{error.message}</p>}
 
       {rules?.length === 0 && (
-        <div className="bg-white/2 px-6 py-16 text-center">
-          <p className="font-display text-xl font-bold text-white uppercase">
-            Nothing watched yet
-          </p>
-          <p className="mt-2 mb-6 text-sm text-gray-500">
-            Pick a contract and a starting point, then fill in the blanks.
-          </p>
+        <EmptyState
+          title="Nothing watched yet"
+          hint="Pick a contract and a starting point, then fill in the blanks."
+        >
           <Link to="/rules/new" className={buttonClass()}>
             Create your first rule
           </Link>
-        </div>
+        </EmptyState>
       )}
 
       {rules && rules.length > 0 && (

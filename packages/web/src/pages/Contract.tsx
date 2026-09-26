@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { ContractExplorer } from "../components/contracts/ContractExplorer";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
 import { RuleList } from "../components/RuleList";
-import { Button, buttonClass, Tag } from "../components/ui";
+import { buttonClass, EmptyState, Switch, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { shortAddress } from "../lib/format";
 
@@ -44,6 +44,13 @@ export function ContractPage({ address }: { address: string }) {
     </Link>
   );
 
+  const hasRules = rules !== undefined && rules.length > 0;
+  const newRule = (label: string) => (
+    <Link to="/rules/new" search={{ contract: key }} className={buttonClass()}>
+      {label}
+    </Link>
+  );
+
   if (error) {
     return (
       <div className="space-y-4">
@@ -59,14 +66,22 @@ export function ContractPage({ address }: { address: string }) {
       {back}
       <header className="mt-4 mb-10 flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="flex items-center gap-3 font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
-            {contract.name}
-            {!contract.active && (
-              <span className="font-mono text-xs tracking-[0.2em] text-amber-400">
-                Disabled
-              </span>
-            )}
-          </h1>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
+              {contract.name}
+            </h1>
+            <Switch
+              on={contract.active}
+              onChange={(active) => toggle.mutate(active)}
+              label={contract.active ? "Watching" : "Disabled"}
+              disabled={toggle.isPending}
+              title={
+                contract.active
+                  ? "Switch its rules off together"
+                  : "Switch its rules back on"
+              }
+            />
+          </div>
           <p className="mt-3 font-mono text-sm break-all text-gray-400">
             {contract.address}
           </p>
@@ -83,27 +98,7 @@ export function ContractPage({ address }: { address: string }) {
             )}
           </p>
         </div>
-        <div className="flex shrink-0 gap-3">
-          <Button
-            variant="ghost"
-            disabled={toggle.isPending}
-            onClick={() => toggle.mutate(!contract.active)}
-            title={
-              contract.active
-                ? "Switch its rules off together"
-                : "Switch its rules back on"
-            }
-          >
-            {contract.active ? "Disable" : "Enable"}
-          </Button>
-          <Link
-            to="/rules/new"
-            search={{ contract: contract.address }}
-            className={buttonClass()}
-          >
-            New rule
-          </Link>
-        </div>
+        {hasRules && <div className="shrink-0">{newRule("New rule")}</div>}
       </header>
 
       {!contract.active && (
@@ -118,12 +113,18 @@ export function ContractPage({ address }: { address: string }) {
 
       <section className="mb-12">
         <h2 className={heading}>Rules</h2>
-        {rules && rules.length > 0 ? (
+        {hasRules ? (
           <RuleList rules={rules} />
         ) : (
-          <p className="text-sm text-gray-500">
-            No rules on this contract yet.
-          </p>
+          rules && (
+            <EmptyState
+              compact
+              title="No rules yet"
+              hint="Add one and Tripwire starts watching this contract."
+            >
+              {newRule("Create the first rule")}
+            </EmptyState>
+          )
         )}
       </section>
 

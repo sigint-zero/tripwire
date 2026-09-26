@@ -36,6 +36,80 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
+/** An on/off switch with its label; the label names the current state. */
+export function Switch({
+  on,
+  onChange,
+  label,
+  disabled,
+  title,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      title={title}
+      onClick={() => onChange(!on)}
+      className={`group inline-flex cursor-pointer items-center gap-3 text-xs font-bold tracking-[0.2em] uppercase transition-colors disabled:cursor-wait disabled:opacity-60 ${
+        on ? "text-emerald-400" : "text-amber-400"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+          on ? "bg-emerald-500" : "bg-gray-700"
+        }`}
+      >
+        <span
+          className={`size-5 rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
+            on ? "translate-x-5" : ""
+          }`}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+/** A panel standing in for a list that has nothing in it yet. */
+export function EmptyState({
+  title,
+  hint,
+  compact = false,
+  children,
+}: {
+  title: string;
+  hint: string;
+  /** Shorter, for a section within a page rather than the whole page. */
+  compact?: boolean;
+  /** The way to fill it, usually one button. */
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className={`bg-white/2 px-6 text-center ${compact ? "py-8" : "py-16"}`}
+    >
+      <p
+        className={`font-display font-bold text-white uppercase ${compact ? "text-lg" : "text-xl"}`}
+      >
+        {title}
+      </p>
+      <p className={`mt-2 text-sm text-gray-500 ${compact ? "mb-5" : "mb-6"}`}>
+        {hint}
+      </p>
+      {children}
+    </div>
+  );
+}
+
 /** The four L-shaped marks framing a panel's corners. */
 export function CornerBrackets({ tone = "border-emerald-500/60" }) {
   const corner = `absolute size-3 ${tone}`;
