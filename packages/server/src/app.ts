@@ -67,6 +67,7 @@ export async function createServer(
     prefix: "/api/v1",
     backend: options.backend,
     auth,
+    home: options.home,
   });
   if (options.backend && auth) {
     const { pool, engine } = options.backend;

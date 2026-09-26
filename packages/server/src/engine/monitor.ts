@@ -55,6 +55,11 @@ export class EngineMonitor implements EngineEvents {
     this.#answeredAt = clock();
   }
 
+  /** Whether the engine is protecting: ready or degraded. */
+  get watching(): boolean {
+    return this.#state === "ready" || this.#state === "degraded";
+  }
+
   /** Asks until the returned function is called; nothing to do for the stand-in. */
   start(): () => void {
     if (this.#runner === "stand-in") return () => {};

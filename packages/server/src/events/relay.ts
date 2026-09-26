@@ -91,13 +91,22 @@ export function toBrowser(event: EngineEvent): BrowserEvent | null | undefined {
           event: "notification",
           data: {
             id: text(row.id),
-            source: "engine",
+            // The application's own notifications carry their source and severity.
+            source: row.source === "app" ? "app" : "engine",
             kind: row.kind,
             severity:
-              typeof row.payload === "object" && row.payload
+              row.severity ??
+              (typeof row.payload === "object" && row.payload
                 ? (row.payload as Row).severity
-                : undefined,
+                : undefined),
           },
+        }
+      );
+    case "channel":
+      return (
+        need(text(row.id)) && {
+          event: "channel",
+          data: { id: text(row.id), failing: row.failing === true },
         }
       );
     case "health":

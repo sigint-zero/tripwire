@@ -46,6 +46,11 @@ export class ViewReads implements EngineReads {
   readonly #pool: pg.Pool;
   readonly #schema: string;
 
+  /** The schema the views are read from. */
+  get views(): string {
+    return this.#schema;
+  }
+
   /** `schema` is `api_v1` for the engine, or the stand-in's copy of it. */
   constructor(pool: pg.Pool, schema = "api_v1") {
     if (!/^[a-z_][a-z0-9_]*$/.test(schema)) {

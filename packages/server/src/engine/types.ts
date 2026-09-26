@@ -285,6 +285,8 @@ export interface EngineCommands {
 
 /** Every read of the engine's state comes from its views. */
 export interface EngineReads {
+  /** The schema the views are read from: `api_v1`, or the stand-in's copy. */
+  readonly views: string;
   contracts(): Promise<ContractRow[]>;
   contract(address: string): Promise<ContractRow | null>;
   rules(filter?: { contractId?: string }): Promise<RuleRow[]>;

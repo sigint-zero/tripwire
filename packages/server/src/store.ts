@@ -153,6 +153,14 @@ export class AppStore {
     return rows[0]?.value ?? fallback;
   }
 
+  /** How many alert channels are set up. */
+  async channelCount(): Promise<number> {
+    const { rows } = await this.#pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM app.channels",
+    );
+    return rows[0]?.n ?? 0;
+  }
+
   async setSetting(key: string, value: unknown) {
     await this.#pool.query(
       `INSERT INTO app.settings (key, value) VALUES ($1, $2)

@@ -10,6 +10,10 @@ import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
 import type { EngineEvents } from "./events/types";
 import { eventRoutes } from "./events/route";
+import { notificationRoutes } from "./notifications/routes";
+import { ChannelSecrets } from "./notifications/secrets";
+import { NotificationStore } from "./notifications/store";
+import { NotificationWorker } from "./notifications/worker";
 import { refuse } from "./refuse";
 import { responseRoutes } from "./responses";
 import { seriesRoutes } from "./series";
@@ -26,11 +30,12 @@ export interface Backend {
   engine: EngineBackend;
 }
 
-export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
-  app,
-  { backend, auth },
-  done,
-) => {
+export const api: FastifyPluginCallback<{
+  backend?: Backend;
+  auth?: Auth;
+  /** The data directory, where channel secrets are kept beside the accounts. */
+  home?: string;
+}> = (app, { backend, auth, home }, done) => {
   // Every route below needs a session, except health and logging in.
   if (auth) {
     requireSession(app, auth);
@@ -78,13 +83,35 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   app.register(seriesRoutes, { reads });
   app.register(tripStateRoutes, { reads });
   app.register(setupRoutes, { reads, store });
-  if (auth) {
-    // The engine's own events, and the monitor's word on whether it runs.
+  if (auth && home) {
+    const notifications = new NotificationStore(backend.pool, reads.views);
+    const secrets = new ChannelSecrets(home);
+    const worker = new NotificationWorker({
+      store: notifications,
+      secrets,
+      reads,
+      events: backend.engine.events,
+      watching: () => monitor.watching,
+      log: (message, detail) => app.log.warn(detail, message),
+    });
+    const stopWorker = worker.start();
+    app.addHook("onClose", () => stopWorker());
+    raiseEngineAlerts(monitor, worker);
+    app.register(notificationRoutes, {
+      store: notifications,
+      secrets,
+      reads,
+      worker,
+    });
+
+    // The engine's own events, the monitor's word on whether it runs, and
+    // the application's own notifications.
     const events: EngineEvents = {
       listen: (listener) => {
         const stops = [
           backend.engine.events.listen(listener),
           monitor.listen(listener),
+          worker.listen(listener),
         ];
         return () => stops.forEach((stop) => stop());
       },
@@ -102,3 +129,33 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
 
   done();
 };
+
+/**
+ * The alerts about the engine that the engine cannot raise itself: it
+ * stopped answering, and it came back.
+ */
+function raiseEngineAlerts(monitor: EngineMonitor, worker: NotificationWorker) {
+  let silent = false;
+  monitor.listen({
+    event: ({ event, data }) => {
+      if (event !== "health") return;
+      const state = (data as { status?: string }).status;
+      if (state === "unresponsive" && !silent) {
+        silent = true;
+        void worker.raise(
+          "critical",
+          "Engine not responding",
+          "The engine has not answered its health check for a minute. Nothing is being watched until it does.",
+        );
+      } else if ((state === "ready" || state === "degraded") && silent) {
+        silent = false;
+        void worker.raise(
+          "info",
+          "Engine recovered",
+          "Tripwire is watching again.",
+        );
+      }
+    },
+    resync: () => {},
+  });
+}
