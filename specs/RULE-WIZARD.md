@@ -64,7 +64,7 @@ section when clicked. Sections not yet opened cannot be selected.
 |-|-|-|
 | 1 Contract | an address, or a pasted ABI | an ABI is loaded |
 | 2 Rule | a starting point, and the blanks in its sentence | the trigger and condition pass the schema |
-| 3 Response | severity, action and quiet period | a function trip names a function |
+| 3 Response | severity, action and quiet period | a function trip names a function; a call names a function and has a valid value for each of its arguments |
 | 4 Review | a name and an optional description | the document passes the schema and no identical rule exists; creating stores it |
 
 Changing the contract clears the starting point, the blanks, the name
@@ -86,7 +86,7 @@ watched before choosing how:
 |-|-|
 | Values | every value the wizard can read, by name |
 | Events | every event, by name with its parameters |
-| Functions | every function that can be paused, with its selector |
+| Functions | every function a trip can pause or a response can call, with its selector |
 
 When there is no verified source, or the user prefers, the ABI can be
 pasted instead: a bare JSON array or any object with an `abi` field (a
@@ -98,7 +98,7 @@ From the ABI the wizard extracts:
 |-|-|
 | values | `view` and `pure` functions with no inputs, one entry per integer output; a function returning several values offers each, named `function.output` (e.g. `latestRoundData.updatedAt`) |
 | events | every event, in the declaration style rules name them by: `Transfer(address indexed from, address indexed to, uint256 value)` |
-| functions to pause | every non-view function, by bare signature (`withdraw(uint256)`), with its 4-byte selector |
+| functions to pause or call | every non-view function, by bare signature (`withdraw(uint256)`), with its 4-byte selector |
 
 Functions and events with array or tuple parameters are left out, and
 so are events with an unnamed parameter: language version 1 cannot
@@ -200,13 +200,42 @@ the same shape the engine reports.
 | Choice | Values |
 |-|-|
 | severity | critical: loss of funds or control; warning: a condition that comes before a loss; info: hygiene. Starts at the starting point's default |
-| action | notify only: record the violation and alert; pause the contract (`trip_global`); pause one function (`trip_function`), chosen from the contract's functions |
+| action | notify only: record the violation and alert; pause the contract (`trip_global`); pause one function (`trip_function`), chosen from the contract's functions; or call a function (`call`): one the contract already exposes, such as an admin `pause()`, chosen from its functions, with a value for each argument |
 | quiet period | `on_trip.cooldown_seconds`: none, 1 minute, 5 minutes (default), 1 hour. Trips inside it are still recorded, but not acted on again |
 
-Whether a pause waits for a person's approval or is sent at once is not
-part of the rule. It is the installation's response mode (notify,
-prepare or send), set for every rule in Settings. When a pausing action
-is chosen, the section says which mode the installation is in.
+A call's arguments are fixed values saved in the rule, entered per
+parameter type the way the language takes literals: whole numbers as
+decimal strings in the type's range, addresses as hex, `true` or
+`false`, `0x` hex of the right length for bytes, free text for strings.
+The wizard builds:
+
+```json
+{ "action": "call",
+  "call": { "function": "pause()", "args": [] },
+  "cooldown_seconds": 300 }
+```
+
+The call goes to the rule's contract and sends no ether. The language
+also lets `call` name another address and a `value` in wei; those are
+JSON-mode rules.
+
+The two kinds of on-chain action reach the contract differently, and
+the section says which applies where the action is picked:
+
+- **pause** (`trip_global`, `trip_function`) acts through the Tripwire
+  controller, so the contract must be registered with it for response.
+  The section shows a notice when it is not, once that state is
+  readable.
+- **call** acts on the contract directly, with no controller
+  registration. The engine sends it from its operator key, which must
+  hold whatever role the called function requires; the section says
+  so, naming the function.
+
+Whether a pause or a call waits for a person's approval or is sent at
+once is not part of the rule. It is the installation's response mode
+(notify, prepare or send), set for every rule in Settings. When an
+on-chain action is chosen, the section says which mode the
+installation is in.
 
 ## Simulated trip
 
@@ -225,9 +254,13 @@ list below it:
 | pause | prepare | as above, then pause prepared, waiting for approval in Responses |
 | pause | send | as above, then pause sent, paused |
 | pause | notify | as above, then pause skipped |
+| call | prepare | as above, then call prepared, waiting for approval in Responses |
+| call | send | as above, then call sent |
+| call | notify | as above, then call skipped |
 
 The list ends with the quiet period. The pause names its target, the
-whole contract or the chosen function. The picture updates as the
+whole contract or the chosen function; the call names the function it
+calls. The picture updates as the
 response changes. It is labelled **Simulated trip**: it illustrates
 the response, and makes no prediction about when or whether the rule
 will trip.
@@ -251,7 +284,9 @@ The document is available as JSON behind a disclosure. Creating stores
 it and opens the rules list with the new rule highlighted.
 
 A rule created in the wizard is enabled at once: a person built and
-reviewed it. One submitted over MCP arrives disabled and notify-only,
+reviewed it. The exception is a contract a person has disabled, whose
+new rules start disabled so it stays quiet until it is enabled again
+(`DATABASE.md`); Review says so. One submitted over MCP arrives disabled and notify-only,
 and shows a "created via MCP" badge until a person enables it.
 
 ## Editing
@@ -369,10 +404,11 @@ Every answer from the stand-in is marked `simulated`.
 | WZ7 | Storing a rule that would trip now | Allowed, with Review saying so. Refusing it blocks writing a rule during an incident |
 | WZ8 | Simulation conditions (`simulate`) | Left out of the starting points. They need calldata and fit neither a sentence nor a check at the head |
 | WZ9 | Reading values through functions with arguments | Left out of the pickers for now; `view_call` takes `args`, so JSON mode can express them |
-| WZ10 | Wizard-created rules | Enabled on creation. A person built and reviewed it; MCP submissions stay disabled until a person enables them |
-| WZ11 | Held for approval or sent at once | Per installation, not per rule. The engine treats it as response configuration, so the wizard chooses only what a trip pauses |
+| WZ10 | Wizard-created rules | Enabled on creation, unless the contract is disabled. A person built and reviewed it; MCP submissions stay disabled until a person enables them |
+| WZ11 | Held for approval or sent at once | Per installation, not per rule. The engine treats it as response configuration, so the wizard chooses only what a trip does |
 | WZ12 | Chain | One per installation, reported by the engine. No chain picker |
 | WZ13 | Reads from functions that return several values | Always name `returns`, even for the first output, so a read never depends on how a missing index is treated |
+| WZ14 | Call responses | Offered, on the rule's own contract with fixed arguments and no ether. It covers contracts that already have an admin pause and were never registered with the controller; another target or a `value` is rare enough for JSON mode |
 
 ## Open questions
 
