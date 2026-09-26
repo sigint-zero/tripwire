@@ -72,13 +72,6 @@ export type ManualAction =
       note?: string;
     };
 
-/** A call to make from a wallet, where Tripwire cannot make it. */
-export interface WalletCall {
-  to: string;
-  value: string;
-  data: string;
-}
-
 /** A recorded manual action. */
 export interface ManualActionItem {
   id: string;

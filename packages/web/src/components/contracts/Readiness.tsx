@@ -6,8 +6,9 @@ import type {
 } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { api } from "../../lib/api";
+import { Copyable } from "../Copyable";
 import { formatUnits, timeAgo } from "../../lib/format";
 import { Button } from "../ui";
 
@@ -113,28 +114,6 @@ export function Readiness({ address }: { address: string }) {
       </ol>
       {data.guardianCall && <GuardianCallBox call={data.guardianCall} />}
       {data.rules.length > 0 && <Tests readiness={data} />}
-    </div>
-  );
-}
-
-function Copyable({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-start gap-3 py-1">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className="font-mono text-xs break-all text-gray-200">{value}</span>
-      <button
-        type="button"
-        className="cursor-pointer text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-emerald-400"
-        onClick={() =>
-          void navigator.clipboard.writeText(value).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          })
-        }
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
     </div>
   );
 }

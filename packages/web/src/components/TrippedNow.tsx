@@ -86,9 +86,19 @@ function Row({ item }: { item: TripStateItem }) {
   );
 }
 
-/** Who paused it: Tripwire's response, or the transaction that did. */
+/** Who paused it: Tripwire's response, a person through Tripwire, or the transaction that did. */
 function By({ item }: { item: TripStateItem }) {
-  if (item.actor?.is === "tripwire_response") {
+  if (item.actor?.is === "tripwire_manual") {
+    return (
+      <span
+        className="text-emerald-400"
+        title={item.actor.note ?? "Paused by hand"}
+      >
+        Tripwire{item.actor.by ? `, by ${item.actor.by}` : ""}
+      </span>
+    );
+  }
+  if (item.actor) {
     return (
       <Link
         to="/responses"

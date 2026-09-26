@@ -1,5 +1,10 @@
 import { isSupportedAbiType } from "@tripwire/shared";
-import { toFunctionSelector } from "viem";
+import {
+  encodeFunctionData,
+  parseAbiItem,
+  toFunctionSelector,
+  type AbiFunction,
+} from "viem";
 
 // Picks out of an ABI what the wizard can offer: numbers it can read, events
 // it can watch, and functions a trip can pause or call. Anything with an
@@ -156,4 +161,27 @@ export function parseAbiText(text: string): unknown[] {
     throw new Error("Expected a JSON array, or an object with an abi field.");
   }
   return abi as unknown[];
+}
+
+/** An argument as the ABI encoder takes it, from the text a person typed. */
+function argument(type: string, text: string): unknown {
+  if (/^u?int\d*$/.test(type)) return BigInt(text);
+  if (type === "bool") {
+    if (text !== "true" && text !== "false") throw new Error("true or false");
+    return text === "true";
+  }
+  return text;
+}
+
+/**
+ * The calldata for a call to `signature` with the arguments a person
+ * typed, as the engine encodes a call: for sending the same call from a
+ * wallet. Throws with the reason when the arguments do not fit.
+ */
+export function encodeCall(signature: string, args: string[]): string {
+  const item = parseAbiItem(`function ${signature}`) as AbiFunction;
+  return encodeFunctionData({
+    abi: [item],
+    args: item.inputs.map((input, i) => argument(input.type, args[i] ?? "")),
+  });
 }

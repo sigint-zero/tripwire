@@ -1,19 +1,27 @@
-import type {
-  ManualAction,
-  SavedRule,
-  TripStateItem,
-  WalletCall,
-} from "@tripwire/shared";
+import type { ManualAction, SavedRule, TripStateItem } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../../lib/api";
-import type { WriteFunction } from "../../lib/abi";
+import { encodeCall, type WriteFunction } from "../../lib/abi";
 import { shortAddress } from "../../lib/format";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { Copyable } from "../Copyable";
 import { Button, fieldClass, labelClass, Tag } from "../ui";
 
 const quietLink =
   "cursor-pointer text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-gray-200";
+
+/**
+ * Sends an action, or throws the engine's reason it was not sent: a
+ * failed pre-flight or a locked key is recorded as failed, not refused.
+ */
+async function send(address: string, action: ManualAction) {
+  const item = await api.contractAction(address, action);
+  if (item.status === "failed") {
+    throw new Error(`Not sent: ${item.error ?? "the engine gave no reason"}.`);
+  }
+  return item;
+}
 
 /** An act on the controller, with the words its confirmation uses. */
 interface Asking {
@@ -24,10 +32,9 @@ interface Asking {
 
 /**
  * What is paused on this contract now, and pausing or unpausing it by
- * hand during an incident (`RESPONSES.md`). The engine sends controller
- * pauses from the signing key; a call to the contract's own functions it
- * cannot make yet, so for those the panel gives the call to make from a
- * wallet.
+ * hand during an incident (`RESPONSES.md`): a call to one of the
+ * contract's own functions, or the controller's pauses for a contract
+ * registered with it. The engine sends each from the signing key.
  */
 export function PausePanel({
   contract,
@@ -56,15 +63,12 @@ export function PausePanel({
   const rowsNow =
     paused?.map((p) => `${p.source}${p.selector}${p.sinceBlock}`).join() ?? "";
   const act = useMutation({
-    mutationFn: (action: ManualAction) =>
-      api.contractAction(contract.address, action),
-    onSuccess: async (result) => {
-      if (result.sent) {
-        setSent({
-          text: `${asking?.what ?? "Sent"}: sent. It shows here once it confirms.`,
-          rows: rowsNow,
-        });
-      }
+    mutationFn: (action: ManualAction) => send(contract.address, action),
+    onSuccess: async () => {
+      setSent({
+        text: `${asking?.what ?? "Sent"}: sent. It shows here once it confirms.`,
+        rows: rowsNow,
+      });
       setAsking(null);
       setNote("");
       await queryClient.invalidateQueries({ queryKey: ["trip-state"] });
@@ -246,9 +250,18 @@ function PausedRow({
         <span className="font-mono text-xs text-gray-500">
           since #{row.sinceBlock.toLocaleString("en-US")}
         </span>
-        {row.actor?.is === "tripwire_response" && (
-          <span className="text-xs text-gray-500">
-            by {row.actor.rule.name}
+        {row.actor && (
+          <span
+            className="text-xs text-gray-500"
+            title={
+              row.actor.is === "tripwire_manual"
+                ? (row.actor.note ?? undefined)
+                : undefined
+            }
+          >
+            {row.actor.is === "tripwire_response"
+              ? `by ${row.actor.rule.name}`
+              : `by hand${row.actor.by ? `, ${row.actor.by}` : ""}`}
           </span>
         )}
         {row.rules.length > 0 && (
@@ -273,16 +286,22 @@ function PausedRow({
 
 /**
  * A call to one of the contract's own functions, such as its pause() or
- * unpause(). Tripwire cannot send one by hand yet, so this gives the call
- * to make from a wallet that holds the permission.
+ * unpause(), sent by the engine from the signing key. The confirmation
+ * also gives the encoded call, for a wallet that holds the permission
+ * when Tripwire cannot send it.
  */
 function OwnCall({
   contract,
   rules,
 }: {
-  contract: { address: string; surface: { writes: WriteFunction[] } };
+  contract: {
+    address: string;
+    name: string;
+    surface: { writes: WriteFunction[] };
+  };
   rules: SavedRule[] | undefined;
 }) {
+  const queryClient = useQueryClient();
   // The calls the contract's rules would make come first.
   const ruled = new Set(
     (rules ?? []).flatMap((r) =>
@@ -294,17 +313,29 @@ function OwnCall({
   );
   const [fn, setFn] = useState(writes[0]?.signature ?? "");
   const [args, setArgs] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [asking, setAsking] = useState<{ data: string } | null>(null);
+  const [invalid, setInvalid] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
   const chosen = writes.find((w) => w.signature === fn);
-  const show = useMutation({
+  const typed = chosen?.inputs.map((_, i) => args[i] ?? "") ?? [];
+  const call = useMutation({
     mutationFn: () =>
-      api.contractAction(contract.address, {
-        call: {
-          function: fn,
-          args: chosen?.inputs.map((_, i) => args[i] ?? "") ?? [],
-        },
+      send(contract.address, {
+        call: { function: fn, args: typed },
+        ...(note.trim() ? { note: note.trim() } : {}),
       }),
+    onSuccess: async () => {
+      setSent(`${fn}: sent from the signing key.`);
+      setAsking(null);
+      setNote("");
+      await queryClient.invalidateQueries({ queryKey: ["trip-state"] });
+    },
   });
-  const wallet: WalletCall | undefined = show.data?.wallet;
+  const edit = () => {
+    setInvalid(null);
+    setSent(null);
+  };
 
   if (writes.length === 0) return null;
   return (
@@ -318,7 +349,7 @@ function OwnCall({
             onChange={(e) => {
               setFn(e.target.value);
               setArgs([]);
-              show.reset();
+              edit();
             }}
           >
             {writes.map((w) => (
@@ -340,42 +371,80 @@ function OwnCall({
                 const next = [...args];
                 next[i] = e.target.value;
                 setArgs(next);
-                show.reset();
+                edit();
               }}
             />
           </label>
         ))}
         <Button
-          variant="ghost"
-          disabled={show.isPending || !chosen}
-          onClick={() => show.mutate()}
-          title="Tripwire cannot send a call by hand yet: this gives the call to make from a wallet"
+          variant="danger"
+          disabled={!chosen}
+          onClick={() => {
+            try {
+              const data = encodeCall(fn, typed);
+              call.reset();
+              setSent(null);
+              setAsking({ data });
+            } catch (error) {
+              setInvalid(
+                error instanceof Error
+                  ? error.message.split("\n")[0]!
+                  : String(error),
+              );
+            }
+          }}
         >
-          Show the call
+          Call it
         </Button>
       </div>
-      {show.error && (
-        <p className="text-xs text-red-400">{show.error.message}</p>
-      )}
-      {wallet && (
-        <div className="space-y-1 font-mono text-xs text-gray-300">
-          <p className="font-sans text-gray-400">
-            Send this from a wallet allowed to call {fn}:
-          </p>
-          <p className="break-all">
-            <span className="text-gray-500">To </span>
-            {wallet.to}
-          </p>
-          <p>
-            <span className="text-gray-500">Value </span>
-            {wallet.value}
-          </p>
-          <p className="break-all">
-            <span className="text-gray-500">Data </span>
-            {wallet.data}
-          </p>
-        </div>
-      )}
+      {invalid && <p className="text-xs text-red-400">{invalid}</p>}
+      {sent && <p className="text-xs text-emerald-400">{sent}</p>}
+
+      <ConfirmDialog
+        open={asking !== null}
+        title={`Call ${fn} on ${contract.name}?`}
+        confirm={`Call ${fn}`}
+        pending={call.isPending}
+        error={
+          call.error
+            ? `${call.error.message} The call above can go from a wallet allowed to make it.`
+            : undefined
+        }
+        onConfirm={() => call.mutate()}
+        onClose={() => {
+          setAsking(null);
+          call.reset();
+        }}
+      >
+        <span className="block">
+          Tripwire sends{" "}
+          <code className="font-mono text-white">
+            {fn.replace(/\(.*\)$/, "")}({typed.join(", ")})
+          </code>{" "}
+          to {contract.name} from its signing key, now, whatever the response
+          mode.
+        </span>
+        {asking && (
+          <div className="mt-4">
+            <p className="mb-1 text-xs text-gray-500">
+              If Tripwire cannot send it, the same call from a wallet allowed to
+              make it:
+            </p>
+            <Copyable label="To" value={contract.address} />
+            <Copyable label="Data" value={asking.data} />
+          </div>
+        )}
+        <label className="mt-4 block">
+          <span className={labelClass}>Note (optional)</span>
+          <input
+            className={fieldClass}
+            value={note}
+            maxLength={500}
+            placeholder="Why, for the record"
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </label>
+      </ConfirmDialog>
     </div>
   );
 }

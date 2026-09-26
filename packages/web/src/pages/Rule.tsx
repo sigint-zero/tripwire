@@ -156,6 +156,7 @@ export function RulePage({ id }: { id: string }) {
             {typeof rule.origin === "object" && (
               <Tag tone="text-violet-300">Via {rule.origin.mcp}</Tag>
             )}
+            {rule.origin === "api" && <Tag tone="text-violet-300">Via API</Tag>}
             <RuleStatusTag status={rule.status} open={rule.openViolations} />
           </p>
         </div>

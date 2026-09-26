@@ -19,7 +19,6 @@ import type {
   ManualActionItem,
   Readiness,
   ResponseTest,
-  WalletCall,
   McpTokenSummary,
   NewKey,
   CheckNow,
@@ -292,27 +291,11 @@ export const api = {
     ),
   testResponse: (ruleId: string) =>
     request<ResponseTest>(`/readiness/${ruleId}/test`, { method: "POST" }),
-  /** Sent through the engine, or, where it cannot make the call, the call to make from a wallet. */
-  contractAction: async (
-    address: string,
-    action: ManualAction,
-  ): Promise<
-    | { sent: ManualActionItem; wallet?: undefined }
-    | { wallet: WalletCall; sent?: undefined }
-  > => {
-    try {
-      return {
-        sent: await request<ManualActionItem>(`/contracts/${address}/actions`, {
-          json: action,
-        }),
-      };
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "not_available") {
-        return { wallet: error.body.wallet as WalletCall };
-      }
-      throw error;
-    }
-  },
+  /** Sent through the engine from the signing key. */
+  contractAction: (address: string, action: ManualAction) =>
+    request<ManualActionItem>(`/contracts/${address}/actions`, {
+      json: action,
+    }),
   keys: (signal?: AbortSignal) => request<KeyList>("/keys", { signal }),
   createKey: (passphrase: string) =>
     request<NewKey>("/keys", { json: { passphrase } }),

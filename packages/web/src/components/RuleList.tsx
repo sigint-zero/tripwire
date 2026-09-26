@@ -84,6 +84,14 @@ export function RuleList({
                       Via {saved.origin.mcp}
                     </span>
                   )}
+                  {saved.origin === "api" && (
+                    <span
+                      className="text-[10px] tracking-[0.2em] text-violet-300"
+                      title="Stored by a script talking to the engine directly"
+                    >
+                      Via API
+                    </span>
+                  )}
                   {isNew && (
                     <span className="text-[10px] tracking-[0.2em] text-emerald-400">
                       New

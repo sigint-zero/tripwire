@@ -31,6 +31,8 @@ export function Keys() {
   );
   const [adding, setAdding] = useState<"create" | "import" | null>(null);
   const [made, setMade] = useState<Made | null>(null);
+  // The key whose passphrase is being asked for, if any.
+  const [unlockingKey, setUnlockingKey] = useState<string | null>(null);
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ["keys"] }),
@@ -52,7 +54,16 @@ export function Keys() {
 
   return (
     <div>
-      {made && <MadeNotice made={made} onClose={() => setMade(null)} />}
+      {made && (
+        <MadeNotice
+          made={made}
+          onClose={() => setMade(null)}
+          onUnlock={() => {
+            setUnlockingKey(made.key.address);
+            setMade(null);
+          }}
+        />
+      )}
 
       <ul className="mb-6 space-y-2">
         {data?.keys.length === 0 && !adding && (
@@ -66,6 +77,8 @@ export function Keys() {
             key={key.address}
             item={key}
             names={names}
+            unlocking={unlockingKey === key.address}
+            onUnlocking={(open) => setUnlockingKey(open ? key.address : null)}
             onChange={() => void refresh()}
           />
         ))}
@@ -132,13 +145,16 @@ export function Keys() {
 function KeyRow({
   item,
   names,
+  unlocking,
+  onUnlocking: setUnlocking,
   onChange,
 }: {
   item: KeyItem;
   names: Map<string, string>;
+  unlocking: boolean;
+  onUnlocking: (open: boolean) => void;
   onChange: () => void;
 }) {
-  const [unlocking, setUnlocking] = useState(false);
   const lock = useMutation({
     mutationFn: () => api.lockKey(item.address),
     onSuccess: onChange,
@@ -420,7 +436,15 @@ function ImportKey({
   );
 }
 
-function MadeNotice({ made, onClose }: { made: Made; onClose: () => void }) {
+function MadeNotice({
+  made,
+  onClose,
+  onUnlock,
+}: {
+  made: Made;
+  onClose: () => void;
+  onUnlock: () => void;
+}) {
   return (
     <div className="mb-6 space-y-3 bg-emerald-500/6 px-5 py-5">
       <p className="text-sm text-emerald-300">
@@ -441,9 +465,12 @@ function MadeNotice({ made, onClose }: { made: Made; onClose: () => void }) {
           cannot be recovered.
         </p>
       )}
-      <Button variant="ghost" onClick={onClose}>
-        Done
-      </Button>
+      <div className="flex gap-3">
+        {made.imported && <Button onClick={onUnlock}>Unlock it</Button>}
+        <Button variant="ghost" onClick={onClose}>
+          Done
+        </Button>
+      </div>
     </div>
   );
 }
