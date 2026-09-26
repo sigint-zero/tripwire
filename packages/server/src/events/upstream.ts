@@ -16,19 +16,28 @@ interface Log {
 }
 
 export class EngineStream implements EngineEvents {
-  readonly #url: string;
+  /** Null while no engine runs to connect to. */
+  readonly #url: () => string | null;
   readonly #secret: () => Promise<string>;
   readonly #log: Log;
   readonly #listeners = new Set<EngineListener>();
   #stop: AbortController | null = null;
 
-  /** `secret` is read again when the engine refuses it: a new data directory. */
+  /**
+   * `secret` is read again when the engine refuses it: a new data
+   * directory. `url` is asked at each connection, since a supervised
+   * engine moves to a new port when it restarts.
+   */
   constructor(options: {
-    url: string;
+    url: string | (() => string | null);
     secret: () => Promise<string>;
     log?: Log;
   }) {
-    this.#url = options.url.replace(/\/$/, "");
+    const url = options.url;
+    this.#url =
+      typeof url === "string"
+        ? () => url.replace(/\/$/, "")
+        : () => url()?.replace(/\/$/, "") ?? null;
     this.#secret = options.secret;
     this.#log = options.log ?? {
       warn: (m, d) => console.warn(m, d ?? ""),
@@ -61,8 +70,17 @@ export class EngineStream implements EngineEvents {
     let refused = false;
     while (!signal.aborted) {
       let connectedAt: number | null = null;
+      const url = this.#url();
+      if (url === null) {
+        // Nothing runs yet; look again shortly, without counting it as a drop.
+        await sleep(FIRST_DELAY_MS, signal);
+        continue;
+      }
       try {
-        const response = await fetch(`${this.#url}/v1/events`, {
+        if (refused === false && secret === "") {
+          secret = await this.#secret().catch(() => "");
+        }
+        const response = await fetch(`${url}/v1/events`, {
           headers: {
             authorization: `Bearer ${secret.trim()}`,
             accept: "text/event-stream",

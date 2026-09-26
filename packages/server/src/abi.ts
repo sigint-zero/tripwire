@@ -110,10 +110,19 @@ export async function lookupContract(
 export class AbiLookup {
   #cache = new Map<string, VerifiedContract>();
 
-  constructor(readonly chainId: number) {}
+  readonly #chainId: () => number;
+
+  /** A function when the chain can be set after start, by first run. */
+  constructor(chainId: number | (() => number)) {
+    this.#chainId = typeof chainId === "number" ? () => chainId : chainId;
+  }
+
+  get chainId(): number {
+    return this.#chainId();
+  }
 
   async get(contract: string): Promise<VerifiedContract> {
-    const key = contract.toLowerCase();
+    const key = `${this.chainId}:${contract.toLowerCase()}`;
     const cached = this.#cache.get(key);
     if (cached) return cached;
     const result = await lookupContract(this.chainId, contract);

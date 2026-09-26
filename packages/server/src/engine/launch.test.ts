@@ -1,54 +1,99 @@
-import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  defaultConfig,
+  parseConfig,
+  type AppConfig,
+  type ChainConfig,
+} from "../config";
+import {
   EngineLaunchError,
-  engineConfig,
   engineEnvironment,
   engineToml,
-  launchEngine,
+  withEnvironmentChain,
 } from "./launch";
 
 const RPC = { TRIPWIRE_RPC_HTTP: "https://node.example/key" };
 
-describe("engineConfig", () => {
-  it("needs the HTTP endpoint", () => {
-    expect(() => engineConfig({})).toThrow("TRIPWIRE_RPC_HTTP");
+const chain: ChainConfig = {
+  chainId: 1,
+  rpcHttp: "env:TRIPWIRE_RPC_HTTP",
+  rpcWs: null,
+  pollIntervalMs: 2000,
+  controllerAddress: null,
+  controllerDeployedBlock: null,
+};
+const config = (change: Partial<AppConfig> = {}) =>
+  ({ ...defaultConfig(), chain, ...change }) as AppConfig & {
+    chain: ChainConfig;
+  };
+const where = {
+  dataDir: "/h/engine",
+  port: 4100,
+  local: false,
+  keysPassphrase: false,
+};
+
+describe("withEnvironmentChain", () => {
+  it("leaves a configuration without a chain alone when no endpoint is set", () => {
+    expect(withEnvironmentChain(defaultConfig(), {}).chain).toBeNull();
   });
 
-  it("defaults to chain 1, notify, no mempool", () => {
-    expect(engineConfig(RPC)).toEqual({
-      chainId: 1,
-      responseMode: "notify",
-      mempool: false,
-      keysPassphrase: false,
+  it("takes the chain from the environment until the file has one", () => {
+    const taken = withEnvironmentChain(defaultConfig(), {
+      ...RPC,
+      TRIPWIRE_CHAIN_ID: "31337",
+      TRIPWIRE_RESPONSE_MODE: "prepare",
     });
+    expect(taken.chain).toMatchObject({
+      chainId: 31337,
+      rpcHttp: "env:TRIPWIRE_RPC_HTTP",
+      rpcWs: null,
+    });
+    expect(taken.response.mode).toBe("prepare");
+    expect(taken.mempool).toEqual({ enabled: false, respond: false });
+  });
+
+  it("watches the mempool when a WebSocket endpoint is given", () => {
+    const taken = withEnvironmentChain(defaultConfig(), {
+      ...RPC,
+      TRIPWIRE_RPC_WS: "wss://node.example",
+    });
+    expect(taken.chain?.rpcWs).toBe("env:TRIPWIRE_RPC_WS");
+    expect(taken.mempool.enabled).toBe(true);
+  });
+
+  it("keeps the file's chain over the environment", () => {
+    const file = config({ chain: { ...chain, chainId: 8453 } });
+    expect(
+      withEnvironmentChain(file, { ...RPC, TRIPWIRE_CHAIN_ID: "1" }).chain
+        ?.chainId,
+    ).toBe(8453);
   });
 
   it("refuses an unknown mode or chain id", () => {
     expect(() =>
-      engineConfig({ ...RPC, TRIPWIRE_RESPONSE_MODE: "auto" }),
-    ).toThrow("notify, prepare or send");
+      withEnvironmentChain(defaultConfig(), {
+        ...RPC,
+        TRIPWIRE_RESPONSE_MODE: "auto",
+      }),
+    ).toThrow(EngineLaunchError);
     expect(() =>
-      engineConfig({ ...RPC, TRIPWIRE_CHAIN_ID: "mainnet" }),
+      withEnvironmentChain(defaultConfig(), {
+        ...RPC,
+        TRIPWIRE_CHAIN_ID: "mainnet",
+      }),
     ).toThrow("chain id");
-  });
-
-  it("watches the mempool when a WebSocket endpoint is given", () => {
-    expect(
-      engineConfig({ ...RPC, TRIPWIRE_RPC_WS: "wss://node.example" }).mempool,
-    ).toBe(true);
   });
 });
 
 describe("engineToml", () => {
-  const base = engineConfig(RPC);
-
   it("refers to every secret by environment variable", () => {
     const toml = engineToml(
-      { ...base, mempool: true, keysPassphrase: true },
-      { dataDir: "/h/engine", port: 4100, local: false },
+      config({
+        chain: { ...chain, rpcWs: "env:TRIPWIRE_RPC_WS" },
+        mempool: { enabled: true, respond: false },
+      }),
+      { ...where, keysPassphrase: true },
     );
     expect(toml).toContain('rpc_http = "env:TRIPWIRE_RPC_HTTP"');
     expect(toml).toContain('rpc_ws = "env:TRIPWIRE_RPC_WS"');
@@ -59,28 +104,59 @@ describe("engineToml", () => {
     expect(toml).not.toContain("node.example");
   });
 
-  it("leaves out what is not configured", () => {
-    const toml = engineToml(base, {
-      dataDir: "/h/engine",
-      port: 4100,
-      local: false,
-    });
+  it("writes every member the spec maps, leaving nulls to the engine", () => {
+    const toml = engineToml(config(), where);
+    expect(toml).toContain("poll_interval_ms = 2000");
+    expect(toml).toContain('mode = "notify"');
+    expect(toml).toContain("replacement_blocks = 5");
+    expect(toml).toContain("max_attempts = 3");
+    expect(toml).toContain('submission = "private"');
+    expect(toml).toContain("points_days = 90");
+    expect(toml).toContain("notifications_days = 90");
+    expect(toml).not.toContain("max_fee_gwei");
+    expect(toml).not.toContain("key =");
     expect(toml).not.toContain("rpc_ws");
     expect(toml).not.toContain("[keys]");
     expect(toml).not.toContain("max_connections");
-    expect(toml).toContain("enabled = false");
+  });
+
+  it("names the known controller for the chain, or the configured one", () => {
+    expect(engineToml(config(), where)).toContain(
+      'controller_address = "0x328aed8f7a01f45a959c187f3cb97ec508064854"',
+    );
+    expect(engineToml(config(), where)).toContain(
+      "controller_deployed_block = 25141731",
+    );
+    const own = parseConfig({
+      version: 1,
+      chain: {
+        ...chain,
+        chainId: 31337,
+        controllerAddress: "0xE7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+        controllerDeployedBlock: 2800,
+      },
+    }) as AppConfig & { chain: ChainConfig };
+    const toml = engineToml(own, where);
+    expect(toml).toContain(
+      'controller_address = "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"',
+    );
+    expect(toml).toContain("controller_deployed_block = 2800");
+    expect(
+      engineToml(config({ chain: { ...chain, chainId: 31337 } }), where),
+    ).not.toContain("controller_address");
   });
 
   it("gives the local database one connection", () => {
-    expect(
-      engineToml(base, { dataDir: "/h/engine", port: 4100, local: true }),
-    ).toContain("max_connections = 1");
+    expect(engineToml(config(), { ...where, local: true })).toContain(
+      "max_connections = 1",
+    );
   });
 });
 
 describe("engineEnvironment", () => {
-  it("passes only what the engine needs", () => {
+  it("passes only what the engine needs, resolved", () => {
     const env = engineEnvironment(
+      chain,
       { ...RPC, PATH: "/bin", HOME: "/home/x", AWS_SECRET: "nope" },
       "postgres://db",
     );
@@ -90,100 +166,10 @@ describe("engineEnvironment", () => {
       TRIPWIRE_DATABASE_URL: "postgres://db",
     });
   });
-});
 
-/**
- * A stand-in for the engine binary, steered by fake.json beside its
- * configuration (the engine's environment is allow-listed): `migrate`
- * exits with `migrate` (default 0); `run` writes the secret by rename,
- * answers /v1/health on the configured port and exits 0 on SIGTERM, or
- * exits 75 at once with `runFails`.
- */
-const FAKE_ENGINE = `#!/usr/bin/env node
-const fs = require("node:fs");
-const http = require("node:http");
-const path = require("node:path");
-const [cmd, , config] = process.argv.slice(2);
-let fake = {};
-try { fake = JSON.parse(fs.readFileSync(path.join(path.dirname(config), "fake.json"), "utf8")); } catch {}
-if (cmd === "migrate") process.exit(fake.migrate || 0);
-const toml = fs.readFileSync(config, "utf8");
-if (fake.runFails) { console.error("database unreachable"); process.exit(75); }
-const dir = /^dir = "(.*)"$/m.exec(toml)[1];
-const port = Number(/^bind = "127\\.0\\.0\\.1:(\\d+)"$/m.exec(toml)[1]);
-const secret = "ab".repeat(32);
-fs.writeFileSync(dir + "/.secret", secret, { mode: 0o600 });
-fs.renameSync(dir + "/.secret", dir + "/interface-secret");
-const server = http.createServer((req, res) => {
-  const ok = req.headers.authorization === "Bearer " + secret;
-  res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
-  res.end(JSON.stringify({ status: "ready" }));
-}).listen(port, "127.0.0.1", () => console.log("control interface listening"));
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
-`;
-
-async function fakeEngine(fake: { migrate?: number; runFails?: boolean } = {}) {
-  const home = await mkdtemp(join(tmpdir(), "tripwire-launch-"));
-  const binary = join(home, "fake-engine");
-  await writeFile(binary, FAKE_ENGINE);
-  await chmod(binary, 0o755);
-  await writeFile(join(home, "fake.json"), JSON.stringify(fake));
-  return { home, binary };
-}
-
-describe("launchEngine", () => {
-  it("migrates, starts, answers with its secret, and stops on request", async () => {
-    const { home, binary } = await fakeEngine();
-    const engine = await launchEngine({
-      binary,
-      home,
-      databaseUrl: "postgres://db",
-      local: true,
-      env: { ...RPC, PATH: process.env.PATH },
-    });
-    const secret = await readFile(engine.secretFile, "utf8");
-    const health = await fetch(`${engine.url}/v1/health`, {
-      headers: { authorization: `Bearer ${secret}` },
-    });
-    expect(health.status).toBe(200);
-    expect((await stat(join(home, "engine.toml"))).mode & 0o777).toBe(0o600);
-    expect(await readFile(join(home, "engine", "engine.pid"), "utf8")).toMatch(
-      /^\d+\n$/,
-    );
-
-    await engine.stop();
-    await expect(engine.exited).resolves.toBe(0);
-    await expect(
-      readFile(join(home, "engine", "engine.pid"), "utf8"),
-    ).rejects.toThrow();
-  });
-
-  it("refuses to start when the engine will not migrate", async () => {
-    const { home, binary } = await fakeEngine({ migrate: 65 });
-    await expect(
-      launchEngine({
-        binary,
-        home,
-        databaseUrl: "postgres://db",
-        local: false,
-        env: { ...RPC, PATH: process.env.PATH },
-      }),
-    ).rejects.toThrow("refused to migrate the database (exit 65)");
-  });
-
-  it("names the log when the engine exits while starting", async () => {
-    const { home, binary } = await fakeEngine({ runFails: true });
-    const error = await launchEngine({
-      binary,
-      home,
-      databaseUrl: "postgres://db",
-      local: false,
-      env: { ...RPC, PATH: process.env.PATH },
-    }).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(EngineLaunchError);
-    expect((error as Error).message).toContain("exited with code 75");
-    expect(await readFile(join(home, "logs", "engine.log"), "utf8")).toContain(
-      "database unreachable",
+  it("refuses an endpoint whose variable is not set", () => {
+    expect(() => engineEnvironment(chain, {}, "postgres://db")).toThrow(
+      "reads TRIPWIRE_RPC_HTTP, which is not set",
     );
   });
 });

@@ -5,6 +5,7 @@ import type {
   EngineStatus,
 } from "@tripwire/shared";
 import type { EngineEvents, EngineListener } from "../events/types";
+import type { EngineSupervisor, SupervisorPhase } from "./supervisor";
 import {
   headOf,
   type CursorRow,
@@ -26,33 +27,55 @@ const UNRESPONSIVE_MS = 60_000;
  * even while the engine is not; then the head and cursors come from the
  * `engine_status` view, which outlives the process. State changes reach
  * listeners as `health` events. The stand-in always answers, and is asked
- * on demand.
+ * on demand. When the application supervises the engine, the supervisor
+ * says what the process is doing until it runs, and health says the rest.
  */
 export class EngineMonitor implements EngineEvents {
   readonly #commands: EngineCommands;
   readonly #reads: EngineReads;
-  readonly #runner: "attached" | "stand-in";
+  readonly #runner: "supervised" | "attached" | "stand-in";
+  readonly #supervisor: EngineSupervisor | null;
   readonly #clock: () => number;
   readonly #listeners = new Set<EngineListener>();
+  /** What health says, while the process runs. */
+  #health: EngineState;
   #state: EngineState;
   #since: number;
   #answer: HealthAnswer | null = null;
   #answeredAt: number;
   #problem: EngineStatus["problem"] = null;
+  #wake: (() => void) | null = null;
 
   constructor(
     commands: EngineCommands,
     reads: EngineReads,
-    runner: "attached" | "stand-in",
+    runner: "supervised" | "attached" | "stand-in",
     clock: () => number = Date.now,
+    supervisor: EngineSupervisor | null = null,
   ) {
     this.#commands = commands;
     this.#reads = reads;
     this.#runner = runner;
+    this.#supervisor = supervisor;
     this.#clock = clock;
-    this.#state = runner === "stand-in" ? "stand-in" : "starting";
+    this.#health = runner === "stand-in" ? "stand-in" : "starting";
+    this.#state = this.#health;
     this.#since = clock();
     this.#answeredAt = clock();
+    supervisor?.listen({
+      phase: (phase) => {
+        if (phase === "running") {
+          // A new process: nothing is known of it yet.
+          this.#answer = null;
+          this.#answeredAt = this.#clock();
+          this.#health = "starting";
+          this.#problem = null;
+          this.#wake?.();
+        }
+        this.#settle();
+      },
+    });
+    if (supervisor) this.#state = fromPhase(supervisor.phase, this.#health);
   }
 
   /** Whether the engine is protecting: ready or degraded. */
@@ -73,15 +96,24 @@ export class EngineMonitor implements EngineEvents {
       );
       timer.unref();
     };
+    // A new process is asked at once, not at the next tick.
+    this.#wake = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void this.poll().finally(next), 200);
+      timer.unref();
+    };
     void this.poll().finally(next);
     return () => {
       stopped = true;
+      this.#wake = null;
       clearTimeout(timer);
     };
   }
 
   /** Asks the engine once. */
   async poll(): Promise<void> {
+    // Nothing runs to ask while the supervisor installs, waits or has failed.
+    if (this.#supervisor && this.#supervisor.phase !== "running") return;
     let timer: NodeJS.Timeout | undefined;
     try {
       const answer = await Promise.race([
@@ -99,16 +131,22 @@ export class EngineMonitor implements EngineEvents {
       this.#problem = answer.cause
         ? { code: "degraded", message: answer.cause }
         : null;
-      this.#enter(this.#runner === "stand-in" ? "stand-in" : answer.status);
+      this.#health = this.#runner === "stand-in" ? "stand-in" : answer.status;
+      this.#settle();
+      if (answer.status === "ready") this.#supervisor?.ready();
     } catch (error) {
       this.#answer = null;
-      if (this.#clock() - this.#answeredAt >= UNRESPONSIVE_MS) {
+      const silent = this.#clock() - this.#answeredAt;
+      if (silent >= UNRESPONSIVE_MS) {
         this.#problem = {
           code: "unresponsive",
           message: error instanceof Error ? error.message : String(error),
         };
-        this.#enter("unresponsive");
+        this.#health = "unresponsive";
+        this.#settle();
       }
+      // At 120 seconds the supervisor kills it and starts another.
+      this.#supervisor?.unanswered(silent);
     } finally {
       clearTimeout(timer);
     }
@@ -118,27 +156,40 @@ export class EngineMonitor implements EngineEvents {
     if (this.#runner === "stand-in") await this.poll();
     const answer = this.#answer;
     const cursors = answer ? null : await this.#cursors();
+    const supervised = this.#supervisor?.report();
+    const running = !this.#supervisor || this.#supervisor.phase === "running";
     return {
       ...info,
       state: this.#state,
       since: new Date(this.#since).toISOString(),
       runner: this.#runner,
       version: answer?.version ?? cursors?.[0]?.engine_version ?? null,
-      pinnedVersion: null,
-      unpinned: false,
-      install: null,
+      pinnedVersion: supervised?.pinnedVersion ?? null,
+      install: supervised?.install ?? null,
       health: answer
         ? fromAnswer(answer, this.#clock())
         : this.#fromCursors(cursors),
-      restarts: { last10Minutes: 0, total: 0 },
-      lastExit: null,
-      problem: this.#problem,
+      restarts: supervised?.restarts ?? { last10Minutes: 0, total: 0 },
+      lastExit: supervised?.lastExit ?? null,
+      // While the process is not running, the supervisor knows why.
+      problem: running
+        ? (this.#problem ?? supervised?.problem ?? null)
+        : (supervised?.problem ?? null),
     };
   }
 
   listen(listener: EngineListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /** The state as people see it: the supervisor's until the process runs, then health's. */
+  #settle() {
+    this.#enter(
+      this.#supervisor
+        ? fromPhase(this.#supervisor.phase, this.#health)
+        : this.#health,
+    );
   }
 
   #enter(state: EngineState) {
@@ -163,9 +214,10 @@ export class EngineMonitor implements EngineEvents {
     if (!rows?.length) return null;
     const ingest = rows.find((r) => r.cursor === "ingest") ?? rows[0]!;
     const now = this.#clock();
+    const at = (r: CursorRow) => new Date(r.updated_at).getTime();
     return {
       head: Number(ingest.block_number),
-      headTime: ingest.updated_at.toISOString(),
+      headTime: new Date(at(ingest)).toISOString(),
       lagBlocks: null,
       rpc: null,
       controller: null,
@@ -173,10 +225,7 @@ export class EngineMonitor implements EngineEvents {
       cursors: rows.map((r) => ({
         name: r.cursor,
         block: Number(r.block_number),
-        ageSeconds: Math.max(
-          0,
-          Math.round((now - r.updated_at.getTime()) / 1000),
-        ),
+        ageSeconds: Math.max(0, Math.round((now - at(r)) / 1000)),
       })),
     };
   }
@@ -213,4 +262,8 @@ function fromAnswer(answer: HealthAnswer, now: number): EngineHealth {
       : null,
     keys: answer.keys ?? null,
   };
+}
+
+function fromPhase(phase: SupervisorPhase, health: EngineState): EngineState {
+  return phase === "running" ? health : phase;
 }

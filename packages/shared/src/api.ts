@@ -97,7 +97,6 @@ export interface EngineStatus extends EngineInfo {
   runner: "supervised" | "attached" | "stand-in";
   version: string | null;
   pinnedVersion: string | null;
-  unpinned: boolean;
   /** The download's progress while installing. */
   install: { bytes: number; total: number | null } | null;
   health: EngineHealth | null;
@@ -409,6 +408,24 @@ export interface TripStateItem {
     | null;
   /** For a confirmed call: the rules whose confirmation reads true. */
   rules: { id: string; name: string }[];
+}
+
+/** First run's chain step: what `/setup/chain` and its verify take. */
+export interface ChainSetup {
+  chainId: number;
+  /** A URL, or `env:NAME`. */
+  rpcHttp: string;
+  rpcWs?: string | null;
+}
+
+/** The engine's verify invocation on an endpoint (`ENGINE.md`, G2). */
+export interface ChainVerify {
+  ok: boolean;
+  chainId: number;
+  head: number | null;
+  receipts: string | null;
+  ws: { ok: boolean; pending: boolean } | null;
+  problems: { code: string; message: string }[];
 }
 
 /** `GET /setup`: which first-run steps are done, and whether the checklist was dismissed. */

@@ -2,44 +2,58 @@ import {
   connectEngine,
   createServer,
   DatabaseSetupError,
-  EngineLaunchError,
-  EngineReleaseError,
-  launchEngine,
+  EngineSupervisor,
   McpTokens,
+  RunLockError,
   startDatabase,
+  supervisedBackend,
+  takeRunLock,
   TokenError,
   tripwireHome,
-  verifiedEngine,
   type EngineBackend,
-  type EnginePin,
   type StartedDatabase,
 } from "@tripwire/server";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { chainName, engineCommand, readPin, setupCommand } from "./engine";
 import { userCommand } from "./users";
 
 const USAGE = `Usage: tripwire [start] [options]
+       tripwire setup [--username <name>] [--chain-id <id or name>]
+                      [--rpc-http <url or env:NAME>] [--rpc-ws <url or env:NAME>]
+                      [--database-url <url or env:NAME>] [--skip-verify]
+       tripwire engine status
+       tripwire engine install [--from <dir>]
+       tripwire engine log [-n <lines>] [--follow]
        tripwire user add|passwd|remove|unlock <name>
        tripwire user list
        tripwire mcp token new <label> [--expires <30d|12h|90m>]
        tripwire mcp token list
        tripwire mcp token revoke <id or label>
 
-Starts Tripwire and serves the dashboard, manages its accounts, or
-manages the tokens AI agents use to reach its MCP server.
+Sets Tripwire up, starts it and serves the dashboard, looks after its
+engine, manages its accounts, or manages the tokens AI agents use to
+reach its MCP server. Everything lives in TRIPWIRE_HOME (default
+~/.tripwire).
 
-Start runs the pinned engine release installed under TRIPWIRE_HOME
-(default ~/.tripwire), configured from the environment:
-  TRIPWIRE_RPC_HTTP         the chain's HTTP endpoint (required)
-  TRIPWIRE_RPC_WS           a WebSocket endpoint; turns on mempool watching
-  TRIPWIRE_CHAIN_ID         the chain id (default: 1)
-  TRIPWIRE_RESPONSE_MODE    notify, prepare or send (default: notify)
-  TRIPWIRE_KEYS_PASSPHRASE  unlocks the engine's keys
-TRIPWIRE_ENGINE=stand-in runs with simulated data and no engine;
-TRIPWIRE_ENGINE_URL with TRIPWIRE_ENGINE_SECRET_FILE attaches to an
-engine started by hand.
+A new installation: tripwire setup, then tripwire start. Setup asks for
+the database, an account and the chain; with flags and TRIPWIRE_PASSWORD
+it asks nothing, for servers and scripts. Start installs the pinned
+engine release if it is missing, verifies it, and runs and supervises it.
+Without setup, start serves the dashboard, whose first page sets up the
+same things.
+
+Environment:
+  TRIPWIRE_PASSWORD         the password for setup and user commands, for scripts
+  TRIPWIRE_KEYS_PASSPHRASE  unlocks the engine's signing keys at start
+  TRIPWIRE_RPC_HTTP         before setup: the chain's HTTP endpoint, taken
+                            with TRIPWIRE_RPC_WS, TRIPWIRE_CHAIN_ID and
+                            TRIPWIRE_RESPONSE_MODE until config.json has a chain
+  TRIPWIRE_ENGINE=stand-in  runs with simulated data and no engine
+  TRIPWIRE_ENGINE_URL       with TRIPWIRE_ENGINE_SECRET_FILE, attaches to an
+                            engine started by hand
 
 Options:
   -p, --port <port>         port to listen on (default: 4747)
@@ -50,6 +64,9 @@ Options:
       --tls-key <file>      ...and this key
       --behind-proxy        a reverse proxy in front terminates TLS
       --expires <duration>  when a new MCP token stops working (default: never)
+      --from <dir>          install the engine from this directory
+  -n, --lines <n>           log lines to print (default: 50)
+      --follow              keep printing the log as it grows
   -v, --version             print the version
   -h, --help                print this help`;
 
@@ -68,6 +85,14 @@ function parseCommandLine() {
         "tls-cert": { type: "string" },
         "tls-key": { type: "string" },
         "behind-proxy": { type: "boolean", default: false },
+        username: { type: "string" },
+        "chain-id": { type: "string" },
+        "rpc-http": { type: "string" },
+        "rpc-ws": { type: "string" },
+        "skip-verify": { type: "boolean", default: false },
+        from: { type: "string" },
+        lines: { type: "string", short: "n" },
+        follow: { type: "boolean", default: false },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
       },
@@ -101,6 +126,40 @@ if (positionals[0] === "user") {
 
 if (positionals[0] === "mcp") {
   await mcpCommand(positionals.slice(1));
+  process.exit(0);
+}
+
+const failWithUsage = (message: string): never => {
+  console.error(message);
+  process.exit(1);
+};
+
+if (positionals[0] === "engine") {
+  await engineCommand(
+    tripwireHome(),
+    positionals.slice(1),
+    { from: values.from, lines: values.lines, follow: values.follow },
+    failWithUsage,
+  );
+  process.exit(0);
+}
+
+if (positionals[0] === "setup") {
+  if (positionals.length > 1) {
+    failWithUsage(`Unexpected: ${positionals.slice(1).join(" ")}`);
+  }
+  await setupCommand(
+    tripwireHome(),
+    {
+      username: values.username,
+      chainId: values["chain-id"],
+      rpcHttp: values["rpc-http"],
+      rpcWs: values["rpc-ws"],
+      databaseUrl: values["database-url"],
+      skipVerify: values["skip-verify"],
+    },
+    failWithUsage,
+  );
   process.exit(0);
 }
 
@@ -145,19 +204,28 @@ const https =
     ? { cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }
     : undefined;
 
+// One server per installation.
+const releaseLock = await takeRunLock(tripwireHome()).catch(
+  (error: unknown) => {
+    if (!(error instanceof RunLockError)) throw error;
+    console.error(error.message);
+    process.exit(1);
+  },
+);
+
 // The database comes up, and the app schema is migrated, before anything
 // is served.
 const database = await startDatabase({
   home: tripwireHome(),
   url: values["database-url"],
   migrationsDir: fileURLToPath(new URL("./migrations/", import.meta.url)),
-}).catch((error: unknown) => {
+}).catch(async (error: unknown) => {
+  await releaseLock();
   if (!(error instanceof DatabaseSetupError)) throw error;
   console.error(error.message);
   process.exit(1);
 });
 
-let stopping = false;
 const engine = await startEngine(database);
 
 const app = await createServer({
@@ -173,8 +241,9 @@ const app = await createServer({
 try {
   await app.listen({ host, port });
 } catch (error) {
-  await engine.stop();
+  await app.close();
   await database.close();
+  await releaseLock();
   const message = listenErrorMessage(error as NodeJS.ErrnoException);
   if (!message) throw error;
   console.error(message);
@@ -185,13 +254,15 @@ const url = `${https ? "https" : "http"}://${host.includes(":") ? `[${host}]` : 
 console.log(`Tripwire is running at ${url}\nPress Ctrl+C to stop.`);
 if (values.open) openBrowser(url);
 
+engine.report(url);
+
+// Closing the server stops the engine, before the database closes.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    stopping = true;
     void app
       .close()
-      .then(() => engine.stop())
       .then(() => database.close())
+      .then(() => releaseLock())
       .then(() => process.exit(0));
   });
 }
@@ -199,63 +270,117 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 /**
  * The engine this start runs against: the stand-in when asked for, an
  * engine someone runs by hand when TRIPWIRE_ENGINE_URL names it, otherwise
- * the pinned release installed under TRIPWIRE_HOME, checked and started
- * here and stopped before the database closes.
+ * the pinned release, installed, started and supervised here. Its progress
+ * is printed, since many installations are only ever seen from here.
  */
 async function startEngine(
   database: StartedDatabase,
-): Promise<{ backend: EngineBackend; stop(): Promise<void> }> {
-  const none = () => Promise.resolve();
+): Promise<{ backend: EngineBackend; report(url: string): void }> {
   if (process.env.TRIPWIRE_ENGINE === "stand-in") {
     const env = { ...process.env };
     delete env.TRIPWIRE_ENGINE_URL;
-    return { backend: await connectEngine(database.pool, env), stop: none };
+    const backend = await connectEngine(database.pool, env);
+    return {
+      backend,
+      report: () => console.log("Engine: the stand-in, on simulated data."),
+    };
   }
   if (process.env.TRIPWIRE_ENGINE_URL) {
-    return { backend: await connectEngine(database.pool), stop: none };
+    return {
+      backend: await connectEngine(database.pool),
+      report: () =>
+        console.log(`Engine: attached at ${process.env.TRIPWIRE_ENGINE_URL}.`),
+    };
   }
 
   const home = tripwireHome();
-  const pin = JSON.parse(
-    readFileSync(new URL("./engine.json", import.meta.url), "utf8"),
-  ) as EnginePin;
-  try {
-    const installed = await verifiedEngine({ home, pin });
-    console.log(`Starting engine ${installed.version}.`);
-    const running = await launchEngine({
-      binary: installed.binary,
-      home,
-      databaseUrl: database.database.url,
-      local: database.database.mode === "local",
-    });
-    void running.exited.then((code) => {
-      if (!stopping) {
-        console.error(
-          `The engine exited with code ${code}; see ${running.logFile}. Restart Tripwire to start it again.`,
+  const supervisor = new EngineSupervisor({
+    home,
+    pin: readPin(),
+    databaseUrl: database.database.url,
+    local: database.database.mode === "local",
+  });
+  let dashboard = "";
+  let readyShown = false;
+  const say = (phase: string) => {
+    const problem = supervisor.report().problem;
+    switch (phase) {
+      case "unconfigured":
+        // Said once the dashboard's address is known.
+        if (!dashboard) break;
+        console.log(
+          `Engine: no chain configured yet. Run: tripwire setup${dashboard ? `, or open ${dashboard}` : ""}`,
         );
-      }
-    });
-    const backend = await connectEngine(database.pool, {
-      ...process.env,
-      TRIPWIRE_ENGINE_URL: running.url,
-      TRIPWIRE_ENGINE_SECRET_FILE: running.secretFile,
-      TRIPWIRE_CHAIN_ID: String(running.config.chainId),
-      TRIPWIRE_RESPONSE_MODE: running.config.responseMode,
-    });
-    return { backend, stop: () => running.stop() };
-  } catch (error) {
-    if (
-      !(error instanceof EngineReleaseError) &&
-      !(error instanceof EngineLaunchError)
-    ) {
-      throw error;
+        break;
+      case "installing":
+        console.log(`Engine: downloading ${supervisor.pin.version}…`);
+        break;
+      case "starting":
+        console.log(
+          `Engine ${supervisor.pin.version}: starting${problem?.code === "lease" ? ` (${problem.message})` : ""}`,
+        );
+        break;
+      case "running":
+        readyShown = false;
+        void waitReady();
+        break;
+      case "restarting":
+        console.error(
+          `Engine: restarting${problem ? `: ${problem.message.split("\n")[0]}` : ""}`,
+        );
+        break;
+      case "failed":
+        console.error(
+          `Engine: cannot start: ${problem?.message ?? "see tripwire engine log"}\nFix it, then restart Tripwire, or see: tripwire engine log`,
+        );
+        break;
     }
-    await database.close();
-    console.error(
-      `${error.message}\n\nTo run without an engine, on simulated data: TRIPWIRE_ENGINE=stand-in tripwire start`,
-    );
-    process.exit(1);
-  }
+  };
+  // "Ready" is the engine's own word, from its health.
+  const waitReady = async () => {
+    for (let i = 0; i < 600 && !readyShown; i++) {
+      const target = supervisor.current();
+      if (!target) return;
+      const health = await fetch(`${target.url}/v1/health`, {
+        headers: { authorization: `Bearer ${target.secret}` },
+        signal: AbortSignal.timeout(5_000),
+      })
+        .then((r) =>
+          r.ok
+            ? (r.json() as Promise<{
+                status: string;
+                evaluated_block: number | null;
+                observed_head: number | null;
+              }>)
+            : null,
+        )
+        .catch(() => null);
+      if (health && health.status !== "starting") {
+        readyShown = true;
+        const block = health.evaluated_block ?? health.observed_head;
+        console.log(
+          `Engine ${supervisor.pin.version}: ${health.status}, watching ${chainName(supervisor.info.chainId)}${block !== null ? ` at block ${block.toLocaleString("en-US")}` : ""}.`,
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  };
+  supervisor.listen({
+    phase: (phase) => say(phase),
+    alert: (alert) => {
+      if (alert.kind !== "cannot_start")
+        console.error(`Engine: ${alert.message}`);
+    },
+  });
+  await supervisor.start();
+  return {
+    backend: supervisedBackend(database.pool, supervisor),
+    report: (url) => {
+      dashboard = url;
+      if (supervisor.phase === "unconfigured") say("unconfigured");
+    },
+  };
 }
 
 function listenErrorMessage(error: NodeJS.ErrnoException) {

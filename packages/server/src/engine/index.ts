@@ -7,7 +7,8 @@ import type { EngineEvents } from "../events/types";
 import { HttpEngine } from "./http";
 import { ViewReads } from "./reads";
 import { STUB_VIEWS, StubEngine } from "./stub";
-import type { EngineCommands, EngineReads } from "./types";
+import type { EngineSupervisor } from "./supervisor";
+import { EngineError, type EngineCommands, type EngineReads } from "./types";
 
 /** The engine as the server uses it: commands, reads, and how it is set up. */
 export interface EngineBackend {
@@ -18,6 +19,8 @@ export interface EngineBackend {
   info: EngineInfo;
   /** Where the engine keeps its keystore files; none for the stand-in. */
   keysDirectory?: string | null;
+  /** Set when the application runs the engine itself. */
+  supervisor?: EngineSupervisor;
   /** Stops whatever the backend runs on its own. */
   close(): Promise<void>;
 }
@@ -68,6 +71,64 @@ export function engineBackend(
     },
     keysDirectory: options.keysDirectory ?? null,
     close: () => Promise.resolve(),
+  };
+}
+
+/**
+ * The engine the application runs itself: commands go to whichever
+ * process runs now, since each start takes a new port, and are refused
+ * while none does; the views are read as they are.
+ */
+export function supervisedBackend(
+  pool: pg.Pool,
+  supervisor: EngineSupervisor,
+): EngineBackend {
+  let client: { key: string; engine: HttpEngine } | null = null;
+  const current = (): HttpEngine => {
+    const target = supervisor.current();
+    if (!target) {
+      throw new EngineError(
+        503,
+        "engine_not_running",
+        `The engine is not running (${supervisor.phase}). See GET /engine.`,
+      );
+    }
+    const key = `${target.url} ${target.secret}`;
+    if (client?.key !== key) {
+      client = { key, engine: new HttpEngine(target) };
+    }
+    return client.engine;
+  };
+  const commands = new Proxy({} as EngineCommands, {
+    get: (_target, name) => {
+      if (typeof name !== "string" || name === "then") return undefined;
+      // Every command answers with a promise, refusals included.
+      return (...args: unknown[]) => {
+        try {
+          const engine = current() as unknown as Record<
+            string,
+            (...a: unknown[]) => unknown
+          >;
+          return engine[name]!(...args);
+        } catch (error) {
+          return Promise.reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      };
+    },
+  });
+  return {
+    commands,
+    reads: new ViewReads(pool, "api_v1"),
+    events: new EngineStream({
+      url: () => supervisor.current()?.url ?? null,
+      secret: () => Promise.resolve(supervisor.current()?.secret ?? ""),
+    }),
+    info: supervisor.info,
+    keysDirectory: join(supervisor.home, "engine", "keys"),
+    supervisor,
+    close: () => supervisor.stop(),
   };
 }
 

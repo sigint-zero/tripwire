@@ -259,7 +259,8 @@ export interface KeyChange {
 export interface CursorRow {
   cursor: string;
   block_number: string;
-  updated_at: Date;
+  /** A timestamp; the driver may hand it over as text. */
+  updated_at: Date | string;
   engine_version: string | null;
 }
 

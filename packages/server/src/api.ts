@@ -6,6 +6,8 @@ import { authRoutes, requireSession } from "./auth/routes";
 import { contractRoutes } from "./contracts";
 import type { EngineBackend } from "./engine";
 import { EngineMonitor } from "./engine/monitor";
+import type { EngineSupervisor } from "./engine/supervisor";
+import { engineRoutes } from "./engine-routes";
 import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
 import type { EngineEvents } from "./events/types";
@@ -49,7 +51,9 @@ export const api: FastifyPluginCallback<{
 
   const { commands, reads, info } = backend.engine;
   const store = new AppStore(backend.pool);
-  const lookup = new AbiLookup(info.chainId);
+  // First run may set the chain after the server has started.
+  const lookup = new AbiLookup(() => info.chainId);
+  const supervisor = backend.engine.supervisor ?? null;
   app.addHook("onClose", () => backend.engine.close());
 
   // The engine's refusals keep their status and code; until the engine has
@@ -69,7 +73,9 @@ export const api: FastifyPluginCallback<{
   const monitor = new EngineMonitor(
     commands,
     reads,
-    info.simulated ? "stand-in" : "attached",
+    supervisor ? "supervised" : info.simulated ? "stand-in" : "attached",
+    Date.now,
+    supervisor,
   );
   const stopMonitor = monitor.start();
   app.addHook("onClose", (_app, done) => {
@@ -77,6 +83,7 @@ export const api: FastifyPluginCallback<{
     done();
   });
   app.get("/engine", () => monitor.status(info));
+  app.register(engineRoutes, { supervisor, monitor, info });
   app.register(abiRoutes, { lookup });
   app.register(contractRoutes, { commands, reads, store, lookup });
   const rules = new RuleService(commands, reads, store, info.simulated);
@@ -85,7 +92,12 @@ export const api: FastifyPluginCallback<{
   app.register(responseRoutes, { commands, reads });
   app.register(seriesRoutes, { reads });
   app.register(tripStateRoutes, { reads });
-  app.register(setupRoutes, { reads, store });
+  app.register(setupRoutes, {
+    reads,
+    store,
+    // An attached engine or the stand-in has its chain already.
+    chainConfigured: () => !supervisor || supervisor.config?.chain != null,
+  });
   app.register(readinessRoutes, { commands, reads, info });
   app.register(actionRoutes, { commands, reads });
   app.register(keyRoutes, {
@@ -106,7 +118,7 @@ export const api: FastifyPluginCallback<{
     });
     const stopWorker = worker.start();
     app.addHook("onClose", () => stopWorker());
-    raiseEngineAlerts(monitor, worker);
+    raiseEngineAlerts(monitor, worker, supervisor);
     app.register(notificationRoutes, {
       store: notifications,
       secrets,
@@ -141,11 +153,28 @@ export const api: FastifyPluginCallback<{
 };
 
 /**
- * The alerts about the engine that the engine cannot raise itself: it
- * stopped answering, and it came back.
+ * The alerts about the engine that the engine cannot raise itself
+ * (`NOTIFICATIONS.md`): it stopped, keeps restarting, cannot start, or
+ * stopped answering; and that it came back.
  */
-function raiseEngineAlerts(monitor: EngineMonitor, worker: NotificationWorker) {
+function raiseEngineAlerts(
+  monitor: EngineMonitor,
+  worker: NotificationWorker,
+  supervisor: EngineSupervisor | null,
+) {
   let silent = false;
+  let troubled = false;
+  supervisor?.listen({
+    alert: (alert) => {
+      troubled = true;
+      const title = {
+        stopped: "Engine stopped",
+        repeated: "Engine restarting repeatedly",
+        cannot_start: "Engine cannot start",
+      }[alert.kind];
+      void worker.raise("critical", title, alert.message);
+    },
+  });
   monitor.listen({
     event: ({ event, data }) => {
       if (event !== "health") return;
@@ -157,8 +186,9 @@ function raiseEngineAlerts(monitor: EngineMonitor, worker: NotificationWorker) {
           "Engine not responding",
           "The engine has not answered its health check for a minute. Nothing is being watched until it does.",
         );
-      } else if ((state === "ready" || state === "degraded") && silent) {
+      } else if (state === "ready" && (silent || troubled)) {
         silent = false;
+        troubled = false;
         void worker.raise(
           "info",
           "Engine recovered",
