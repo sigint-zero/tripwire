@@ -63,7 +63,8 @@ From the application, kind `system`:
 | engine stopped | the engine process exited without being asked to | critical |
 | engine restarting repeatedly | three unplanned restarts within ten minutes; the supervisor backs off | critical |
 | engine not responding | the process is alive but its health endpoint has not answered for 60 seconds | critical |
-| engine recovered | ready again after any of the three above | info |
+| engine cannot start | the supervisor gave up until something changes: the engine failed verification at install, refused its configuration or schema, or has no build for this platform (`ENGINE.md`, state `failed`) | critical |
+| engine recovered | ready again after any of the four above | info |
 | database unreachable | the application cannot reach the database for 30 seconds | critical |
 | database reachable again | after the above | info |
 | channel failing | a channel's oldest undelivered message is an hour old | warning |
@@ -230,7 +231,9 @@ severity, time and a link to what it is about. Rows are marked read
 individually or all at once; read state is shared by all accounts, as
 accounts are equal (`AUTHENTICATION.md`). The shell shows the unread
 count, which updates live through the server's event stream to the
-browser.
+browser (`LIVE-UPDATES.md`: the `notification` event carries the new
+count, and a `channel` event announces a channel starting or stopping
+failing).
 
 The Settings page lists channels with their state: enabled, backlog,
 oldest undelivered message, last delivered, last error and, when

@@ -26,7 +26,7 @@ One repository, one workspace, six packages:
 
 | Package | Role |
 |-|-|
-| `cli` | the `tripwire` command: guided setup, starting and supervising the engine and server together, and utilities (rule export/import, key and token management, database status and backup) |
+| `cli` | the `tripwire` command: guided setup, installing the engine and starting and supervising it with the server, and utilities (rule export/import, key and token management, database status and backup) |
 | `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine, delivers notifications to alert channels |
 | `web` | the dashboard: a single-page app built to static files, served by the server |
 | `shared` | types and validation schemas used by all packages |
@@ -101,6 +101,26 @@ The server requires a login: a username and password exchanged for a
 session, created on first run. AI agents authenticate to the MCP
 endpoint with a token a logged-in person mints for them, and that token
 opens nothing else. `AUTHENTICATION.md` specifies both.
+
+## Detailed specs
+
+| Spec | Covers |
+|-|-|
+| `ENGINE.md` | installing, configuring, starting and supervising the engine |
+| `DATABASE.md` | the database modes, the `app` schema and its migrations |
+| `AUTHENTICATION.md` | accounts, sessions and MCP tokens |
+| `FIRST-RUN.md` | guided setup |
+| `SETTINGS.md` | the Settings page and how configuration changes are applied |
+| `LIVE-UPDATES.md` | the event stream from the engine to the dashboard |
+| `OVERVIEW.md` | the Overview page and the health strip |
+| `CONTRACTS.md` | registering and managing contracts |
+| `RULE-WIZARD.md` | creating and editing rules |
+| `RULES.md` | the rule list, the rule page and its charts |
+| `VIOLATIONS.md` | violation history, evidence and acknowledgement |
+| `RESPONSES.md` | on-chain response: the mode, operator keys, the controller and the approval queue |
+| `ACTIVITY.md` | the controller's history and what is paused now |
+| `NOTIFICATIONS.md` | the in-app feed, alert channels and alerts about Tripwire itself |
+| `MCP-SERVER.md` | the server AI agents connect to |
 
 ## Technology
 

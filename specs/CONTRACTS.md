@@ -85,13 +85,18 @@ Disabling is reversible and asks for no confirmation.
 
 ## Not built yet
 
+Nothing below waits on the engine any more; what is missing is the
+page.
+
 | What | Notes |
 |-|-|
-| rename | the engine takes a new name for a contract |
-| remove | removes the contract and, with it, its rules and their history; asks for confirmation |
+| rename | the server route exists (`PATCH /contracts/:address`); the page does not offer it yet |
+| remove | the server route exists (`DELETE /contracts/:address`): the engine removes the contract with its rules and their history, and the application forgets what it kept about them. The page will ask for confirmation, naming how many rules and violations go with it (CT3) |
 | verified source files | kept by the application when a contract is added (`app.contract_sources`), for agents and the contract's page |
 | live values | the engine reads values at the current block; the values tab can show them |
-| trip state | the engine's mirror of the on-chain circuit breaker, shown on the contract's page |
+| trip state | what is paused on the contract right now, by the controller or by a rule's confirmed call; the panel is specified in `ACTIVITY.md` |
+| response readiness | whether the contract can be paused through the controller (registered, guardian, operator authorised); the checklist is specified in `RESPONSES.md` |
+| pause and unpause | a person pausing or unpausing the contract by hand during an incident; specified in `RESPONSES.md` |
 
 ## API
 
@@ -103,6 +108,8 @@ the API's error envelope.
 | GET | `/contracts` | registered contracts by name: `{ id, address, name, active, ruleCount, enabledCount, source, implementation, createdAt }` |
 | GET | `/contracts/:address` | one contract, plus its `abi`; `404 not_found` |
 | POST | `/contracts` | `{ address, name, abi? }`. Without `abi` the verified ABI is looked up. `201` with the contract; `400 invalid_contract` with issues, `409 already_registered`, `404 not_verified`, `502 lookup_failed` |
+| PATCH | `/contracts/:address` | `{ name }`; returns the contract |
+| DELETE | `/contracts/:address` | removes the contract, its rules and their history; `204` |
 | POST | `/contracts/:address/disable` | switches its rules off, remembering which; returns the contract |
 | POST | `/contracts/:address/enable` | switches the remembered rules back on; returns the contract |
 | GET | `/rules?contract=:address` | one contract's rules |
@@ -118,8 +125,8 @@ DB6). The list and a contract's page read the engine's `contracts` view,
 which carries the rule counts, joined with what the application keeps.
 Disabling and enabling are one batch call each to the engine, all or
 nothing, plus the application's record of which rules were switched
-(`app.contract_disables`). Until the engine is available, the stand-in
-in the server keeps contracts and the record in memory.
+(`app.contract_disables`). In development the stand-in
+(`ENGINE.md`) answers in the engine's place with the same shapes.
 
 ## Decisions
 

@@ -82,9 +82,11 @@ view reference the engine publishes with each release.
 | `contracts` | Overview, Contracts, Rules wizard, MCP `list_contracts` and `get_contract` | registered contracts with rule counts |
 | `rules` | Rules, Contract detail, Overview counts, MCP `list_rules` | rule documents with state (`enabled`, `warming`, `last_evaluated_block`) |
 | `violations` | Violations, Rule detail, Contract detail, Overview | firings and evaluation errors with evidence |
-| `series`, `series_points` | Rule detail charts, Overview mini charts | recorded values by series and time range |
-| `trip_state` | Overview, Contracts, Contract detail | the mirrored controller state |
-| `responses` | Responses | the approval queue and response history |
+| `series`, `series_points` | Rule detail charts, Overview mini charts | recorded values by series and time range (`RULES.md`) |
+| `series_rollups` | Rule detail charts | hourly summaries of points older than the engine's raw retention |
+| `trip_state` | Overview, Contracts, Contract detail | what is paused now, by the controller or by a rule's confirmed call (`ACTIVITY.md`) |
+| `controller_events` | Activity, response readiness | the controller's history: trips, resets, registration, operators, guardianship (`ACTIVITY.md`, `RESPONSES.md`) |
+| `responses` | Responses | the approval queue and response history (`RESPONSES.md`) |
 | `notifications` | Notifications, the notification dispatcher | the engine's notification record: the feed, and what the application delivers (`NOTIFICATIONS.md`) |
 | `engine_status` | health strip, Settings, `tripwire db status` | one row per cursor with `updated_at`; readable while the engine is down, which is how the dashboard tells "stale" from "stopped" |
 
@@ -130,8 +132,9 @@ dashboard action; no MCP tool can flip either.
 
 ## Modes
 
-The application runs the database in one of two modes, chosen at first
-run and changeable in Settings.
+The application runs the database in one of two modes, chosen before
+the server first starts (`FIRST-RUN.md`) and shown in Settings, where
+changing it takes effect at the next start of Tripwire (`SETTINGS.md`).
 
 | Mode | Database | Who provisions | Typical owner |
 |-|-|-|-|
@@ -248,7 +251,9 @@ users chooses external mode.
 
 The application's configuration file is `TRIPWIRE_HOME/config.json`,
 mode `0600`, created by first run. This document defines its
-`database` member; other specs add theirs.
+`database` member; `ENGINE.md` defines the members the engine's
+configuration is generated from (`chain`, `response`, `retention`,
+`mempool`).
 
 ```json
 {
@@ -270,8 +275,9 @@ environment at start. Precedence at start:
 the environment, then the file; the first two force external mode for
 that run without rewriting the file.
 
-The application writes `TRIPWIRE_HOME/engine.toml` on every start.
-The database part is the same in both modes:
+The application writes `TRIPWIRE_HOME/engine.toml` on every start
+(`ENGINE.md` shows the whole file). The database part is the same in
+both modes:
 
 ```toml
 [database]
@@ -297,7 +303,8 @@ Start:
    local database, start the pooler.
 2. Pre-flight (external) or a `select 1` through the pooler (local).
 3. Apply the application's migrations (below).
-4. Write `engine.toml`, spawn the engine, begin polling its health.
+4. Install the engine if needed, write `engine.toml`, run the engine's
+   migrations, spawn it and begin polling its health (`ENGINE.md`).
 5. Listen. Until the engine reports ready the dashboard shows the
    status screen and reads that need `api_v1` answer "engine starting".
 
@@ -309,8 +316,8 @@ Stop, on `SIGINT` or `SIGTERM`:
 4. Local mode: stop the pooler, close PGlite, release the lock.
 
 The engine exiting on its own does not stop the database: the
-supervisor restarts the engine, and the dashboard keeps serving what
-`api_v1` holds.
+supervisor restarts the engine (`ENGINE.md`), and the dashboard keeps
+serving what `api_v1` holds.
 
 ## The `app` schema
 

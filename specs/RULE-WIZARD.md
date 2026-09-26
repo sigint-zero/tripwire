@@ -240,8 +240,8 @@ the section says which applies where the action is picked:
 
 - **pause** (`trip_global`, `trip_function`) acts through the Tripwire
   controller, so the contract must be registered with it for response.
-  The section shows a notice when it is not, once that state is
-  readable.
+  The section shows a notice when it is not, read from the
+  contract's response readiness (`RESPONSES.md`).
 - **call** acts on the contract directly, with no controller
   registration. The engine sends it from its operator key, which must
   hold whatever role the called function requires; the section says
@@ -272,9 +272,9 @@ watched through the event that changes it.
 
 Whether a pause or a call waits for a person's approval or is sent at
 once is not part of the rule. It is the installation's response mode
-(notify, prepare or send), set for every rule in Settings. When an
-on-chain action is chosen, the section says which mode the
-installation is in.
+(notify, prepare or send), set for every rule in Settings
+(`RESPONSES.md`). When an on-chain action is chosen, the section says
+which mode the installation is in.
 
 ## Simulated trip
 
@@ -368,14 +368,14 @@ engine's snake_case.
 
 | Method | Path | Purpose |
 |-|-|-|
-| GET | `/engine` | `{ chainId, responseMode, simulated }` |
+| GET | `/engine` | `{ chainId, responseMode, simulated, ... }`: the chain and response mode the wizard shows; the full shape is in `ENGINE.md` |
 | GET | `/contracts/:address/abi` | `{ chainId, address, name, abi, implementation }` on the engine's chain, for registering; or `400 invalid_contract`, `404 not_verified`, `502 lookup_failed` |
-| POST | `/rules` | body `{ rule, checkOnly }`; see below |
+| POST | `/rules` | body `{ rule, checkOnly, enabled? }`; see below. `enabled` defaults to true and is forced false while the contract is disabled |
 | GET | `/rules` | all rules, newest first, or one contract's with `?contract=`: `{ id, rule, sentence, enabled, origin, createdAt }` |
-| GET | `/rules/:id` | one rule (not built yet) |
-| PUT | `/rules/:id` | replace the document (not built yet) |
-| PATCH | `/rules/:id` | `{ enabled }` (not built yet) |
-| DELETE | `/rules/:id` | remove (not built yet) |
+| GET | `/rules/:id` | one rule |
+| PUT | `/rules/:id` | replace the document |
+| PATCH | `/rules/:id` | `{ enabled?, display? }` (`RULES.md`) |
+| DELETE | `/rules/:id` | remove, with its history |
 
 The contracts rules belong to are registered and read through
 `/contracts` (`CONTRACTS.md`).
@@ -470,9 +470,6 @@ Every answer from the stand-in is marked `simulated`.
    codes should replace them once its schema is published with them.
 2. **Tuple reads.** Whether `returns` may be omitted for a function
    that returns several values (WZ13 avoids depending on it).
-3. **Response mode.** Where the application reads the installation's
-   response mode from: the engine's control interface, a view, or its
-   own configuration.
 
 ## Implementation notes
 
