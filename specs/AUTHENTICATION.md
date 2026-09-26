@@ -84,12 +84,13 @@ yields no usable credential.
 | cookie name | `tripwire_session` |
 | attributes | `HttpOnly; SameSite=Lax; Path=/`, plus `Secure` when the request arrived over TLS |
 | browser lifetime | session cookie, no `Expires`; the server decides validity |
-| idle expiry | 7 days since last seen |
-| absolute expiry | 30 days since login |
+| expiry | 24 hours after login, regardless of activity; the user logs in again |
 | last-seen updates | at most once per 5 minutes per session, so a busy dashboard does not rewrite the file on every request |
 
-Both expiries are settings (`[auth] session_idle`, `[auth] session_max`)
-once the configuration file exists; until then they are constants.
+The lifetime is a setting (`[auth] session_max`, default `24h`) once the
+configuration file exists; until then it is a constant. There is no idle
+timer: a dashboard left open on a wall screen stays logged in for the
+day and asks for the password again the next morning.
 
 `SameSite=Lax` rather than `Strict` because a link to the dashboard from
 a chat alert must open logged in. Lax still withholds the cookie from
@@ -119,10 +120,11 @@ every MCP tool call is attributed to it.
 | on account removal | all of that account's tokens are revoked |
 
 There is one kind of token and no scopes. The MCP tool set is the scope:
-inspect contracts, read the rule schema and templates, dry-run drafts,
-create invariants, read violations. Invariants an agent creates land
-disabled and are enabled by a person in the dashboard, so a leaked token
-can draft but never arm.
+read contracts and the rules already on them, check draft rules against
+the engine, submit rules. Rules an agent submits land disabled and
+notify-only and are enabled by a person in the dashboard, so a leaked
+token can draft but never arm. The tool set itself is specified in
+`MCP-SERVER.md`.
 
 **How the agent connects.** The MCP server runs inside the application
 server at `/mcp` (streamable HTTP transport). An agent host that speaks
@@ -132,9 +134,9 @@ bridge that reads the token from `TRIPWIRE_MCP_TOKEN` (or the `[mcp]
 token` setting) and forwards to `/mcp`. Either way there is exactly one
 place the token is checked.
 
-Tool calls that create state record the token's label, which the
-invariants list shows in its "created via MCP" badge, so a person can
-tell which agent proposed what.
+Tool calls that create state record the token's label, which the rules
+list shows in its "created via MCP" badge, so a person can tell which
+agent proposed what.
 
 ## Routes
 
@@ -331,7 +333,7 @@ they would land in shell history.
 | AU6 | Plain HTTP off loopback | refused unless TLS or a declared proxy. Anything else ships passwords and tokens in the clear by default |
 | AU7 | HTTP Basic instead of a login form | No. Browsers cache Basic credentials with no way to log out, and the password would travel on every request |
 | AU8 | General API tokens for scripts | None. Scripts log in like a browser. One credential per kind of caller keeps the surface small; if a real need appears it is a separate decision |
-| AU9 | MCP token scopes | one kind, no scopes. The tool set is the scope and agent-created invariants land disabled, so the human gate does the work scopes would |
+| AU9 | MCP token scopes | one kind, no scopes. The tool set is the scope and agent-submitted rules land disabled and notify-only, so the human gate does the work scopes would |
 | AU10 | Where MCP tokens are checked | only at `/mcp`, and sessions are refused there. Each credential opens one door, so a token found in an agent's config cannot be replayed against the API |
 | AU11 | Roles | none; all accounts equal. Can follow if asked for |
 | AU12 | Second factor | not in this version. TOTP is the natural addition and nothing here precludes it |
@@ -354,6 +356,7 @@ session, and with a valid MCP token; the public list answers without
 one; `/mcp` answers `401` with a session cookie and `200` with a token;
 a revoked or expired token is refused on the next request; removing an
 account removes its tokens; logout and password change revoke as
-specified; cookie attributes are exactly as listed; files are created
-`0600` and a torn write leaves the previous file readable; the CLI
-commands round-trip against the same files.
+specified; a session is refused 24 hours after login even if it was
+used a minute earlier; cookie attributes are exactly as listed; files
+are created `0600` and a torn write leaves the previous file readable;
+the CLI commands round-trip against the same files.
