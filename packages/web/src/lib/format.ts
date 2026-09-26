@@ -1,3 +1,4 @@
+import { formatNumber } from "@tripwire/shared";
 import type { Contract } from "@tripwire/shared";
 
 const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
@@ -39,6 +40,22 @@ export function timeAgo(iso: string, now = Date.now()): string {
   if (seconds < 86_400) return `${Math.round(seconds / 3_600)}h ago`;
   if (seconds < 7 * 86_400) return `${Math.round(seconds / 86_400)}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+/** A raw read as the rule shows it: scaled and with its unit when set. */
+export function showValue(
+  raw: string,
+  display?: { decimals: number | null; unit: string | null },
+): string {
+  const whole = /^-?\d+$/.test(raw);
+  const scaled = !whole
+    ? /^-?\d+\.\d+$/.test(raw)
+      ? formatNumber(raw)
+      : raw
+    : display?.decimals != null
+      ? formatUnits(raw, display.decimals)
+      : formatBig(raw);
+  return display?.unit ? `${scaled} ${display.unit}` : scaled;
 }
 
 /**

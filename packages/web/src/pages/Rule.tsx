@@ -11,6 +11,8 @@ import {
   Switch,
   Tag,
 } from "../components/ui";
+import { RuleStatusTag } from "../components/RuleStatus";
+import { RuleValues } from "../components/RuleValues";
 import { ViolationList } from "../components/ViolationList";
 import {
   actions,
@@ -154,7 +156,7 @@ export function RulePage({ id }: { id: string }) {
             {typeof rule.origin === "object" && (
               <Tag tone="text-violet-300">Via {rule.origin.mcp}</Tag>
             )}
-            {rule.warming && <Tag tone="text-amber-400">Warming up</Tag>}
+            <RuleStatusTag status={rule.status} open={rule.openViolations} />
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -221,6 +223,8 @@ export function RulePage({ id }: { id: string }) {
           </span>
         </Fact>
       </dl>
+
+      <RuleValues rule={rule} violations={violations} />
 
       <section className="mb-12">
         <h2 className={heading}>How values show</h2>

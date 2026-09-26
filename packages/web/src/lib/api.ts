@@ -8,11 +8,16 @@ import type {
   EngineInfo,
   Issue,
   McpTokenSummary,
+  CheckNow,
+  CurrentValue,
   ResponseCounts,
   ResponseItem,
   ResponseTab,
   Rule,
   RuleChange,
+  RuleSeries,
+  SeriesWindow,
+  Sparkline,
   RuleCheck,
   SavedRule,
   SessionSummary,
@@ -134,6 +139,27 @@ export const api = {
     request<StoredRuleCheck>("/rules", { json: { rule } }),
   rule: (id: string, signal?: AbortSignal) =>
     request<SavedRule>(`/rules/${id}`, { signal }),
+  ruleSeries: (id: string, signal?: AbortSignal) =>
+    request<RuleSeries[]>(`/rules/${id}/series`, { signal }),
+  ruleCurrent: (id: string, signal?: AbortSignal) =>
+    request<CurrentValue[]>(`/rules/${id}/current`, { signal }),
+  checkNow: (id: string) =>
+    request<CheckNow>(`/rules/${id}/check`, { method: "POST" }),
+  seriesWindow: (
+    id: string,
+    window: { from: string; to: string; points?: number },
+    signal?: AbortSignal,
+  ) =>
+    request<SeriesWindow>(
+      `/series/${id}/points?${new URLSearchParams({
+        from: window.from,
+        to: window.to,
+        ...(window.points ? { points: String(window.points) } : {}),
+      }).toString()}`,
+      { signal },
+    ),
+  sparklines: (ruleIds: string[], signal?: AbortSignal) =>
+    request<Sparkline[]>(`/sparklines?rules=${ruleIds.join(",")}`, { signal }),
   checkReplacement: (id: string, rule: Rule, signal?: AbortSignal) =>
     request<RuleCheck>(`/rules/${id}`, {
       method: "PUT",

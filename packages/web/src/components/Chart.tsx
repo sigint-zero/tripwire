@@ -1,0 +1,499 @@
+import type {
+  BoolNode,
+  RuleSeries,
+  SavedRule,
+  SeriesWindow,
+  ValueNode,
+  Violation,
+} from "@tripwire/shared";
+import { useQueries } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../lib/api";
+import { formatBig, showValue } from "../lib/format";
+import { choice, track } from "./ui";
+
+// A rule's recorded values over a window, drawn by hand in SVG. Each
+// stretch's low-to-high range sits faint behind the line through its last
+// values, so a one-block spike stays visible at any zoom. Values arrive as
+// exact decimal strings; they become numbers only to be placed, and every
+// label shows the string.
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+export const WINDOWS = [
+  { key: "1h", title: "1h", ms: HOUR },
+  { key: "24h", title: "24h", ms: DAY },
+  { key: "7d", title: "7d", ms: 7 * DAY },
+  { key: "30d", title: "30d", ms: 30 * DAY },
+  { key: "90d", title: "90d", ms: 90 * DAY },
+  { key: "all", title: "All", ms: 5 * 365 * DAY },
+] as const;
+type WindowKey = (typeof WINDOWS)[number]["key"];
+const STORED = "tripwire.chartWindow";
+const COLOURS = ["#34d399", "#38bdf8", "#a78bfa", "#fbbf24"];
+const OPS: Record<string, string> = {
+  lt: "<",
+  le: "≤",
+  gt: ">",
+  ge: "≥",
+  eq: "=",
+  ne: "≠",
+};
+const FLIP: Record<string, string> = {
+  lt: "gt",
+  le: "ge",
+  gt: "lt",
+  ge: "le",
+  eq: "eq",
+  ne: "ne",
+};
+
+interface Sample {
+  t: number;
+  last: string;
+  min: string;
+  max: string;
+  block?: number;
+  count?: number;
+}
+
+function samplesOf(window: SeriesWindow | undefined): Sample[] {
+  if (!window) return [];
+  if ("points" in window) {
+    return window.points.map((p) => ({
+      t: Date.parse(p.blockTime),
+      last: p.value,
+      min: p.value,
+      max: p.value,
+      block: p.blockNumber,
+    }));
+  }
+  return window.buckets.map((b) => ({
+    t: Date.parse(b.start),
+    last: b.last,
+    min: b.min,
+    max: b.max,
+    count: b.count,
+  }));
+}
+
+const sameCall = (node: ValueNode, s: RuleSeries, contract: string) =>
+  node.node === "view_call" &&
+  s.role === "read" &&
+  (node.address ?? contract).toLowerCase() === s.call.address.toLowerCase() &&
+  node.function === s.call.function &&
+  JSON.stringify(node.args) === JSON.stringify(s.call.args) &&
+  (node.returns ?? 0) === (s.call.returns ?? 0);
+
+interface Threshold {
+  seriesId: string;
+  value: string;
+  label: string;
+}
+
+interface Band {
+  centerId: string;
+  percent: number;
+  sides: "both" | "above" | "below";
+}
+
+/** Horizontal lines where a read is compared with a literal, and bands. */
+function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
+  const thresholds: Threshold[] = [];
+  const bands: Band[] = [];
+  const contract = rule.rule.contract;
+  const visit = (n: BoolNode) => {
+    if (n === true) return;
+    switch (n.node) {
+      case "compare": {
+        const sides: [ValueNode, ValueNode, string][] = [
+          [n.left, n.right, n.op],
+          [n.right, n.left, FLIP[n.op]!],
+        ];
+        for (const [read, other, op] of sides) {
+          if (other.node !== "literal") continue;
+          const s = series.find((x) => sameCall(read, x, contract));
+          if (s) {
+            thresholds.push({
+              seriesId: s.id,
+              value: other.value,
+              label: `${OPS[op]} ${showValue(other.value, rule.display)}`,
+            });
+          }
+        }
+        return;
+      }
+      case "deviation_band": {
+        const center = n.center;
+        if (center.node !== "metric") return;
+        const s = series.find(
+          (x) =>
+            x.role === "metric" &&
+            x.metric === center.metric &&
+            (x.windowSeconds ?? null) === (center.window?.seconds ?? null),
+        );
+        if (s) {
+          bands.push({
+            centerId: s.id,
+            percent: Number(n.tolerance_percent),
+            sides: n.sides,
+          });
+        }
+        return;
+      }
+      case "and":
+      case "or":
+        n.terms.forEach(visit);
+        return;
+      case "not":
+        visit(n.expr);
+        return;
+      default:
+        return;
+    }
+  };
+  visit(rule.rule.trip_when);
+  return { thresholds, bands };
+}
+
+/** A series' name in the legend: its function, and the metric over it. */
+function nameOf(s: RuleSeries) {
+  const fn = s.call.function.replace(/ returns \(.*\)$/, "");
+  return s.metric ? `${s.metric} of ${fn}` : fn;
+}
+
+const minute = () => Math.ceil(Date.now() / 60_000) * 60_000;
+
+/**
+ * Now, a minute at a time: the window runs to now, and its edges move
+ * only once a minute so the query keys stay put between refetches.
+ */
+function useMinute() {
+  const [now, setNow] = useState(minute);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(minute()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+function storedWindow(): WindowKey {
+  const saved = localStorage.getItem(STORED);
+  return WINDOWS.some((w) => w.key === saved) ? (saved as WindowKey) : "24h";
+}
+
+export function Chart({
+  rule,
+  series,
+  violations,
+}: {
+  rule: SavedRule;
+  series: RuleSeries[];
+  violations?: Violation[];
+}) {
+  const [windowKey, setWindowKey] = useState<WindowKey>(storedWindow);
+  const span = WINDOWS.find((w) => w.key === windowKey)!.ms;
+  const to = useMinute();
+  const from = to - span;
+  const windows = useQueries({
+    queries: series.map((s) => ({
+      queryKey: ["series", s.id, windowKey, to],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.seriesWindow(
+          s.id,
+          {
+            from: new Date(from).toISOString(),
+            to: new Date(to).toISOString(),
+          },
+          signal,
+        ),
+      refetchInterval: 60_000,
+      placeholderData: (previous: SeriesWindow | undefined) => previous,
+    })),
+  });
+  const lines = series.map((s, i) => ({
+    series: s,
+    colour: COLOURS[i % COLOURS.length]!,
+    samples: samplesOf(windows[i]?.data),
+  }));
+  const { thresholds, bands } = useMemo(
+    () => overlaysOf(rule, series),
+    [rule, series],
+  );
+
+  const all = lines.flatMap((l) => l.samples);
+  // A window longer than the series starts where the series starts.
+  const start = all.length
+    ? Math.max(from, Math.min(...all.map((s) => s.t)))
+    : from;
+  const values = [
+    ...all.flatMap((s) => [Number(s.min), Number(s.max)]),
+    ...thresholds.map((t) => Number(t.value)),
+  ];
+  const low = values.length ? Math.min(...values) : 0;
+  const high = values.length ? Math.max(...values) : 1;
+  // Labels show the exact recorded strings, never a float turned back.
+  const highest = all.reduce<string | null>(
+    (best, s) => (best === null || Number(s.max) > Number(best) ? s.max : best),
+    null,
+  );
+  const lowest = all.reduce<string | null>(
+    (best, s) => (best === null || Number(s.min) < Number(best) ? s.min : best),
+    null,
+  );
+  const pad = (high - low) * 0.08 || Math.abs(high) * 0.01 || 1;
+  const yLow = low - pad;
+  const yHigh = high + pad;
+
+  const W = 800;
+  const H = 220;
+  const x = (t: number) => ((t - start) / (to - start || 1)) * W;
+  const y = (v: number) => H - ((v - yLow) / (yHigh - yLow)) * H;
+
+  /** The line, broken where points are more than three times their usual gap apart. */
+  const pathOf = (samples: Sample[], pick: (s: Sample) => number) => {
+    const gaps = samples.slice(1).map((s, i) => s.t - samples[i]!.t);
+    const usual =
+      [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)] ?? 0;
+    return samples
+      .map((s, i) => {
+        const broken = i === 0 || (usual > 0 && gaps[i - 1]! > usual * 3);
+        return `${broken ? "M" : "L"}${x(s.t).toFixed(1)},${y(pick(s)).toFixed(1)}`;
+      })
+      .join("");
+  };
+  const rangeOf = (samples: Sample[]) =>
+    samples.length < 2
+      ? ""
+      : samples
+          .map((s, i) => `${i ? "L" : "M"}${x(s.t)},${y(Number(s.max))}`)
+          .join("") +
+        [...samples]
+          .reverse()
+          .map((s) => `L${x(s.t)},${y(Number(s.min))}`)
+          .join("") +
+        "Z";
+
+  const box = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<number | null>(null);
+  const nearest = (samples: Sample[], t: number) =>
+    samples.reduce<Sample | null>(
+      (best, s) =>
+        !best || Math.abs(s.t - t) < Math.abs(best.t - t) ? s : best,
+      null,
+    );
+  const marks = (violations ?? []).filter((v) => {
+    const t = Date.parse(v.blockTime);
+    return t >= start && t <= to;
+  });
+  const loading = windows.some((w) => w.isPending);
+  const resolution = windows.find((w) => w.data)?.data?.resolution;
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-4 text-xs text-gray-400">
+          {lines.map((l) => (
+            <span key={l.series.id} className="flex items-center gap-2">
+              <span className="h-0.5 w-4" style={{ background: l.colour }} />
+              <code className="font-mono">{nameOf(l.series)}</code>
+            </span>
+          ))}
+        </div>
+        <div className={track}>
+          {WINDOWS.map((w) => (
+            <button
+              key={w.key}
+              type="button"
+              onClick={() => {
+                localStorage.setItem(STORED, w.key);
+                setWindowKey(w.key);
+              }}
+              className={choice(windowKey === w.key)}
+            >
+              {w.title}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        ref={box}
+        className="relative bg-black/30"
+        onMouseMove={(e) => {
+          const r = box.current!.getBoundingClientRect();
+          setHover(start + ((e.clientX - r.left) / r.width) * (to - start));
+        }}
+        onMouseLeave={() => setHover(null)}
+      >
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          className="block h-56 w-full"
+          aria-label="Chart of the rule's values"
+        >
+          {bands.map((b) => {
+            const center = lines.find((l) => l.series.id === b.centerId);
+            if (!center) return null;
+            const f = b.percent / 100;
+            const edge = (k: number) =>
+              pathOf(center.samples, (s) => Number(s.last) * k);
+            return (
+              <g key={b.centerId} opacity={0.5}>
+                {b.sides !== "below" && (
+                  <path
+                    d={edge(1 + f)}
+                    fill="none"
+                    stroke={center.colour}
+                    strokeDasharray="4 4"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+                {b.sides !== "above" && (
+                  <path
+                    d={edge(1 - f)}
+                    fill="none"
+                    stroke={center.colour}
+                    strokeDasharray="4 4"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+              </g>
+            );
+          })}
+          {lines.map((l) => (
+            <g key={l.series.id}>
+              <path d={rangeOf(l.samples)} fill={l.colour} opacity={0.12} />
+              <path
+                d={pathOf(l.samples, (s) => Number(s.last))}
+                fill="none"
+                stroke={l.colour}
+                strokeWidth={1.5}
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          ))}
+          {thresholds.map((t) => (
+            <line
+              key={`${t.seriesId}:${t.value}`}
+              x1={0}
+              x2={W}
+              y1={y(Number(t.value))}
+              y2={y(Number(t.value))}
+              stroke="#f87171"
+              strokeDasharray="6 4"
+              opacity={0.7}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {hover !== null && (
+            <line
+              x1={x(hover)}
+              x2={x(hover)}
+              y1={0}
+              y2={H}
+              stroke="white"
+              opacity={0.15}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+
+        {/* Violations along the bottom: filled tripped, amber errors, hollow pending. */}
+        {marks.map((v) => (
+          <span
+            key={v.id}
+            title={`${v.kind === "tripped" ? "Tripped" : v.kind === "pending" ? "Pending" : "Error"} at block ${formatBig(String(v.blockNumber))}`}
+            className={`absolute bottom-1 size-1.5 -translate-x-1/2 ${
+              v.kind === "tripped"
+                ? "bg-red-500"
+                : v.kind === "pending"
+                  ? "border border-sky-400"
+                  : "bg-amber-400"
+            }`}
+            style={{ left: `${(x(Date.parse(v.blockTime)) / W) * 100}%` }}
+          />
+        ))}
+
+        {thresholds.map((t) => (
+          <span
+            key={`${t.seriesId}:${t.value}:label`}
+            className="absolute right-2 -translate-y-full font-mono text-[10px] text-red-400/80"
+            style={{ top: `${(y(Number(t.value)) / H) * 100}%` }}
+          >
+            {t.label}
+          </span>
+        ))}
+
+        {/* The highest and lowest recorded values, at their own heights. */}
+        {highest !== null && (
+          <span
+            className="absolute left-2 -translate-y-full font-mono text-[10px] text-gray-500"
+            style={{ top: `${(y(Number(highest)) / H) * 100}%` }}
+          >
+            {showValue(highest, rule.display)}
+          </span>
+        )}
+        {lowest !== null && lowest !== highest && (
+          <span
+            className="absolute left-2 font-mono text-[10px] text-gray-500"
+            style={{ top: `${(y(Number(lowest)) / H) * 100}%` }}
+          >
+            {showValue(lowest, rule.display)}
+          </span>
+        )}
+
+        {hover !== null && all.length > 0 && (
+          <div
+            className="pointer-events-none absolute top-2 z-10 min-w-48 bg-panel px-3 py-2 text-xs shadow-lg shadow-black/50"
+            style={
+              x(hover) > W / 2
+                ? { right: `${100 - (x(hover) / W) * 100 + 1}%` }
+                : { left: `${(x(hover) / W) * 100 + 1}%` }
+            }
+          >
+            {lines.map((l) => {
+              const s = nearest(l.samples, hover);
+              if (!s) return null;
+              return (
+                <div key={l.series.id} className="py-0.5">
+                  <p className="font-mono text-white">
+                    <span style={{ color: l.colour }}>■</span>{" "}
+                    {showValue(s.last, rule.display)}
+                  </p>
+                  {s.count !== undefined && s.min !== s.max && (
+                    <p className="font-mono text-gray-500">
+                      {showValue(s.min, rule.display)} –{" "}
+                      {showValue(s.max, rule.display)}
+                    </p>
+                  )}
+                  <p className="text-gray-500">
+                    {s.block !== undefined
+                      ? `Block ${formatBig(String(s.block))} · `
+                      : `${s.count} ${s.count === 1 ? "block" : "blocks"} from `}
+                    {new Date(s.t).toLocaleString()}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {!loading && all.length === 0 && (
+          <p className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">
+            Nothing recorded in this window.
+          </p>
+        )}
+      </div>
+      <p className="mt-2 flex justify-between font-mono text-[10px] text-gray-600">
+        <span>{new Date(start).toLocaleString()}</span>
+        {resolution && resolution !== "block" && (
+          <span title="Each stretch shows its low and high behind the line">
+            {resolution} a stretch
+          </span>
+        )}
+        <span>now</span>
+      </p>
+    </div>
+  );
+}

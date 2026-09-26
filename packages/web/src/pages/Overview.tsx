@@ -1,12 +1,17 @@
-import type { SavedRule, Violation } from "@tripwire/shared";
+import type {
+  SavedRule,
+  Sparkline as SparklineData,
+  Violation,
+} from "@tripwire/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
+import { Sparkline } from "../components/Sparkline";
 import { EmptyState } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import { api } from "../lib/api";
-import { timeAgo } from "../lib/format";
+import { showValue, timeAgo } from "../lib/format";
 
 const heading =
   "mb-4 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
@@ -29,6 +34,12 @@ export function OverviewPage() {
   const { data: pinned } = useQuery({
     queryKey: ["pinned"],
     queryFn: ({ signal }) => api.pinnedRules(signal),
+  });
+  const { data: sparklines } = useQuery({
+    queryKey: ["sparklines", pinned ?? []],
+    queryFn: ({ signal }) => api.sparklines(pinned ?? [], signal),
+    enabled: (pinned?.length ?? 0) > 0,
+    refetchInterval: 60_000,
   });
   const { data: engine } = useQuery({
     queryKey: ["engine"],
@@ -126,6 +137,7 @@ export function OverviewPage() {
               <PinnedRule
                 key={rule.id}
                 rule={rule}
+                line={sparklines?.find((s) => s.ruleId === rule.id)}
                 open={open?.filter((v) => v.ruleId === rule.id) ?? []}
               />
             ))}
@@ -164,8 +176,17 @@ function Count({
   );
 }
 
-function PinnedRule({ rule, open }: { rule: SavedRule; open: Violation[] }) {
+function PinnedRule({
+  rule,
+  open,
+  line,
+}: {
+  rule: SavedRule;
+  open: Violation[];
+  line?: SparklineData;
+}) {
   const latest = open[0];
+  const value = line?.buckets.at(-1)?.last;
   return (
     <li>
       <Link
@@ -182,15 +203,31 @@ function PinnedRule({ rule, open }: { rule: SavedRule; open: Violation[] }) {
         <p className="mt-1 line-clamp-2 font-mono text-xs text-gray-400">
           {rule.sentence}
         </p>
+        {line && (
+          <div className="mt-3 flex items-end justify-between gap-4">
+            <Sparkline
+              buckets={line.buckets}
+              alert={rule.status === "tripped"}
+              className="h-10 min-w-0 flex-1"
+            />
+            {value && (
+              <span className="shrink-0 font-mono text-sm text-white tabular-nums">
+                {showValue(value, rule.display)}
+              </span>
+            )}
+          </div>
+        )}
         <p className="mt-3 text-xs text-gray-500">
           {latest ? (
             <span className="text-red-400">
               {open.length} open · tripped {timeAgo(latest.blockTime)}
             </span>
-          ) : rule.enabled ? (
-            "Holding"
-          ) : (
+          ) : !rule.enabled ? (
             "Off"
+          ) : rule.status === "warming" ? (
+            <span className="text-amber-400/80">Warming up</span>
+          ) : (
+            "Holding"
           )}
         </p>
       </Link>
