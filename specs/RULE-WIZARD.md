@@ -330,18 +330,23 @@ and shows a "created via MCP" badge until a person enables it.
 
 ## Editing
 
-Not built yet. Opening an existing rule starts the wizard at the rule
-section with its contract, document and name loaded. The starting point
-is recovered by asking each one whether it can read the document back
-into blanks; a document no starting point recognises opens in JSON
-mode. Saving an edit goes through the engine, which re-validates the
-document and keeps the rule's identity and history.
+Opening an existing rule starts the wizard at the rule section with
+every section filled in: its contract, blanks, response, name and
+description. The contract cannot change; a rule stays on its own. The
+starting point is recovered by asking each one to read the document
+back into blanks, and keeping the first whose blanks name what the
+contract still offers and build the same document again; a document no
+starting point recognises opens in JSON mode. The check treats the rule
+as a replacement, so it is not its own duplicate, and Save stays off
+until something has changed. Saving goes through the engine, which
+re-validates the document and keeps the rule's identity and history.
 
-**JSON mode.** An alternative to the sentence in the rule section: the
-document as editable JSON, validated as it is typed with problems shown
-against their path. It is how rules outside the starting points are
-written, and how a rule exported from one installation is pasted into
-another.
+**JSON mode.** The document as editable JSON, laid out to read
+top-down and validated as it is typed, with problems shown against
+their path and the engine's sentence once it is valid. Editing uses it
+for rules outside the starting points; as an alternative to the
+sentence when creating a rule, and for pasting a rule exported from
+another installation, it is not built yet.
 
 ## Units
 

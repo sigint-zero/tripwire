@@ -16,12 +16,15 @@ export function ContractPicker({
   loaded,
   chain,
   onSelect,
+  locked = false,
 }: {
   contracts: Contract[];
   selected: string | null;
   loaded: LoadedContract | null;
   chain: string | null;
   onSelect: (address: string) => void;
+  /** Shows only the selected contract: a stored rule stays on its own. */
+  locked?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const none = contracts.length === 0;
@@ -34,13 +37,18 @@ export function ContractPicker({
     <div className="space-y-8">
       {!none && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {contracts.map((contract) => {
+          {(locked
+            ? contracts.filter((c) => c.address === selected)
+            : contracts
+          ).map((contract) => {
             const active = contract.address === selected && !adding;
             return (
               <button
                 key={contract.address}
                 type="button"
                 aria-pressed={active}
+                disabled={locked}
+                title={locked ? "A rule stays on its contract" : undefined}
                 onClick={() => choose(contract.address)}
                 className={`group relative flex flex-col gap-2 overflow-hidden p-4 text-left transition-colors ${
                   active ? "bg-emerald-500/10" : "bg-white/3 hover:bg-white/5"
@@ -69,21 +77,26 @@ export function ContractPicker({
               </button>
             );
           })}
-          <button
-            type="button"
-            aria-expanded={adding}
-            onClick={() => setAdding(!adding)}
-            className={`flex items-center justify-center gap-2 p-4 text-[10px] font-bold tracking-[0.2em] uppercase transition-colors ${
-              adding
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
-            }`}
-          >
-            <span aria-hidden className="text-sm leading-none text-emerald-400">
-              +
-            </span>
-            Add a contract
-          </button>
+          {!locked && (
+            <button
+              type="button"
+              aria-expanded={adding}
+              onClick={() => setAdding(!adding)}
+              className={`flex items-center justify-center gap-2 p-4 text-[10px] font-bold tracking-[0.2em] uppercase transition-colors ${
+                adding
+                  ? "bg-emerald-500/10 text-emerald-400"
+                  : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
+              }`}
+            >
+              <span
+                aria-hidden
+                className="text-sm leading-none text-emerald-400"
+              >
+                +
+              </span>
+              Add a contract
+            </button>
+          )}
         </div>
       )}
 
@@ -97,7 +110,7 @@ export function ContractPicker({
       ) : (
         loaded && (
           <div className="space-y-4">
-            {!loaded.active && (
+            {!loaded.active && !locked && (
               <p className="text-xs text-amber-400">
                 This contract is disabled, so a rule added to it starts disabled
                 too.

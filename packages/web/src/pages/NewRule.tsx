@@ -17,7 +17,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
@@ -38,6 +38,7 @@ import { shortAddress } from "../lib/format";
 import {
   initialValues,
   rankTemplates,
+  sameDocument,
   templates,
   type Values,
 } from "../lib/templates";
@@ -49,26 +50,49 @@ const steps = [
   { title: "Review", hint: "Name it and switch it on." },
 ];
 
-/** The wizard; `contract` preselects a registered contract. */
-export function NewRulePage({ contract: initial }: { contract?: string }) {
+/** A stored rule opened in the wizard, read back into a starting point. */
+export interface Editing {
+  id: string;
+  rule: Rule;
+  templateId: string;
+  values: Values;
+}
+
+/**
+ * The wizard; `contract` preselects a registered contract. With `editing`
+ * it opens a stored rule with every section filled in, and saving
+ * replaces the rule's document.
+ */
+export function NewRulePage({
+  contract: initial,
+  editing,
+}: {
+  contract?: string;
+  editing?: Editing;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(
-    initial?.toLowerCase() ?? null,
+    (editing?.rule.contract ?? initial)?.toLowerCase() ?? null,
   );
-  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState<string | null>(
+    editing?.templateId ?? null,
+  );
   // Blanks are kept per template, so trying another preset and coming back
   // does not lose what was filled in.
   const [valuesByTemplate, setValuesByTemplate] = useState<
     Record<string, Values>
-  >({});
-  const [name, setName] = useState<string | null>(null);
-  const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState<Severity | null>(null);
-  const [onTrip, setOnTrip] = useState<OnTrip>({
-    action: "notify",
-    cooldown_seconds: 300,
-  });
+  >(editing ? { [editing.templateId]: editing.values } : {});
+  const [name, setName] = useState<string | null>(editing?.rule.name ?? null);
+  const [description, setDescription] = useState(
+    editing?.rule.description ?? "",
+  );
+  const [severity, setSeverity] = useState<Severity | null>(
+    editing?.rule.severity ?? null,
+  );
+  const [onTrip, setOnTrip] = useState<OnTrip>(
+    editing?.rule.on_trip ?? { action: "notify", cooldown_seconds: 300 },
+  );
 
   const { data: engine } = useQuery({
     queryKey: ["engine"],
@@ -89,8 +113,11 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
     (template && valuesByTemplate[template.id]) ||
     (template && surface ? initialValues(template, surface) : {});
 
+  // A new rule takes its name and severity from the template; an edited
+  // one keeps its own.
   const selectTemplate = (id: string) => {
     setTemplateId(id);
+    if (editing) return;
     setName(null);
     setSeverity(null);
   };
@@ -140,27 +167,40 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
           ]
         : comparedValues(trip).map((v) => describeValue(v, readName));
 
+  const unchanged = !!editing && !!rule && sameDocument(rule, editing.rule);
   const create = useMutation({
-    mutationFn: () => api.createRule(rule!),
-    onSuccess: async (created) => {
+    mutationFn: () =>
+      editing ? api.replaceRule(editing.id, rule!) : api.createRule(rule!),
+    onSuccess: async (stored) => {
       await queryClient.invalidateQueries({ queryKey: ["rules"] });
       await queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      await navigate({ to: "/rules", search: { created: created.id } });
+      if (editing) {
+        await queryClient.invalidateQueries({ queryKey: ["rule", editing.id] });
+        await navigate({ to: "/rules/$id", params: { id: editing.id } });
+      } else {
+        await navigate({ to: "/rules", search: { created: stored.id } });
+      }
     },
   });
 
   // Sections open one after another as the user continues, and stay open
-  // so any of them can be revisited by scrolling.
-  const [revealed, setRevealed] = useState(0);
+  // so any of them can be revisited by scrolling. An edited rule has them
+  // all.
+  const [revealed, setRevealed] = useState(editing ? steps.length - 1 : 0);
   // The rule section opens as soon as the contract loads.
   const open = Math.max(revealed, contract ? 1 : 0);
   const [active, setActive] = useState(0);
   const sections = useRef<(HTMLElement | null)[]>([]);
 
-  // The engine's own reading of the rule, once there is something to review.
+  // The engine's own reading of the rule, once there is something to review;
+  // an edited rule is not its own duplicate.
+  const replacing = editing?.id;
   const check = useQuery({
-    queryKey: ["rule-check", rule],
-    queryFn: ({ signal }) => api.checkRule(rule!, signal),
+    queryKey: ["rule-check", rule, replacing],
+    queryFn: ({ signal }) =>
+      replacing
+        ? api.checkReplacement(replacing, rule!, signal)
+        : api.checkRule(rule!, signal),
     enabled: !!rule && open >= 3,
     placeholderData: keepPreviousData,
   });
@@ -188,6 +228,16 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
     });
   };
 
+  // An edit starts at the rule, once everything above it has loaded.
+  const startedAtRule = useRef(false);
+  useEffect(() => {
+    if (!editing || !surface || !contracts || startedAtRule.current) return;
+    startedAtRule.current = true;
+    requestAnimationFrame(() =>
+      sections.current[1]?.scrollIntoView({ block: "start" }),
+    );
+  }, [editing, surface, contracts]);
+
   // Changing the contract invalidates everything chosen after it.
   const resetFromContract = () => {
     setTemplateId(null);
@@ -201,8 +251,9 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
     !!contract,
     !!watch && !watchProblem,
     !!watch && !issueAt("/on_trip"),
-    // An identical rule would be refused, so there is nothing to create.
-    !!rule && !check.data?.duplicateOf,
+    // An identical rule would be refused, so there is nothing to create;
+    // an edit that changes nothing has nothing to save.
+    !!rule && !check.data?.duplicateOf && !unchanged,
   ];
 
   const continueFrom = (index: number) => {
@@ -244,8 +295,17 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
   return (
     <div className="pb-[40vh]">
       <header className="mb-6">
+        {editing && (
+          <Link
+            to="/rules/$id"
+            params={{ id: editing.id }}
+            className="mb-4 inline-block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-emerald-400"
+          >
+            ← {editing.rule.name}
+          </Link>
+        )}
         <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
-          Create a rule
+          {editing ? "Edit the rule" : "Create a rule"}
         </h1>
       </header>
 
@@ -268,6 +328,7 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
               selected={selected}
               loaded={contract}
               chain={chain}
+              locked={!!editing}
               onSelect={(address) => {
                 if (address !== selected) resetFromContract();
                 setSelected(address);
@@ -360,16 +421,23 @@ export function NewRulePage({ contract: initial }: { contract?: string }) {
                   ["Response", describeOnTrip(onTrip)],
                 ]}
                 check={rule ? check.data : undefined}
-                startsDisabled={contract?.active === false}
+                startsDisabled={!editing && contract?.active === false}
                 json={draft}
                 error={create.error}
               />
               <div className="mt-10 flex justify-end">
                 <Button
                   disabled={!ready[3] || create.isPending}
+                  title={unchanged ? "Nothing has changed yet" : undefined}
                   onClick={() => create.mutate()}
                 >
-                  {create.isPending ? "Creating…" : "Create rule"}
+                  {editing
+                    ? create.isPending
+                      ? "Saving…"
+                      : "Save changes"
+                    : create.isPending
+                      ? "Creating…"
+                      : "Create rule"}
                 </Button>
               </div>
             </>

@@ -2,7 +2,7 @@ import type { RuleDisplay, SavedRule } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Button, EmptyState, Switch, Tag } from "../components/ui";
+import { Button, buttonClass, EmptyState, Switch, Tag } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import {
   actions,
@@ -135,6 +135,13 @@ export function RulePage({ id }: { id: string }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <Link
+            to="/rules/$id/edit"
+            params={{ id }}
+            className={buttonClass("ghost")}
+          >
+            Edit
+          </Link>
           <Button
             variant="ghost"
             disabled={pin.isPending || pinned === undefined}

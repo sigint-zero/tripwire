@@ -9,6 +9,7 @@ import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
 import { ContractPage } from "./pages/Contract";
 import { ContractsPage } from "./pages/Contracts";
+import { EditRulePage } from "./pages/EditRule";
 import { FirstRunPage } from "./pages/FirstRun";
 import { NewRulePage } from "./pages/NewRule";
 import { NotFoundPage } from "./pages/NotFound";
@@ -89,6 +90,15 @@ const ruleRoute = createRoute({
   },
 });
 
+const editRuleRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/rules/$id/edit",
+  component: function EditRule() {
+    const { id } = editRuleRoute.useParams();
+    return <EditRulePage key={id} id={id} />;
+  },
+});
+
 const violationsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/violations",
@@ -133,6 +143,7 @@ const routeTree = rootRoute.addChildren([
     rulesRoute,
     newRuleRoute,
     ruleRoute,
+    editRuleRoute,
     violationsRoute,
     responsesRoute,
     activityRoute,

@@ -5,7 +5,7 @@ import type {
   ValueNode,
   ViewCall,
 } from "@tripwire/shared";
-import { parseReadableId, type ContractSurface } from "./abi";
+import { parseReadableId, readableId, type ContractSurface } from "./abi";
 
 // Starting points for rules. Each is a sentence with blanks that says what
 // must stay true, and turns the filled-in blanks into the rule's trigger and
@@ -41,6 +41,12 @@ export interface Template {
   fields: Field[];
   sentence: Part[];
   build: (values: Values) => Watch | null;
+  /**
+   * The blanks a document was built from, if it has this template's shape.
+   * A loose reading: `recoverTemplate` keeps it only when building from it
+   * gives the same document back.
+   */
+  readBack: (watch: Watch) => Values | null;
   defaultName: (values: Values, labelOf: (id: string) => string) => string;
 }
 
@@ -97,6 +103,35 @@ function fraction(percent: number): string {
   return `${digits.slice(0, -2)}.${digits.slice(-2)}`.replace(/\.?0+$/, "");
 }
 
+/** A read's blank: "totalSupply() returns (uint256)", with "#1" for an output. */
+function callId(node: unknown): string | null {
+  const n = node as Partial<ViewCall> | null;
+  if (n?.node !== "view_call" || n.address || n.args?.length || !n.function) {
+    return null;
+  }
+  return readableId(n.function, n.returns);
+}
+
+/** A read, or a typed number, as its blank. */
+function valueId(node: unknown): string | null {
+  const n = node as { node?: string; value?: string } | null;
+  if (n?.node === "literal" && n.value !== undefined) {
+    return `${NUMBER_PREFIX}${n.value}`;
+  }
+  return callId(node);
+}
+
+type Node = Record<string, unknown> & { node?: string };
+const asNode = (value: unknown): Node =>
+  value && typeof value === "object" ? (value as Node) : {};
+const text = (value: unknown) => (typeof value === "string" ? value : null);
+const seconds = (window: unknown) =>
+  String((window as { seconds?: number } | undefined)?.seconds ?? "");
+const only = (values: Record<string, string | null>): Values | null =>
+  Object.values(values).every((v) => v !== null && v !== "")
+    ? (values as Values)
+    : null;
+
 const SUPPLY = [/^totalSupply$/i, /supply/i];
 const ASSETS = [/^totalAssets$/i, /assets|reserve|balance|tvl/i];
 // Cumulative accumulators (e.g. price0CumulativeLast) are not prices.
@@ -138,6 +173,10 @@ export const templates: Template[] = [
         when: "every_block",
         trip_when: { node: "compare", op: "lt", left, right },
       };
+    },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      return only({ value: callId(t.left), floor: valueId(t.right) });
     },
     defaultName: (v, label) => `${label(v.value ?? "")} floor`,
   },
@@ -187,6 +226,14 @@ export const templates: Template[] = [
           sides: "both",
         },
       };
+    },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      return only({
+        value: callId(t.value),
+        percent: text(t.tolerance_percent),
+        window: seconds(asNode(t.center).window),
+      });
     },
     defaultName: (v, label) => `${label(v.value ?? "")} stability`,
   },
@@ -239,6 +286,16 @@ export const templates: Template[] = [
         },
       };
     },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      const left = asNode(t.left);
+      const limit = Number(asNode(asNode(t.right).right).value) * 100;
+      return only({
+        value: callId(left.of),
+        percent: Number.isInteger(limit) ? String(limit) : null,
+        window: seconds(left.window),
+      });
+    },
     defaultName: (v, label) => `${label(v.value ?? "")} growth limit`,
   },
   {
@@ -286,6 +343,15 @@ export const templates: Template[] = [
         },
       };
     },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      const left = asNode(t.left);
+      return only({
+        value: callId(left.of),
+        percent: text(asNode(t.right).value),
+        window: seconds(left.window),
+      });
+    },
     defaultName: (v, label) => `${label(v.value ?? "")} outflow limit`,
   },
   {
@@ -329,6 +395,13 @@ export const templates: Template[] = [
         },
       };
     },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      return only({
+        timestamp: callId(asNode(t.left).right),
+        window: text(asNode(t.right).value),
+      });
+    },
     defaultName: () => "Feed freshness",
   },
   {
@@ -351,6 +424,9 @@ export const templates: Template[] = [
     build(v) {
       if (!v.event) return null;
       return { when: { event: v.event }, trip_when: true };
+    },
+    readBack({ when }) {
+      return typeof when === "object" ? only({ event: when.event }) : null;
     },
     defaultName: (v) => `No ${(v.event ?? "event").replace(/\(.*$/, "")}`,
   },
@@ -381,6 +457,14 @@ export const templates: Template[] = [
         when: "every_block",
         trip_when: { node: "compare", op: op.trips, left, right },
       };
+    },
+    readBack({ trip_when }) {
+      const t = asNode(trip_when);
+      return only({
+        left: callId(t.left),
+        op: compareOps.find((o) => o.trips === t.op)?.op ?? null,
+        right: valueId(t.right),
+      });
     },
     defaultName: (v, label) => `${label(v.left ?? "")} check`,
   },
@@ -486,4 +570,58 @@ export function rankTemplates(surface: ContractSurface): RankedTemplate[] {
         Number(b.available) - Number(a.available) ||
         Number(b.suggested) - Number(a.suggested),
     );
+}
+
+/** Sorted keys, so two documents compare by content. */
+function stable(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+            a.localeCompare(b),
+          ),
+        )
+      : v,
+  );
+}
+
+/** Whether two rule documents say the same, whatever their key order. */
+export function sameDocument(a: unknown, b: unknown): boolean {
+  return stable(a) === stable(b);
+}
+
+/**
+ * The starting point a stored rule was built from, with its blanks filled
+ * back in: the first template that reads the document back into blanks
+ * this contract offers, and builds the same document from them. Null when
+ * none does, and the rule is edited as JSON.
+ */
+export function recoverTemplate(
+  watch: Watch,
+  surface: ContractSurface,
+): { template: Template; values: Values } | null {
+  const target = stable({ when: watch.when, trip_when: watch.trip_when });
+  for (const template of templates) {
+    const values = template.readBack(watch);
+    if (!values) continue;
+    const offered = template.fields.every((field) => {
+      const value = values[field.key] ?? "";
+      const isRead = surface.reads.some((r) => r.id === value);
+      switch (field.kind) {
+        case "event":
+          return surface.events.some((e) => e.signature === value);
+        case "read":
+          return isRead;
+        case "readOrNumber":
+          return isRead || value.startsWith(NUMBER_PREFIX);
+        default:
+          return true;
+      }
+    });
+    const built = template.build(values);
+    if (offered && built && stable(built) === target) {
+      return { template, values };
+    }
+  }
+  return null;
 }

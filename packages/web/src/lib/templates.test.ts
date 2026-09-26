@@ -5,6 +5,7 @@ import {
   initialValues,
   isSuggested,
   NUMBER_PREFIX,
+  recoverTemplate,
   templates,
   type Watch,
 } from "./templates";
@@ -267,6 +268,66 @@ describe("templates", () => {
     expect(
       byId("floor").build({ value: ASSETS, floor: NUMBER_PREFIX }),
     ).toBeNull();
+  });
+});
+
+describe("reading a stored rule back into blanks", () => {
+  it("recovers every starting point with its blanks", () => {
+    for (const template of templates) {
+      const values = initialValues(template, surface);
+      const watch = template.build(values)!;
+      expect(watch, template.id).not.toBeNull();
+      const recovered = recoverTemplate(watch, surface);
+      expect(recovered?.template.build(recovered.values), template.id).toEqual(
+        watch,
+      );
+    }
+  });
+
+  it("reads a comparison back as the sentence states it", () => {
+    const compare = templates.find((t) => t.id === "compare")!;
+    const values = {
+      left: SUPPLY,
+      op: "le",
+      right: `${NUMBER_PREFIX}1000`,
+    };
+    expect(recoverTemplate(compare.build(values)!, surface)).toMatchObject({
+      template: { id: "compare" },
+      values,
+    });
+  });
+
+  it("gives up on a document no starting point builds", () => {
+    const either: Watch = {
+      when: "every_block",
+      trip_when: {
+        node: "or",
+        terms: [
+          {
+            node: "compare",
+            op: "lt",
+            left: { node: "view_call", function: ASSETS, args: [] },
+            right: { node: "literal", value: "1" },
+          },
+          {
+            node: "compare",
+            op: "lt",
+            left: { node: "view_call", function: SUPPLY, args: [] },
+            right: { node: "literal", value: "1" },
+          },
+        ],
+      },
+    };
+    expect(recoverTemplate(either, surface)).toBeNull();
+  });
+
+  it("gives up on a read the contract no longer offers", () => {
+    const floor = templates.find((t) => t.id === "floor")!;
+    const watch = floor.build({
+      value: "totalBorrows() returns (uint256)",
+      floor: `${NUMBER_PREFIX}1`,
+    })!;
+    expect(recoverTemplate(watch, surface)).toBeNull();
   });
 });
 
