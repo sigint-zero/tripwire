@@ -1,11 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import {
   literalProblem,
+  type BoolNode,
+  type CompareOp,
   type EngineInfo,
   type OnTrip,
   type Severity,
 } from "@tripwire/shared";
-import type { WriteFunction } from "../../lib/abi";
+import {
+  parseReadableId,
+  readableId,
+  type ContractSurface,
+  type Readable,
+} from "../../lib/abi";
+import { compareOps } from "../../lib/templates";
 import { choice, track } from "../ui";
 
 export const severities: {
@@ -119,7 +127,7 @@ export function ResponseStep({
   onSeverity,
   value,
   onChange,
-  writes,
+  surface,
   responseMode,
   contract,
   registered = false,
@@ -128,13 +136,14 @@ export function ResponseStep({
   onSeverity: (severity: Severity) => void;
   value: OnTrip;
   onChange: (onTrip: OnTrip) => void;
-  writes: WriteFunction[];
+  surface: ContractSurface;
   responseMode: EngineInfo["responseMode"] | undefined;
   /** The rule's contract, whose page shows its response readiness. */
   contract: string;
   /** Registered with the TripwireController, which adds its two pauses. */
   registered?: boolean;
 }) {
+  const { writes } = surface;
   // A rule already pausing through the controller keeps its choice in view.
   const offered = actions.filter(
     (a) =>
@@ -213,7 +222,7 @@ export function ResponseStep({
             </select>
           )}
           {value.action === "call" && (
-            <CallFields value={value} writes={writes} onChange={onChange} />
+            <CallFields value={value} surface={surface} onChange={onChange} />
           )}
           {value.action !== "notify" && (
             <p className="mt-3 text-xs text-gray-500">
@@ -287,13 +296,14 @@ const placeholders: [RegExp, string][] = [
 /** The function a call makes, and a fixed value for each of its arguments. */
 function CallFields({
   value,
-  writes,
+  surface,
   onChange,
 }: {
-  value: Extract<OnTrip, { action: "call" }>;
-  writes: WriteFunction[];
+  value: CallOnTrip;
+  surface: ContractSurface;
   onChange: (onTrip: OnTrip) => void;
 }) {
+  const { writes } = surface;
   const fn = writes.find((w) => w.signature === value.call.function);
   const setArg = (index: number, arg: string) =>
     onChange({
@@ -316,6 +326,7 @@ function CallFields({
             onChange({
               ...value,
               call: {
+                ...value.call,
                 function: next.signature,
                 args: next.inputs.map(() => ""),
               },
@@ -335,7 +346,7 @@ function CallFields({
         const label = input.name || `argument ${i + 1}`;
         return (
           <label key={i} className="block">
-            <span className="mb-1.5 flex gap-2 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
+            <span className={argLabel}>
               {label}
               <span className="font-mono tracking-normal text-gray-600 normal-case">
                 {input.type}
@@ -372,6 +383,159 @@ function CallFields({
           </label>
         );
       })}
+      <Confirmation value={value} surface={surface} onChange={onChange} />
+    </div>
+  );
+}
+
+type CallOnTrip = Extract<OnTrip, { action: "call" }>;
+
+const argLabel =
+  "mb-1.5 flex gap-2 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+
+/** The type a read returns: "uint256" for "totalSupply() returns (uint256)". */
+function returnType(read: Readable): string {
+  const types = /returns \((.*)\)$/.exec(read.method)?.[1]?.split(",") ?? [];
+  return types[read.returns ?? 0] ?? "";
+}
+
+/** The read a confirmation compares, when it is one the picker can show. */
+function pickedRead(
+  verify: BoolNode | undefined,
+  surface: ContractSurface,
+): { read: Readable; op: CompareOp; value: string } | null | "custom" {
+  if (!verify) return null;
+  if (
+    verify === true ||
+    verify.node !== "compare" ||
+    verify.left.node !== "view_call" ||
+    verify.left.address ||
+    verify.right.node !== "literal"
+  ) {
+    return "custom";
+  }
+  const id = readableId(verify.left.function, verify.left.returns);
+  const read = [...surface.flags, ...surface.reads].find((r) => r.id === id);
+  return read ? { read, op: verify.op, value: verify.right.value } : "custom";
+}
+
+/**
+ * An optional read showing the call took effect, such as paused() reading
+ * true: a yes-or-no read is confirmed by its value, a number against one
+ * typed here.
+ */
+function Confirmation({
+  value,
+  surface,
+  onChange,
+}: {
+  value: CallOnTrip;
+  surface: ContractSurface;
+  onChange: (onTrip: OnTrip) => void;
+}) {
+  const picked = pickedRead(value.call.verify, surface);
+  const current = picked === "custom" || picked === null ? null : picked;
+  const isFlag = !!current && surface.flags.includes(current.read);
+  const set = (verify: BoolNode | null) => {
+    const call = { ...value.call };
+    delete call.verify;
+    onChange({ ...value, call: verify ? { ...call, verify } : call });
+  };
+  const compare = (read: Readable, op: CompareOp, literal: string) => {
+    const { method, returns } = parseReadableId(read.id);
+    set({
+      node: "compare",
+      op,
+      left: {
+        node: "view_call",
+        function: method,
+        args: [],
+        ...(returns === undefined ? {} : { returns }),
+      },
+      right: { node: "literal", value: literal },
+    });
+  };
+  const problem =
+    current && !isFlag && current.value !== ""
+      ? literalProblem(returnType(current.read), current.value)
+      : null;
+
+  return (
+    <div>
+      <span className={argLabel}>Confirmed when</span>
+      <select
+        aria-label="Read that confirms the call"
+        className={field}
+        value={picked === "custom" ? "custom" : (current?.read.id ?? "")}
+        onChange={(e) => {
+          const read = [...surface.flags, ...surface.reads].find(
+            (r) => r.id === e.target.value,
+          );
+          if (!read) set(null);
+          else if (surface.flags.includes(read)) compare(read, "eq", "true");
+          else compare(read, "eq", "");
+        }}
+      >
+        <option value="">no confirmation</option>
+        {picked === "custom" && (
+          <option value="custom" disabled>
+            as written in JSON
+          </option>
+        )}
+        {[...surface.flags, ...surface.reads].map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      {current && isFlag && (
+        <div className={`mt-2 ${track}`}>
+          {(["true", "false"] as const).map((reads) => (
+            <button
+              key={reads}
+              type="button"
+              aria-pressed={current.value === reads}
+              className={choice(current.value === reads)}
+              onClick={() => compare(current.read, "eq", reads)}
+            >
+              reads {reads}
+            </button>
+          ))}
+        </div>
+      )}
+      {current && !isFlag && (
+        <div className="mt-2 flex gap-2">
+          <select
+            aria-label="Comparison"
+            className={`${field} w-auto`}
+            value={current.op}
+            onChange={(e) =>
+              compare(current.read, e.target.value as CompareOp, current.value)
+            }
+          >
+            {compareOps.map((c) => (
+              <option key={c.op} value={c.op}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label="Value that confirms the call"
+            className={field}
+            value={current.value}
+            spellCheck={false}
+            placeholder="0"
+            onChange={(e) =>
+              compare(current.read, current.op, e.target.value.trim())
+            }
+          />
+        </div>
+      )}
+      {problem && (
+        <span className="mt-1 block text-xs text-amber-400">
+          The value {problem}
+        </span>
+      )}
     </div>
   );
 }

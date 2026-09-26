@@ -118,6 +118,26 @@ describe("describeAbi", () => {
     ]);
   });
 
+  it("keeps true-or-false reads apart, for confirming a call", () => {
+    const pausable = describeAbi([
+      {
+        type: "function",
+        name: "paused",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "bool" }],
+      },
+    ]);
+    expect(pausable.reads).toEqual([]);
+    expect(pausable.flags).toEqual([
+      {
+        id: "paused() returns (bool)",
+        method: "paused() returns (bool)",
+        label: "paused",
+      },
+    ]);
+  });
+
   it("computes selectors for functions that can be paused", () => {
     expect(surface.writes).toEqual([
       {

@@ -46,6 +46,8 @@ export interface WriteFunction {
 
 export interface ContractSurface {
   reads: Readable[];
+  /** True-or-false reads, offered only to confirm a call took effect. */
+  flags: Readable[];
   events: ContractEvent[];
   writes: WriteFunction[];
 }
@@ -80,7 +82,12 @@ export function parseReadableId(id: string): {
 }
 
 export function describeAbi(abi: unknown[]): ContractSurface {
-  const surface: ContractSurface = { reads: [], events: [], writes: [] };
+  const surface: ContractSurface = {
+    reads: [],
+    flags: [],
+    events: [],
+    writes: [],
+  };
   for (const raw of abi) {
     const entry = raw as AbiEntry;
     if (!entry.name) continue;
@@ -115,9 +122,14 @@ export function describeAbi(abi: unknown[]): ContractSurface {
     const several = outputs.length > 1;
     const method = `${entry.name}() returns (${outputs.map((o) => o.type).join(",")})`;
     outputs.forEach((output, index) => {
-      if (!/^u?int\d*$/.test(output.type)) return;
+      const list = /^u?int\d*$/.test(output.type)
+        ? surface.reads
+        : output.type === "bool"
+          ? surface.flags
+          : null;
+      if (!list) return;
       const returns = several ? index : undefined;
-      surface.reads.push({
+      list.push({
         id: readableId(method, returns),
         method,
         ...(several ? { returns: index } : {}),
@@ -128,6 +140,7 @@ export function describeAbi(abi: unknown[]): ContractSurface {
   const byLabel = (a: { signature?: string; label?: string }, b: typeof a) =>
     (a.label ?? a.signature ?? "").localeCompare(b.label ?? b.signature ?? "");
   surface.reads.sort(byLabel);
+  surface.flags.sort(byLabel);
   surface.events.sort(byLabel);
   surface.writes.sort(byLabel);
   return surface;

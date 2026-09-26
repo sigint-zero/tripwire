@@ -381,7 +381,7 @@ export function NewRulePage({
                 onSeverity={setSeverity}
                 value={onTrip}
                 onChange={setOnTrip}
-                writes={surface.writes}
+                surface={surface}
                 responseMode={engine?.responseMode}
                 contract={selected ?? ""}
               />
