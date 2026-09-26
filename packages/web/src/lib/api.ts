@@ -15,6 +15,7 @@ import type {
   SessionSummary,
   StoredRuleCheck,
   Violation,
+  ViolationKind,
 } from "@tripwire/shared";
 
 export class ApiError extends Error {
@@ -152,6 +153,7 @@ export const api = {
   violations: (
     filter: {
       rule?: string;
+      kind?: ViolationKind;
       contract?: string;
       open?: boolean;
       before?: string;

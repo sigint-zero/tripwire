@@ -1,4 +1,4 @@
-import type { Issue, Rule, Severity } from "@tripwire/shared";
+import type { Issue, Rule, Severity, ViolationKind } from "@tripwire/shared";
 
 // The engine's outward contract, as the application uses it: commands
 // through its control interface (M6), reads from its `api_v1` views.
@@ -167,6 +167,7 @@ export interface EngineReads {
   violations(filter?: {
     ids?: string[];
     ruleId?: string;
+    kind?: ViolationKind;
     contractId?: string;
     open?: boolean;
     before?: string;

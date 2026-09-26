@@ -23,7 +23,7 @@ import { ResponsesPage } from "./pages/Responses";
 import { RulePage } from "./pages/Rule";
 import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
-import { ViolationsPage } from "./pages/Violations";
+import { readFilter, ViolationsPage } from "./pages/Violations";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: () => (
@@ -133,7 +133,17 @@ const editRuleRoute = createRoute({
 const violationsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/violations",
-  component: ViolationsPage,
+  validateSearch: readFilter,
+  component: function Violations() {
+    const filter = violationsRoute.useSearch();
+    const navigate = violationsRoute.useNavigate();
+    return (
+      <ViolationsPage
+        filter={filter}
+        onFilter={(search) => void navigate({ search, replace: true })}
+      />
+    );
+  },
 });
 
 const responsesRoute = createRoute({

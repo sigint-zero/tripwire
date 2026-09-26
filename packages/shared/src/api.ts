@@ -114,6 +114,8 @@ export interface RuleChange {
   display?: RuleDisplay;
 }
 
+export type ViolationKind = "tripped" | "evaluation_error" | "pending";
+
 /** A rule tripping, or failing to evaluate, at one block. */
 export interface Violation {
   id: string;
@@ -121,7 +123,7 @@ export interface Violation {
   ruleName: string;
   severity: Severity;
   contractAddress: string;
-  kind: "tripped" | "evaluation_error" | "pending";
+  kind: ViolationKind;
   blockNumber: number;
   blockTime: string;
   txHash: string | null;

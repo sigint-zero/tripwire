@@ -1,3 +1,4 @@
+import type { ViolationKind } from "@tripwire/shared";
 import type pg from "pg";
 import {
   EngineNotReady,
@@ -79,6 +80,7 @@ export class ViewReads implements EngineReads {
     filter: {
       ids?: string[];
       ruleId?: string;
+      kind?: ViolationKind;
       contractId?: string;
       open?: boolean;
       before?: string;
@@ -93,6 +95,7 @@ export class ViewReads implements EngineReads {
     };
     if (filter.ids) bind("v.id = ANY(?::bigint[])", filter.ids);
     if (filter.ruleId) bind("v.rule_id = ?", filter.ruleId);
+    if (filter.kind) bind("v.kind = ?", filter.kind);
     if (filter.contractId) {
       bind(
         `v.rule_id IN (SELECT r.id FROM ${this.#schema}.rules r WHERE r.contract_id = ?)`,

@@ -235,7 +235,18 @@ export function RulePage({ id }: { id: string }) {
       </section>
 
       <section>
-        <h2 className={heading}>Violations</h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className={heading}>Violations</h2>
+          {violations && violations.length > 0 && (
+            <Link
+              to="/violations"
+              search={{ rule: id, all: true }}
+              className="text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-emerald-400"
+            >
+              Filter on the Violations page →
+            </Link>
+          )}
+        </div>
         {violations?.length === 0 && (
           <EmptyState
             compact

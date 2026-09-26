@@ -113,8 +113,13 @@ describe("violations", () => {
     expect(page).toHaveLength(1);
   });
 
+  it("filters by kind", async () => {
+    expect(await list("?kind=tripped")).toHaveLength(2);
+    expect(await list("?kind=pending")).toEqual([]);
+  });
+
   it("refuses a malformed query", async () => {
-    for (const query of ["?rule=abc", "?limit=0", "?open=maybe"]) {
+    for (const query of ["?rule=abc", "?limit=0", "?open=maybe", "?kind=bad"]) {
       const res = await app.inject({ url: `/api/v1/violations${query}` });
       expect(res.statusCode).toBe(400);
     }

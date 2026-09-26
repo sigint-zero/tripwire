@@ -8,6 +8,7 @@ import { DASHBOARD, type AppStore } from "./store";
 const id = z.string().regex(/^\d+$/, "must be an id");
 const query = z.object({
   rule: id.optional(),
+  kind: z.enum(["tripped", "evaluation_error", "pending"]).optional(),
   contract: z.string().optional(),
   open: z
     .enum(["true", "false"])
@@ -70,7 +71,7 @@ export const violationRoutes: FastifyPluginCallback<{
         issues: issuesOf(params.error),
       });
     }
-    const { rule, contract, open, before, limit } = params.data;
+    const { rule, kind, contract, open, before, limit } = params.data;
     let contractId: string | undefined;
     if (contract) {
       const row = await reads.contract(contract);
@@ -79,6 +80,7 @@ export const violationRoutes: FastifyPluginCallback<{
     }
     const rows = await reads.violations({
       ruleId: rule,
+      kind,
       contractId,
       open,
       before,
