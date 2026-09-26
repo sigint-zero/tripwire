@@ -40,8 +40,7 @@ function pool(url: string) {
 
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
-// Each test opens a database on disk, which takes a few seconds.
-describe("local mode", { timeout: 20_000 }, () => {
+describe("local mode", () => {
   it("keeps its files private and serves the database at its URL", async () => {
     const db = await local();
     expect(await mode(join(home, "db"))).toBe(0o700);

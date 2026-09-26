@@ -6,7 +6,7 @@ import type {
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createServer } from "./app";
+import { testServer } from "./testing";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
 const token = "0x5555555555555555555555555555555555555555";
@@ -14,7 +14,7 @@ const abi = [{ type: "function", name: "totalAssets", inputs: [] }];
 
 let app: FastifyInstance;
 beforeAll(async () => {
-  app = await createServer();
+  app = await testServer();
   return () => app.close();
 });
 afterEach(() => vi.restoreAllMocks());

@@ -1,9 +1,15 @@
-import { address, issuesOf } from "@tripwire/shared";
+import {
+  address,
+  issuesOf,
+  type Contract,
+  type ContractDetail,
+} from "@tripwire/shared";
 import type { FastifyPluginCallback } from "fastify";
 import { z } from "zod";
 import { lookupFailed, type AbiLookup } from "./abi";
-import type { MockEngine } from "./mock-engine";
+import type { EngineCommands, EngineReads, ContractRow } from "./engine/types";
 import { refuse } from "./refuse";
+import type { AppStore } from "./store";
 
 const registration = z.object({
   address,
@@ -13,12 +19,43 @@ const registration = z.object({
 
 type ByAddress = { Params: { address: string } };
 
+/** Who switched a contract off, until accounts exist to name them. */
+const DASHBOARD = "dashboard";
+
+/**
+ * The engine's contract row, with what the application keeps about it:
+ * whether a person disabled it, and whether its ABI came from a verified
+ * source.
+ */
+function toContract(
+  row: ContractRow,
+  disables: Map<string, string[]>,
+  sources: Awaited<ReturnType<AppStore["sources"]>>,
+): Contract {
+  const source = sources.get(row.address);
+  return {
+    id: row.id,
+    address: row.address,
+    name: row.name,
+    active: !disables.has(row.id),
+    ruleCount: row.rule_count,
+    enabledCount: row.enabled_count,
+    source: source?.verified ? "verified" : "pasted",
+    implementation: source?.implementation
+      ? { address: source.implementation, name: null }
+      : null,
+    createdAt: row.created_at,
+  };
+}
+
 // Registering is where a person decides what Tripwire watches. Disabling a
 // contract switches its rules off together; enabling it restores them.
 export const contractRoutes: FastifyPluginCallback<{
-  engine: MockEngine;
+  commands: EngineCommands;
+  reads: EngineReads;
+  store: AppStore;
   lookup: AbiLookup;
-}> = (app, { engine, lookup }, done) => {
+}> = (app, { commands, reads, store, lookup }, done) => {
   const notFound = (reply: Parameters<typeof refuse>[0]) =>
     refuse(
       reply,
@@ -27,13 +64,27 @@ export const contractRoutes: FastifyPluginCallback<{
       "No contract is registered at this address.",
     );
 
-  app.get("/contracts", () => engine.contracts());
+  const detail = async (row: ContractRow): Promise<ContractDetail> => {
+    const [disables, sources] = await Promise.all([
+      store.disables(),
+      store.sources(),
+    ]);
+    return { ...toContract(row, disables, sources), abi: row.abi ?? [] };
+  };
 
-  app.get<ByAddress>(
-    "/contracts/:address",
-    (request, reply) =>
-      engine.contract(request.params.address) ?? notFound(reply),
-  );
+  app.get("/contracts", async () => {
+    const [rows, disables, sources] = await Promise.all([
+      reads.contracts(),
+      store.disables(),
+      store.sources(),
+    ]);
+    return rows.map((row) => toContract(row, disables, sources));
+  });
+
+  app.get<ByAddress>("/contracts/:address", async (request, reply) => {
+    const row = await reads.contract(request.params.address);
+    return row ? detail(row) : notFound(reply);
+  });
 
   app.post("/contracts", async (request, reply) => {
     const body = registration.safeParse(request.body);
@@ -43,7 +94,7 @@ export const contractRoutes: FastifyPluginCallback<{
       });
     }
     const { address: at, name, abi } = body.data;
-    if (engine.isRegistered(at)) {
+    if (await reads.contract(at)) {
       return refuse(
         reply,
         409,
@@ -52,38 +103,75 @@ export const contractRoutes: FastifyPluginCallback<{
       );
     }
     if (abi) {
-      const pasted = { address: at, name, abi, implementation: null };
-      return reply
-        .code(201)
-        .send(engine.register({ ...pasted, source: "pasted" }));
+      const row = await commands.registerContract({ address: at, name, abi });
+      return reply.code(201).send(await detail(row));
     }
+
+    let verified;
     try {
-      const found = await lookup.get(at);
-      return reply.code(201).send(
-        engine.register({
-          address: at,
-          name,
-          abi: found.abi,
-          source: "verified",
-          implementation: found.implementation,
-        }),
-      );
+      verified = await lookup.get(at);
     } catch (error) {
       return lookupFailed(reply, request.log, error);
     }
+    const row = await commands.registerContract({
+      address: at,
+      name,
+      abi: verified.abi.abi,
+    });
+    // The source is the application's to keep; the ABI went to the engine.
+    await store
+      .saveSource({
+        address: row.address,
+        verified: true,
+        compiler: verified.compiler,
+        implementation: verified.abi.implementation?.address ?? null,
+        files: verified.files,
+        fetchedFrom: "sourcify",
+      })
+      .catch((error: unknown) => request.log.warn(error));
+    return reply.code(201).send(await detail(row));
   });
 
-  app.post<ByAddress>(
-    "/contracts/:address/disable",
-    (request, reply) =>
-      engine.disable(request.params.address) ?? notFound(reply),
-  );
+  // One batch call to the engine switches the rules, then the record of
+  // which ones is written, so enabling restores exactly those.
+  app.post<ByAddress>("/contracts/:address/disable", async (request, reply) => {
+    const row = await reads.contract(request.params.address);
+    if (!row) return notFound(reply);
+    if (!(await store.disable(row.id))) {
+      const on = (await reads.rules({ contractId: row.id }))
+        .filter((r) => r.enabled)
+        .map((r) => r.id);
+      await commands.setRulesEnabled(on, false);
+      try {
+        await store.recordDisable(row.id, on, DASHBOARD);
+      } catch (error) {
+        // Without the record the rules could not be restored together.
+        await commands.setRulesEnabled(on, true).catch(() => {});
+        throw error;
+      }
+    }
+    return detail((await reads.contract(row.address)) ?? row);
+  });
 
-  app.post<ByAddress>(
-    "/contracts/:address/enable",
-    (request, reply) =>
-      engine.enable(request.params.address) ?? notFound(reply),
-  );
+  app.post<ByAddress>("/contracts/:address/enable", async (request, reply) => {
+    const row = await reads.contract(request.params.address);
+    if (!row) return notFound(reply);
+    const recorded = await store.disable(row.id);
+    if (recorded) {
+      // Rules deleted since, or already switched back on by hand, are skipped.
+      const off = new Set(
+        (await reads.rules({ contractId: row.id }))
+          .filter((r) => !r.enabled)
+          .map((r) => r.id),
+      );
+      await commands.setRulesEnabled(
+        recorded.filter((id) => off.has(id)),
+        true,
+      );
+      await store.clearDisable(row.id);
+    }
+    return detail((await reads.contract(row.address)) ?? row);
+  });
 
   done();
 };

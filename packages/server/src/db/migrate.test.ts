@@ -37,8 +37,7 @@ function pool() {
   return p;
 }
 
-// Each test starts a fresh database, which takes a few seconds.
-describe("migrations", { timeout: 20_000 }, () => {
+describe("migrations", () => {
   it("applies the shipped files once, then nothing", async () => {
     const p = pool();
     const shipped = await shippedMigrations();

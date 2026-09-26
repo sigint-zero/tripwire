@@ -54,7 +54,7 @@ describe("databaseTarget", () => {
   });
 });
 
-describe("startDatabase", { timeout: 30_000 }, () => {
+describe("startDatabase", () => {
   it("migrates on first start and applies nothing on the next", async () => {
     const shipped = await shippedMigrations();
     const first = await startDatabase({ home, env: {} });

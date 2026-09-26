@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createServer as createVite } from "vite";
 import { createServer } from "./app";
 import { startDatabase, tripwireHome } from "./db/start";
+import { connectEngine } from "./engine";
 import { isApiPath } from "./paths";
 
 // Development entry: the API and the dashboard (with hot reload) on one port.
@@ -14,8 +15,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const database = await startDatabase({ home: tripwireHome() });
-const app = await createServer({ allowedHosts: [host] });
-app.addHook("onClose", () => database.close());
+const engine = await connectEngine(database.pool);
+const app = await createServer({
+  allowedHosts: [host],
+  backend: { pool: database.pool, engine },
+});
 
 const vite = await createVite({
   root: webRoot,
@@ -31,11 +35,21 @@ app.addHook("onClose", () => vite.close());
 
 await app.listen({ host, port });
 console.log(
-  `Tripwire dev server: http://${host}:${port} (database: ${database.database.mode})`,
+  `Tripwire dev server: http://${host}:${port} (database: ${database.database.mode}, engine: ${engine.info.simulated ? "stand-in" : "connected"})`,
 );
 
+// The hot-reload socket would hold the server open, so Vite closes first;
+// the database closes last, whether or not the server finished in time.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void app.close().then(() => process.exit(0));
+    void (async () => {
+      await vite.close();
+      await Promise.race([
+        app.close(),
+        new Promise((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+      await database.close();
+      process.exit(0);
+    })();
   });
 }

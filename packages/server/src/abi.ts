@@ -5,15 +5,17 @@ import type {
   FastifyReply,
 } from "fastify";
 
-// Looks up verified ABIs on Sourcify, which needs no API key. A proxy's
-// implementation ABI is merged in, so its functions show up too.
+// Looks up verified contracts on Sourcify, which needs no API key: the
+// ABI, with a proxy's implementation ABI merged in so its functions show
+// up too, and the verified source files kept when a contract is added.
 
 const SOURCIFY = "https://sourcify.dev/server/v2/contract";
 
 interface SourcifyContract {
   match: string | null;
   abi?: unknown[];
-  compilation?: { name?: string };
+  compilation?: { name?: string; compilerVersion?: string };
+  sources?: Record<string, { content?: string }>;
   proxyResolution?: {
     isProxy: boolean;
     implementations: { address: string; name?: string }[];
@@ -26,7 +28,7 @@ async function fetchContract(
   chainId: number,
   contract: string,
 ): Promise<SourcifyContract | null> {
-  const url = `${SOURCIFY}/${chainId}/${contract}?fields=abi,compilation.name,proxyResolution`;
+  const url = `${SOURCIFY}/${chainId}/${contract}?fields=abi,compilation.name,compilation.compilerVersion,proxyResolution,sources`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Sourcify answered ${res.status}`);
@@ -43,10 +45,34 @@ function entryKey(entry: unknown): string {
   return `${type}:${name}(${(inputs ?? []).map((i) => i.type).join(",")})`;
 }
 
-export async function lookupAbi(
+/** A verified contract: its ABI, and the source it was compiled from. */
+export interface VerifiedContract {
+  abi: ContractAbi;
+  compiler: string | null;
+  files: { path: string; content: string }[];
+}
+
+/** Source kept per contract is capped; files past the cap are left out. */
+const SOURCE_CAP = 2 * 1024 * 1024;
+
+function sourceFiles(sources: SourcifyContract["sources"]) {
+  const files: { path: string; content: string }[] = [];
+  let size = 0;
+  for (const [path, file] of Object.entries(sources ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    const content = file.content ?? "";
+    size += Buffer.byteLength(content, "utf8");
+    if (size > SOURCE_CAP) break;
+    files.push({ path, content });
+  }
+  return files;
+}
+
+export async function lookupContract(
   chainId: number,
   contract: string,
-): Promise<ContractAbi> {
+): Promise<VerifiedContract> {
   const found = await fetchContract(chainId, contract);
   if (!found?.abi) {
     throw new AbiNotFound(
@@ -66,27 +92,31 @@ export async function lookupAbi(
   }
 
   return {
-    chainId,
-    address: contract,
-    name: implementationName ?? found.compilation?.name ?? null,
-    abi: [...entries.values()],
-    implementation: implementation
-      ? { address: implementation.address, name: implementationName }
-      : null,
+    abi: {
+      chainId,
+      address: contract,
+      name: implementationName ?? found.compilation?.name ?? null,
+      abi: [...entries.values()],
+      implementation: implementation
+        ? { address: implementation.address, name: implementationName }
+        : null,
+    },
+    compiler: found.compilation?.compilerVersion ?? null,
+    files: sourceFiles(found.sources),
   };
 }
 
-/** Looks up verified ABIs on the engine's chain, remembering each answer. */
+/** Looks up verified contracts on the engine's chain, remembering each answer. */
 export class AbiLookup {
-  #cache = new Map<string, ContractAbi>();
+  #cache = new Map<string, VerifiedContract>();
 
   constructor(readonly chainId: number) {}
 
-  async get(contract: string): Promise<ContractAbi> {
+  async get(contract: string): Promise<VerifiedContract> {
     const key = contract.toLowerCase();
     const cached = this.#cache.get(key);
     if (cached) return cached;
-    const result = await lookupAbi(this.chainId, contract);
+    const result = await lookupContract(this.chainId, contract);
     this.#cache.set(key, result);
     return result;
   }
@@ -133,7 +163,7 @@ export const abiRoutes: FastifyPluginCallback<{ lookup: AbiLookup }> = (
         });
       }
       try {
-        return await lookup.get(contract.data);
+        return (await lookup.get(contract.data)).abi;
       } catch (error) {
         return lookupFailed(reply, request.log, error);
       }

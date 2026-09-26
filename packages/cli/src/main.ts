@@ -1,4 +1,5 @@
 import {
+  connectEngine,
   createServer,
   DatabaseSetupError,
   startDatabase,
@@ -89,6 +90,7 @@ const database = await startDatabase({
 const app = await createServer({
   webRoot: fileURLToPath(new URL("./web", import.meta.url)),
   allowedHosts: [host],
+  backend: { pool: database.pool, engine: await connectEngine(database.pool) },
 });
 
 try {

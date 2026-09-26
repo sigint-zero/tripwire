@@ -18,7 +18,10 @@ export default defineConfig(
       parserOptions: {
         projectService: {
           // vite.config.ts is checked by its own tsconfig, not the app's.
-          allowDefaultProject: ["packages/web/vite.config.ts"],
+          allowDefaultProject: [
+            "packages/web/vite.config.ts",
+            "packages/server/vitest.config.ts",
+          ],
           defaultProject: "packages/web/tsconfig.node.json",
         },
         tsconfigRootDir: import.meta.dirname,
