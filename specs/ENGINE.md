@@ -121,6 +121,18 @@ fraction of a second and catches a corrupted or replaced file.
 Verification uses `node:crypto` only (Ed25519 and BLAKE2b-512 are both
 built in), about sixty lines, so the package gains no dependency.
 
+### By hand
+
+A release put into `TRIPWIRE_HOME/engine/bin/<version>/` by hand (the
+executable renamed to `tripwire-engine`, with `SHA256SUMS` and
+`SHA256SUMS.minisig` beside it) is found and checked exactly as a
+download is, so testing with a release fetched by hand uses the same
+path, the same checks and the same start as any installation. There is
+no separate override for a binary elsewhere. Until the download is
+built, `tripwire start` with no verified release stops and prints the
+commands that fetch one into place, with `curl` and with the GitHub
+CLI, which also works while the release repository is private.
+
 ### Offline
 
 `tripwire engine install --from <dir>` installs from a directory
@@ -495,11 +507,19 @@ remedy is to reinstall the newer application.
 |-|-|
 | `TRIPWIRE_ENGINE=stand-in` | the stand-in in the server answers instead of the engine: state `stand-in`, the dashboard shows "Stand-in". `pnpm dev` sets it. Nothing is installed or spawned |
 | `TRIPWIRE_ENGINE_URL` and `TRIPWIRE_ENGINE_SECRET_FILE` | attach to an engine someone runs by hand: the application polls its health and reports the same states, but spawns, restarts and reconfigures nothing (`409 engine_attached`). Chain id and response mode are read from `config.json` as usual; keeping the hand-run engine's configuration consistent is the developer's job |
-| `TRIPWIRE_ENGINE_BINARY=<path>` | spawn this binary instead of the pinned release: no download, no signature check, otherwise supervised normally. The dashboard and `tripwire engine status` mark the engine "unpinned" |
 
 The stand-in is opt-in. Without `TRIPWIRE_ENGINE`, an installation with
 no engine configured is `unconfigured`, never simulated, so a
-production install cannot silently show made-up data. Today's
+production install cannot silently show made-up data.
+
+As built today, before `config.json` and supervision: `tripwire start`
+checks and starts the installed release as in Start, taking the
+engine's configuration from `TRIPWIRE_RPC_HTTP` (required),
+`TRIPWIRE_RPC_WS` (which turns on mempool watching, never responding),
+`TRIPWIRE_CHAIN_ID` (default 1), `TRIPWIRE_RESPONSE_MODE` (default
+`notify`) and `TRIPWIRE_KEYS_PASSPHRASE`, and stops the engine before
+the database on Ctrl+C. An engine that exits is reported and stays
+down until the next start. Today's
 `TRIPWIRE_RESPONSE_MODE` and `TRIPWIRE_CHAIN_ID` variables are retired:
 both values come from `config.json`.
 
@@ -526,7 +546,6 @@ the API's error envelope.
   "runner": "supervised",
   "version": "0.1.0",
   "pinnedVersion": "0.1.0",
-  "unpinned": false,
   "install": null,
   "health": {
     "head": 23145870,

@@ -2,10 +2,17 @@ import {
   connectEngine,
   createServer,
   DatabaseSetupError,
+  EngineLaunchError,
+  EngineReleaseError,
+  launchEngine,
   McpTokens,
   startDatabase,
   TokenError,
   tripwireHome,
+  verifiedEngine,
+  type EngineBackend,
+  type EnginePin,
+  type StartedDatabase,
 } from "@tripwire/server";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -22,6 +29,17 @@ const USAGE = `Usage: tripwire [start] [options]
 
 Starts Tripwire and serves the dashboard, manages its accounts, or
 manages the tokens AI agents use to reach its MCP server.
+
+Start runs the pinned engine release installed under TRIPWIRE_HOME
+(default ~/.tripwire), configured from the environment:
+  TRIPWIRE_RPC_HTTP         the chain's HTTP endpoint (required)
+  TRIPWIRE_RPC_WS           a WebSocket endpoint; turns on mempool watching
+  TRIPWIRE_CHAIN_ID         the chain id (default: 1)
+  TRIPWIRE_RESPONSE_MODE    notify, prepare or send (default: notify)
+  TRIPWIRE_KEYS_PASSPHRASE  unlocks the engine's keys
+TRIPWIRE_ENGINE=stand-in runs with simulated data and no engine;
+TRIPWIRE_ENGINE_URL with TRIPWIRE_ENGINE_SECRET_FILE attaches to an
+engine started by hand.
 
 Options:
   -p, --port <port>         port to listen on (default: 4747)
@@ -139,10 +157,13 @@ const database = await startDatabase({
   process.exit(1);
 });
 
+let stopping = false;
+const engine = await startEngine(database);
+
 const app = await createServer({
   webRoot: fileURLToPath(new URL("./web", import.meta.url)),
   allowedHosts: [host],
-  backend: { pool: database.pool, engine: await connectEngine(database.pool) },
+  backend: { pool: database.pool, engine: engine.backend },
   home: tripwireHome(),
   mcpContentDir: fileURLToPath(new URL("./mcp/", import.meta.url)),
   https,
@@ -152,6 +173,7 @@ const app = await createServer({
 try {
   await app.listen({ host, port });
 } catch (error) {
+  await engine.stop();
   await database.close();
   const message = listenErrorMessage(error as NodeJS.ErrnoException);
   if (!message) throw error;
@@ -165,11 +187,75 @@ if (values.open) openBrowser(url);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
+    stopping = true;
     void app
       .close()
+      .then(() => engine.stop())
       .then(() => database.close())
       .then(() => process.exit(0));
   });
+}
+
+/**
+ * The engine this start runs against: the stand-in when asked for, an
+ * engine someone runs by hand when TRIPWIRE_ENGINE_URL names it, otherwise
+ * the pinned release installed under TRIPWIRE_HOME, checked and started
+ * here and stopped before the database closes.
+ */
+async function startEngine(
+  database: StartedDatabase,
+): Promise<{ backend: EngineBackend; stop(): Promise<void> }> {
+  const none = () => Promise.resolve();
+  if (process.env.TRIPWIRE_ENGINE === "stand-in") {
+    const env = { ...process.env };
+    delete env.TRIPWIRE_ENGINE_URL;
+    return { backend: await connectEngine(database.pool, env), stop: none };
+  }
+  if (process.env.TRIPWIRE_ENGINE_URL) {
+    return { backend: await connectEngine(database.pool), stop: none };
+  }
+
+  const home = tripwireHome();
+  const pin = JSON.parse(
+    readFileSync(new URL("./engine.json", import.meta.url), "utf8"),
+  ) as EnginePin;
+  try {
+    const installed = await verifiedEngine({ home, pin });
+    console.log(`Starting engine ${installed.version}.`);
+    const running = await launchEngine({
+      binary: installed.binary,
+      home,
+      databaseUrl: database.database.url,
+      local: database.database.mode === "local",
+    });
+    void running.exited.then((code) => {
+      if (!stopping) {
+        console.error(
+          `The engine exited with code ${code}; see ${running.logFile}. Restart Tripwire to start it again.`,
+        );
+      }
+    });
+    const backend = await connectEngine(database.pool, {
+      ...process.env,
+      TRIPWIRE_ENGINE_URL: running.url,
+      TRIPWIRE_ENGINE_SECRET_FILE: running.secretFile,
+      TRIPWIRE_CHAIN_ID: String(running.config.chainId),
+      TRIPWIRE_RESPONSE_MODE: running.config.responseMode,
+    });
+    return { backend, stop: () => running.stop() };
+  } catch (error) {
+    if (
+      !(error instanceof EngineReleaseError) &&
+      !(error instanceof EngineLaunchError)
+    ) {
+      throw error;
+    }
+    await database.close();
+    console.error(
+      `${error.message}\n\nTo run without an engine, on simulated data: TRIPWIRE_ENGINE=stand-in tripwire start`,
+    );
+    process.exit(1);
+  }
 }
 
 function listenErrorMessage(error: NodeJS.ErrnoException) {

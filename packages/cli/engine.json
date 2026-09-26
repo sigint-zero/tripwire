@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "publicKey": "RWSoM+vf95ORaF6HNTzIuR3dLJTdGRkZtNA+Knh6VeqT57s6rMkL25db",
+  "releases": "https://github.com/sigint-zero/tripwire/releases/download/engine-v{version}/{asset}"
+}

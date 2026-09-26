@@ -63,6 +63,30 @@ and choose the call each rule makes when it trips.
 
 Full installation instructions will land here with the first release.
 
+### Running from source against the engine
+
+`tripwire start` runs the engine release it pins (`packages/cli/engine.json`),
+checking its signature, checksum and version before starting it. Until
+it downloads the release itself, put the release in place by hand:
+
+```sh
+pnpm install && pnpm build
+
+v=0.1.0
+dir=~/.tripwire/engine/bin/$v
+mkdir -p $dir
+gh release download engine-v$v -R sigint-zero/tripwire -D $dir \
+  -p SHA256SUMS -p SHA256SUMS.minisig -p tripwire-engine-$v-x86_64-unknown-linux-musl
+mv $dir/tripwire-engine-$v-x86_64-unknown-linux-musl $dir/tripwire-engine
+chmod +x $dir/tripwire-engine
+
+TRIPWIRE_RPC_HTTP=https://your-node pnpm start
+```
+
+On ARM64 Linux use `aarch64-unknown-linux-musl`. `TRIPWIRE_RPC_WS` adds
+mempool watching. Without the release in place, `tripwire start` prints
+these steps; `TRIPWIRE_ENGINE=stand-in` runs on simulated data instead.
+
 ## Security model
 
 - **Notify-only by default.** Tripwire holds no keys until you create one.
