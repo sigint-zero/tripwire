@@ -2,6 +2,7 @@ import middie from "@fastify/middie";
 import { fileURLToPath } from "node:url";
 import { createServer as createVite } from "vite";
 import { createServer } from "./app";
+import { startDatabase, tripwireHome } from "./db/start";
 import { isApiPath } from "./paths";
 
 // Development entry: the API and the dashboard (with hot reload) on one port.
@@ -12,7 +13,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error(`Invalid PORT: ${process.env.PORT}`);
 }
 
+const database = await startDatabase({ home: tripwireHome() });
 const app = await createServer({ allowedHosts: [host] });
+app.addHook("onClose", () => database.close());
 
 const vite = await createVite({
   root: webRoot,
@@ -27,4 +30,12 @@ app.use((req, res, next) =>
 app.addHook("onClose", () => vite.close());
 
 await app.listen({ host, port });
-console.log(`Tripwire dev server: http://${host}:${port}`);
+console.log(
+  `Tripwire dev server: http://${host}:${port} (database: ${database.database.mode})`,
+);
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    void app.close().then(() => process.exit(0));
+  });
+}

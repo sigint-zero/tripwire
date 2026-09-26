@@ -1,4 +1,9 @@
-import { createServer } from "@tripwire/server";
+import {
+  createServer,
+  DatabaseSetupError,
+  startDatabase,
+  tripwireHome,
+} from "@tripwire/server";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,11 +14,12 @@ const USAGE = `Usage: tripwire [start] [options]
 Starts Tripwire and serves the dashboard.
 
 Options:
-  -p, --port <port>  port to listen on (default: 4747)
-      --host <host>  address to listen on (default: 127.0.0.1)
-      --open         open the dashboard in your browser
-  -v, --version      print the version
-  -h, --help         print this help`;
+  -p, --port <port>         port to listen on (default: 4747)
+      --host <host>         address to listen on (default: 127.0.0.1)
+      --database-url <url>  use this PostgreSQL database for this run
+      --open                open the dashboard in your browser
+  -v, --version             print the version
+  -h, --help                print this help`;
 
 const { values, positionals } = parseCommandLine();
 
@@ -24,6 +30,7 @@ function parseCommandLine() {
       options: {
         port: { type: "string", short: "p", default: "4747" },
         host: { type: "string", default: "127.0.0.1" },
+        "database-url": { type: "string" },
         open: { type: "boolean", default: false },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
@@ -67,6 +74,18 @@ if (host === "") {
   process.exit(1);
 }
 
+// The database comes up, and the app schema is migrated, before anything
+// is served.
+const database = await startDatabase({
+  home: tripwireHome(),
+  url: values["database-url"],
+  migrationsDir: fileURLToPath(new URL("./migrations/", import.meta.url)),
+}).catch((error: unknown) => {
+  if (!(error instanceof DatabaseSetupError)) throw error;
+  console.error(error.message);
+  process.exit(1);
+});
+
 const app = await createServer({
   webRoot: fileURLToPath(new URL("./web", import.meta.url)),
   allowedHosts: [host],
@@ -75,6 +94,7 @@ const app = await createServer({
 try {
   await app.listen({ host, port });
 } catch (error) {
+  await database.close();
   const message = listenErrorMessage(error as NodeJS.ErrnoException);
   if (!message) throw error;
   console.error(message);
@@ -87,7 +107,10 @@ if (values.open) openBrowser(url);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void app.close().then(() => process.exit(0));
+    void app
+      .close()
+      .then(() => database.close())
+      .then(() => process.exit(0));
   });
 }
 
