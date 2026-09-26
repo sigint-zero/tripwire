@@ -1,6 +1,8 @@
 import type { FastifyPluginCallback } from "fastify";
 import type pg from "pg";
 import { AbiLookup, abiRoutes } from "./abi";
+import type { Auth } from "./auth";
+import { authRoutes, requireSession } from "./auth/routes";
 import { contractRoutes } from "./contracts";
 import type { EngineBackend } from "./engine";
 import { EngineError, EngineNotReady } from "./engine/types";
@@ -16,11 +18,16 @@ export interface Backend {
   engine: EngineBackend;
 }
 
-export const api: FastifyPluginCallback<{ backend?: Backend }> = (
+export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   app,
-  { backend },
+  { backend, auth },
   done,
 ) => {
+  // Every route below needs a session, except health and logging in.
+  if (auth) {
+    requireSession(app, auth);
+    app.register(authRoutes, { auth });
+  }
   app.get("/health", () => ({ status: "ok" }));
   if (!backend) return done();
 

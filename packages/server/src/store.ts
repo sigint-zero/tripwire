@@ -4,7 +4,7 @@ import type pg from "pg";
 // schema. Each is one short statement; engine objects are named by id or
 // address, and a row that outlives what it names is swept.
 
-/** Who acted, until accounts exist to name them. */
+/** Who acted, when no account is attached to the request. */
 export const DASHBOARD = "dashboard";
 
 const PINNED = "dashboard.pinned_rules";

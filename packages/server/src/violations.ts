@@ -102,7 +102,11 @@ export const violationRoutes: FastifyPluginCallback<{
     }
     const row = await reads.violation(request.params.id);
     if (!row) return notFound(reply);
-    await store.acknowledge([row.id], DASHBOARD, body.data.note);
+    await store.acknowledge(
+      [row.id],
+      request.account?.id ?? DASHBOARD,
+      body.data.note,
+    );
     const updated = await reads.violation(row.id);
     return updated ? toViolation(updated) : notFound(reply);
   });
@@ -123,7 +127,11 @@ export const violationRoutes: FastifyPluginCallback<{
     if (missing) {
       return refuse(reply, 404, "not_found", `No violation ${missing}.`);
     }
-    await store.acknowledge(ids, DASHBOARD, body.data.note);
+    await store.acknowledge(
+      ids,
+      request.account?.id ?? DASHBOARD,
+      body.data.note,
+    );
     const updated = await reads.violations({ ids, limit: ids.length });
     return updated.map(toViolation);
   });

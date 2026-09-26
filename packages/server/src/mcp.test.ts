@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "./app";
 import { McpTokens } from "./auth/mcp-tokens";
 import { stubBackend } from "./engine";
-import { testDatabase } from "./testing";
+import { signIn, TEST_COST, testDatabase } from "./testing";
 
 // An agent's whole path through the MCP endpoint, over HTTP with the
 // reference client: its token, the four tools, and the guards on what it
@@ -99,7 +99,9 @@ beforeAll(async () => {
   app = await createServer({
     backend: { pool: database.pool, engine: await stubBackend(database.pool) },
     home,
+    passwordCost: TEST_COST,
   });
+  await signIn(app);
   await app.listen({ host: "127.0.0.1", port: 0 });
   const { port } = app.server.address() as { port: number };
   url = new URL(`http://127.0.0.1:${port}/mcp`);

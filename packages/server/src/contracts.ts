@@ -171,7 +171,7 @@ export const contractRoutes: FastifyPluginCallback<{
         .map((r) => r.id);
       await commands.setRulesEnabled(on, false);
       try {
-        await store.recordDisable(row.id, on, DASHBOARD);
+        await store.recordDisable(row.id, on, request.account?.id ?? DASHBOARD);
       } catch (error) {
         // Without the record the rules could not be restored together.
         await commands.setRulesEnabled(on, true).catch(() => {});

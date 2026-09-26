@@ -2,8 +2,11 @@ import type { FastifyReply } from "fastify";
 
 const reasons: Record<number, string> = {
   400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
   404: "Not Found",
   409: "Conflict",
+  429: "Too Many Requests",
   502: "Bad Gateway",
   503: "Service Unavailable",
 };

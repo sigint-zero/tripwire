@@ -11,20 +11,26 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { userCommand } from "./users";
 
 const USAGE = `Usage: tripwire [start] [options]
+       tripwire user add|passwd|remove|unlock <name>
+       tripwire user list
        tripwire mcp token new <label> [--expires <30d|12h|90m>]
        tripwire mcp token list
        tripwire mcp token revoke <id or label>
 
-Starts Tripwire and serves the dashboard, or manages the tokens AI agents
-use to reach its MCP server.
+Starts Tripwire and serves the dashboard, manages its accounts, or
+manages the tokens AI agents use to reach its MCP server.
 
 Options:
   -p, --port <port>         port to listen on (default: 4747)
       --host <host>         address to listen on (default: 127.0.0.1)
       --database-url <url>  use this PostgreSQL database for this run
       --open                open the dashboard in your browser
+      --tls-cert <file>     serve HTTPS with this certificate...
+      --tls-key <file>      ...and this key
+      --behind-proxy        a reverse proxy in front terminates TLS
       --expires <duration>  when a new MCP token stops working (default: never)
   -v, --version             print the version
   -h, --help                print this help`;
@@ -41,6 +47,9 @@ function parseCommandLine() {
         "database-url": { type: "string" },
         open: { type: "boolean", default: false },
         expires: { type: "string" },
+        "tls-cert": { type: "string" },
+        "tls-key": { type: "string" },
+        "behind-proxy": { type: "boolean", default: false },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
       },
@@ -61,6 +70,14 @@ if (values.version) {
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   ) as { version: string };
   console.log(pkg.version);
+  process.exit(0);
+}
+
+if (positionals[0] === "user") {
+  await userCommand(tripwireHome(), positionals.slice(1), (message) => {
+    console.error(`${message}\n\n${USAGE}`);
+    process.exit(1);
+  });
   process.exit(0);
 }
 
@@ -88,6 +105,28 @@ if (host === "") {
   process.exit(1);
 }
 
+// A password over plain HTTP is acceptable only on the loopback interface;
+// MCP tokens travel in a header on every request too.
+const tlsCert = values["tls-cert"];
+const tlsKey = values["tls-key"];
+if (Boolean(tlsCert) !== Boolean(tlsKey)) {
+  console.error("--tls-cert and --tls-key go together.");
+  process.exit(1);
+}
+const loopback =
+  host === "localhost" || /^127\./.test(host) || /^\[?::1\]?$/.test(host);
+if (!loopback && !tlsCert && !values["behind-proxy"]) {
+  console.error(
+    `Listening on ${host} would send passwords and tokens over the network in the clear.\n` +
+      "Add --tls-cert <file> --tls-key <file> to serve HTTPS, or --behind-proxy if a reverse proxy in front terminates TLS.",
+  );
+  process.exit(1);
+}
+const https =
+  tlsCert && tlsKey
+    ? { cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }
+    : undefined;
+
 // The database comes up, and the app schema is migrated, before anything
 // is served.
 const database = await startDatabase({
@@ -106,6 +145,8 @@ const app = await createServer({
   backend: { pool: database.pool, engine: await connectEngine(database.pool) },
   home: tripwireHome(),
   mcpContentDir: fileURLToPath(new URL("./mcp/", import.meta.url)),
+  https,
+  behindProxy: values["behind-proxy"],
 });
 
 try {
@@ -118,7 +159,7 @@ try {
   process.exit(1);
 }
 
-const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
+const url = `${https ? "https" : "http"}://${host.includes(":") ? `[${host}]` : host}:${port}`;
 console.log(`Tripwire is running at ${url}\nPress Ctrl+C to stop.`);
 if (values.open) openBrowser(url);
 

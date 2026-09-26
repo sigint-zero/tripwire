@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "./app";
 import { ViewReads } from "./engine/reads";
 import { STUB_VIEWS, StubEngine } from "./engine/stub";
-import { testDatabase } from "./testing";
+import { signIn, TEST_COST, testDatabase, testHome } from "./testing";
 
 // The stand-in records violations as the engine does; the application
 // lists them and remembers which ones a person has acknowledged.
@@ -36,6 +36,7 @@ let tripping: string;
 
 beforeAll(async () => {
   const database = await testDatabase();
+  const home = await testHome();
   stub = await StubEngine.open(database.pool, () => clock);
   app = await createServer({
     backend: {
@@ -47,7 +48,10 @@ beforeAll(async () => {
         close: () => Promise.resolve(),
       },
     },
+    home: home.home,
+    passwordCost: TEST_COST,
   });
+  await signIn(app);
   await app.inject({
     method: "POST",
     url: "/api/v1/contracts",
@@ -66,6 +70,7 @@ beforeAll(async () => {
   return async () => {
     await app.close();
     await database.close();
+    await home.remove();
   };
 });
 
@@ -129,7 +134,7 @@ describe("violations", () => {
     expect(
       (await ack("  Expected during the migration. ")).acknowledged,
     ).toMatchObject({
-      by: "dashboard",
+      by: expect.stringMatching(/^u_/) as unknown,
       note: "Expected during the migration.",
     });
     expect((await ack("Second thoughts")).acknowledged?.note).toBe(

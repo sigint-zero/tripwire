@@ -120,6 +120,15 @@ export class McpTokens {
     return true;
   }
 
+  /** Revokes every token an account minted. */
+  async revokeUser(userId: string) {
+    const file = await this.#read();
+    const kept = file.tokens.filter((t) => t.userId !== userId);
+    if (kept.length !== file.tokens.length) {
+      await writeJsonFile(this.#path, { ...file, tokens: kept });
+    }
+  }
+
   /**
    * The token's record when it is current, else null. Comparison is a
    * lookup by hash: a guess must match 256 random bits.

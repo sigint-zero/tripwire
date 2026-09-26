@@ -2,7 +2,7 @@ import { loadContent } from "@tripwire/mcp";
 import Fastify, { type FastifyInstance } from "fastify";
 import { AgentServices } from "./agent-services";
 import { api, type Backend } from "./api";
-import { McpTokens } from "./auth/mcp-tokens";
+import { Auth } from "./auth";
 import { mcpRoute } from "./mcp-route";
 import { RuleService } from "./rule-service";
 import { guardRequests } from "./security";
@@ -20,19 +20,41 @@ export interface ServerOptions {
   /** The database and engine the API serves from. Omit for health only. */
   backend?: Backend;
   /**
-   * The application's data directory. With a backend, it enables the MCP
-   * endpoint, whose tokens are kept here.
+   * The application's data directory, where accounts, sessions and MCP
+   * tokens are kept. Required with a backend: the API is never served
+   * without authentication.
    */
   home?: string;
   /** Where the MCP server's teaching content is; beside the source by default. */
   mcpContentDir?: string;
+  /** Terminate TLS in the server itself, and mark cookies Secure. */
+  https?: { key: Buffer; cert: Buffer };
+  /**
+   * A reverse proxy terminates TLS: trust its X-Forwarded-Proto and
+   * X-Forwarded-For. Without it those headers are ignored.
+   */
+  behindProxy?: boolean;
+  /** log2 of scrypt's N for new password hashes; lowered only in tests. */
+  passwordCost?: number;
 }
 
 export async function createServer(
   options: ServerOptions = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify();
+  if (options.backend && !options.home) {
+    throw new Error(
+      "A server with a backend needs a data directory for its accounts.",
+    );
+  }
+  const app = Fastify({
+    trustProxy: options.behindProxy ?? false,
+    ...(options.https ? { https: options.https } : {}),
+  }) as unknown as FastifyInstance;
   guardRequests(app, options.allowedHosts);
+  const auth = options.home
+    ? await Auth.open(options.home, { cost: options.passwordCost })
+    : undefined;
+  if (auth) app.addHook("onClose", () => auth.close());
 
   app.addHook("onError", (request, _reply, error, done) => {
     if ((error.statusCode ?? 500) >= 500) {
@@ -41,8 +63,12 @@ export async function createServer(
     done();
   });
 
-  await app.register(api, { prefix: "/api/v1", backend: options.backend });
-  if (options.backend && options.home) {
+  await app.register(api, {
+    prefix: "/api/v1",
+    backend: options.backend,
+    auth,
+  });
+  if (options.backend && auth) {
     const { pool, engine } = options.backend;
     const store = new AppStore(pool);
     const rules = new RuleService(
@@ -54,7 +80,7 @@ export async function createServer(
     await app.register(mcpRoute, {
       services: new AgentServices({ ...engine, store, rules }),
       content: await loadContent(options.mcpContentDir),
-      tokens: new McpTokens(options.home),
+      tokens: auth.tokens,
       version: VERSION,
     });
   }

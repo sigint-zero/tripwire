@@ -7,7 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "./app";
 import { stubBackend } from "./engine";
 import { ViewReads } from "./engine/reads";
-import { testDatabase } from "./testing";
+import { signIn, TEST_COST, testDatabase, testHome } from "./testing";
 
 // What the application keeps beside the engine, and how it behaves at the
 // boundary.
@@ -19,14 +19,21 @@ const pasted = "0x3333333333333333333333333333333333333333";
 let database: Awaited<ReturnType<typeof testDatabase>>;
 let app: FastifyInstance;
 
+let home: Awaited<ReturnType<typeof testHome>>;
+
 beforeAll(async () => {
   database = await testDatabase();
+  home = await testHome();
   app = await createServer({
     backend: { pool: database.pool, engine: await stubBackend(database.pool) },
+    home: home.home,
+    passwordCost: TEST_COST,
   });
+  await signIn(app);
   return async () => {
     await app.close();
     await database.close();
+    await home.remove();
   };
 });
 afterEach(() => vi.restoreAllMocks());
@@ -105,16 +112,21 @@ describe("registering", () => {
 describe("before the engine has created its views", () => {
   it("answers that the engine is starting", async () => {
     const engine = await stubBackend(database.pool);
+    const other = await testHome();
     const starting = await createServer({
       backend: {
         pool: database.pool,
         engine: { ...engine, reads: new ViewReads(database.pool, "api_v1") },
       },
+      home: other.home,
+      passwordCost: TEST_COST,
     });
+    await signIn(starting);
     const res = await starting.inject({ url: "/api/v1/contracts" });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toMatchObject({ code: "engine_starting" });
     await starting.close();
+    await other.remove();
   });
 });
 
