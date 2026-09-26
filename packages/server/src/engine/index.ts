@@ -27,7 +27,7 @@ export async function stubBackend(
   pool: pg.Pool,
   { ticking = false } = {},
 ): Promise<EngineBackend> {
-  const stub = await StubEngine.open(pool);
+  const stub = await StubEngine.open(pool, Date.now, "prepare");
   return {
     commands: stub,
     reads: new ViewReads(pool, STUB_VIEWS),

@@ -9,6 +9,7 @@ import { EngineError, EngineNotReady } from "./engine/types";
 import { BrowserRelay } from "./events/relay";
 import { eventRoutes } from "./events/route";
 import { refuse } from "./refuse";
+import { responseRoutes } from "./responses";
 import { RuleService } from "./rule-service";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
@@ -58,6 +59,7 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   const rules = new RuleService(commands, reads, store, info.simulated);
   app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
+  app.register(responseRoutes, { commands, reads });
   if (auth) {
     const relay = new BrowserRelay(backend.engine.events, (message, detail) =>
       app.log.warn(detail, message),

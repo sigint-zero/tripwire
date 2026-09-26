@@ -126,6 +126,61 @@ export type ResponseStatus =
 
 export type ViolationKind = "tripped" | "evaluation_error" | "pending";
 
+/** The Responses page's tabs, each a set of statuses. */
+export type ResponseTab = "waiting" | "in_flight" | "history";
+
+/** One submission of a response's transaction. */
+export interface ResponseAttempt {
+  hash: string;
+  maxFeeGwei: string | null;
+  maxPriorityFeeGwei: string | null;
+  block: number | null;
+}
+
+/** The transaction the engine built: what a person approves is what is sent. */
+export interface ResponseTx {
+  to: string | null;
+  /** The signing key. */
+  from: string | null;
+  function: string | null;
+  args: string[];
+  value: string;
+  nonce: number | null;
+  gasLimit: string | null;
+  maxFeeGwei: string | null;
+  maxPriorityFeeGwei: string | null;
+  /** The most it can cost at the fee caps. */
+  maxCostWei: string | null;
+  hash: string | null;
+  /** Rebuilt and re-signed at approval because the chain moved. */
+  rebuilt: boolean;
+  attempts: ResponseAttempt[];
+  /** Where it was confirmed, and the gas it used. */
+  block: number | null;
+  gasUsed: string | null;
+}
+
+/** What the engine does about one violation whose rule acts on chain. */
+export interface ResponseItem {
+  id: string;
+  status: ResponseStatus;
+  action: "trip_global" | "trip_function" | "call";
+  mode: "prepare" | "send";
+  rule: { id: string; name: string };
+  contract: { address: string; name: string | null };
+  violation: { id: string; kind: ViolationKind; blockNumber: number } | null;
+  tx: ResponseTx | null;
+  /** Why it failed or was abandoned, or the problem holding it. */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResponseCounts {
+  waiting: number;
+  inFlight: number;
+}
+
 /** A rule tripping, or failing to evaluate, at one block. */
 export interface Violation {
   id: string;

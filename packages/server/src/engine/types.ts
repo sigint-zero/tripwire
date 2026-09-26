@@ -62,6 +62,26 @@ export interface ViolationRow {
   response_status: ResponseStatus | null;
 }
 
+/** A row of the `responses` view, with its violation and contract. */
+export interface ResponseRow {
+  id: string;
+  violation_id: string;
+  rule_id: string;
+  rule_name: string;
+  contract_address: string;
+  contract_name: string | null;
+  action: string;
+  mode: string;
+  status: ResponseStatus;
+  /** The built transaction, as the engine keeps it. */
+  tx: unknown;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  violation_kind: ViolationKind | null;
+  violation_block: number | null;
+}
+
 /** `GET /v1/health`: the running process speaking for itself. */
 export interface EngineHealth {
   status: "starting" | "ready" | "degraded";
@@ -163,6 +183,10 @@ export interface EngineCommands {
   deleteRule(id: string): Promise<void>;
   dryRun(document: unknown): Promise<DryRun>;
   read(calls: ReadCall[]): Promise<(string | string[])[]>;
+  /** Sends a held response; `409` when it is no longer waiting. */
+  approveResponse(id: string): Promise<void>;
+  /** Abandons a held response; `409` when it is no longer waiting. */
+  rejectResponse(id: string, reason: string | null): Promise<void>;
 }
 
 /** Every read of the engine's state comes from its views. */
@@ -182,4 +206,13 @@ export interface EngineReads {
     limit?: number;
   }): Promise<ViolationRow[]>;
   violation(id: string): Promise<ViolationRow | null>;
+  /** Newest first; `before` pages by id. */
+  responses(filter?: {
+    statuses?: ResponseStatus[];
+    contractAddress?: string;
+    before?: string;
+    limit?: number;
+  }): Promise<ResponseRow[]>;
+  response(id: string): Promise<ResponseRow | null>;
+  responseCounts(): Promise<{ waiting: number; inFlight: number }>;
 }

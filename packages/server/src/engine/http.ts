@@ -88,6 +88,18 @@ export class HttpEngine implements EngineCommands {
     return body.values;
   }
 
+  async approveResponse(id: string) {
+    await this.#call("POST", `/v1/responses/${responseId(id)}/approve`);
+  }
+
+  async rejectResponse(id: string, reason: string | null) {
+    await this.#call(
+      "POST",
+      `/v1/responses/${responseId(id)}/reject`,
+      reason ? { reason } : {},
+    );
+  }
+
   async #call<T = unknown>(
     method: string,
     path: string,
@@ -127,6 +139,12 @@ export class HttpEngine implements EngineCommands {
     }
     return parsed as T;
   }
+}
+
+function responseId(id: string) {
+  if (!/^\d+$/.test(id))
+    throw new EngineError(404, "not_found", "No such response.");
+  return id;
 }
 
 function ruleId(id: string) {

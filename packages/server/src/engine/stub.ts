@@ -1,5 +1,6 @@
 import {
   describeRule,
+  type EngineInfo,
   issuesOf,
   parseSignature,
   rule as ruleSchema,
@@ -7,6 +8,14 @@ import {
 } from "@tripwire/shared";
 import type pg from "pg";
 import type { EngineEvents, EngineListener } from "../events/types";
+import {
+  actsOnChain,
+  buildTx,
+  confirmed,
+  DEFAULT_QUIET_SECONDS,
+  submitted,
+  type StubTx,
+} from "./stub-responses";
 import {
   blockAt,
   evaluateTrip,
@@ -109,26 +118,35 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
     JOIN stub.contracts c ON c.id = r.contract_id;
 `;
 
+type ResponseMode = EngineInfo["responseMode"];
+
 const CONTRACT_COLUMNS = "id::text, address, name, abi, created_at";
 
 export class StubEngine implements EngineCommands, EngineEvents {
   readonly #pool: pg.Pool;
   readonly #clock: () => number;
   readonly #listeners = new Set<EngineListener>();
+  readonly #mode: ResponseMode;
   #lastBlock = 0;
 
-  private constructor(pool: pg.Pool, clock: () => number) {
+  private constructor(pool: pg.Pool, clock: () => number, mode: ResponseMode) {
     this.#pool = pool;
     this.#clock = clock;
+    this.#mode = mode;
   }
 
-  /** Creates the stand-in's schemas if they are not there yet. */
+  /**
+   * Creates the stand-in's schemas if they are not there yet. `mode` is
+   * how far it goes with a rule's on-chain action, as the engine's
+   * `[response] mode`.
+   */
   static async open(
     pool: pg.Pool,
     clock: () => number = Date.now,
+    mode: ResponseMode = "prepare",
   ): Promise<StubEngine> {
     await pool.query(SCHEMA);
-    return new StubEngine(pool, clock);
+    return new StubEngine(pool, clock, mode);
   }
 
   /** The same events the engine streams, from the simulated chain. */
@@ -372,6 +390,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
     const clock = this.#clock();
     const block = blockAt(clock);
     const time = new Date(clock).toISOString();
+    await this.#advanceResponses(block, time);
     if (block > this.#lastBlock) {
       this.#lastBlock = block;
       this.#emit("block", {
@@ -433,6 +452,9 @@ export class StubEngine implements EngineCommands, EngineEvents {
           block_number: block,
           block_time: time,
         });
+        if (kind === "tripped") {
+          await this.#stageResponse(recordedId, row, block, clock);
+        }
       }
     }
     return recorded;
@@ -455,6 +477,123 @@ export class StubEngine implements EngineCommands, EngineEvents {
   }
 
   /** One value per call; a function with several outputs gives a list. */
+  /**
+   * A response for a violation whose rule acts on chain: held for
+   * approval, or sent at once, as the mode says. At most one is live per
+   * rule, and after one another waits out the rule's quiet period.
+   */
+  async #stageResponse(
+    violationId: string,
+    rule: { id: string; address: string; document: Rule },
+    block: number,
+    clock: number,
+  ) {
+    const onTrip = rule.document.on_trip;
+    if (this.#mode === "notify" || !actsOnChain(onTrip)) return;
+    const quiet = onTrip.cooldown_seconds ?? DEFAULT_QUIET_SECONDS;
+    const { rows: recent } = await this.#pool.query(
+      `SELECT 1 FROM stub.responses p JOIN stub.violations v ON v.id = p.violation_id
+        WHERE v.rule_id = $1
+          AND (p.status IN ('pending', 'awaiting_approval', 'approved', 'submitted')
+               OR p.created_at > $2)
+        LIMIT 1`,
+      [rule.id, new Date(clock - quiet * 1000).toISOString()],
+    );
+    if (recent.length > 0) return;
+    const { rows: counted } = await this.#pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM stub.responses",
+    );
+    const built = buildTx(onTrip, rule.address, counted[0]?.n ?? 0);
+    const sending = this.#mode === "send";
+    const time = new Date(clock).toISOString();
+    const { rows } = await this.#pool.query<{ id: string }>(
+      `INSERT INTO stub.responses
+         (violation_id, action, mode, status, tx, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id::text`,
+      [
+        violationId,
+        onTrip.action,
+        this.#mode,
+        sending ? "submitted" : "awaiting_approval",
+        JSON.stringify(sending ? submitted(built, block) : built),
+        time,
+      ],
+    );
+    this.#emitResponse(
+      rows[0]!.id,
+      rule.id,
+      sending ? "submitted" : "awaiting_approval",
+    );
+  }
+
+  /** Approved responses are sent; sent ones confirm a block later. */
+  async #advanceResponses(block: number, time: string) {
+    const { rows } = await this.#pool.query<{
+      id: string;
+      rule_id: string;
+      status: string;
+      tx: StubTx;
+    }>(
+      `SELECT p.id::text, v.rule_id::text, p.status, p.tx
+         FROM stub.responses p JOIN stub.violations v ON v.id = p.violation_id
+        WHERE p.status IN ('approved', 'submitted')`,
+    );
+    for (const r of rows) {
+      const sentAt = r.tx.attempts.at(-1)?.block;
+      const next =
+        r.status === "approved"
+          ? { status: "submitted", tx: submitted(r.tx, block) }
+          : sentAt !== undefined && sentAt < block
+            ? { status: "confirmed", tx: confirmed(r.tx, block) }
+            : null;
+      if (!next) continue;
+      await this.#pool.query(
+        "UPDATE stub.responses SET status = $2, tx = $3, updated_at = $4 WHERE id = $1",
+        [r.id, next.status, JSON.stringify(next.tx), time],
+      );
+      this.#emitResponse(r.id, r.rule_id, next.status);
+    }
+  }
+
+  #emitResponse(id: string, ruleId: string, status: string) {
+    this.#emit("response", { id, rule_id: ruleId, status });
+  }
+
+  async approveResponse(id: string): Promise<void> {
+    await this.#decide(id, "approved", null);
+  }
+
+  async rejectResponse(id: string, reason: string | null): Promise<void> {
+    await this.#decide(
+      id,
+      "abandoned",
+      reason ? `Rejected: ${reason}` : "Rejected.",
+    );
+  }
+
+  /** A person's decision on a held response, once. */
+  async #decide(id: string, status: string, error: string | null) {
+    if (!/^\d+$/.test(id)) throw notFound("response");
+    const { rows } = await this.#pool.query<{ rule_id: string }>(
+      `UPDATE stub.responses p SET status = $2, error = $3, updated_at = $4
+         FROM stub.violations v
+        WHERE p.id = $1 AND v.id = p.violation_id AND p.status = 'awaiting_approval'
+        RETURNING v.rule_id::text`,
+      [id, status, error, new Date(this.#clock()).toISOString()],
+    );
+    if (rows[0]) return this.#emitResponse(id, rows[0].rule_id, status);
+    const { rows: found } = await this.#pool.query<{ status: string }>(
+      "SELECT status FROM stub.responses WHERE id = $1",
+      [id],
+    );
+    if (!found[0]) throw notFound("response");
+    throw new EngineError(
+      409,
+      "not_waiting",
+      `The response is not waiting for approval: it is ${found[0].status}.`,
+    );
+  }
+
   read(calls: ReadCall[]): Promise<(string | string[])[]> {
     const clock = this.#clock();
     return Promise.resolve(
@@ -495,6 +634,6 @@ function nameTaken() {
   );
 }
 
-function notFound(what: "contract" | "rule") {
+function notFound(what: "contract" | "rule" | "response") {
   return new EngineError(404, "not_found", `No such ${what}.`);
 }

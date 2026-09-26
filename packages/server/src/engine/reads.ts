@@ -1,9 +1,10 @@
-import type { ViolationKind } from "@tripwire/shared";
+import type { ResponseStatus, ViolationKind } from "@tripwire/shared";
 import type pg from "pg";
 import {
   EngineNotReady,
   type ContractRow,
   type EngineReads,
+  type ResponseRow,
   type RuleRow,
   type ViolationRow,
 } from "./types";
@@ -25,6 +26,11 @@ const VIOLATION = `v.id::text, v.rule_id::text, v.rule_name, v.severity,
   v.contract_address, v.kind, v.block_number::int, v.block_time, v.tx_hash,
   v.evidence, v.created_at, a.acknowledged_by, a.note, a.acknowledged_at,
   p.id::text AS response_id, p.status AS response_status`;
+
+const RESPONSE = `p.id::text, p.violation_id::text, p.rule_id::text,
+  p.rule_name, p.contract_address, c.name AS contract_name, p.action, p.mode,
+  p.status, p.tx, p.error, p.created_at, p.updated_at,
+  v.kind AS violation_kind, v.block_number::int AS violation_block`;
 
 export class ViewReads implements EngineReads {
   readonly #pool: pg.Pool;
@@ -121,6 +127,59 @@ export class ViewReads implements EngineReads {
       [id],
     );
     return rows[0] ?? null;
+  }
+
+  async responses(
+    filter: {
+      statuses?: ResponseStatus[];
+      contractAddress?: string;
+      before?: string;
+      limit?: number;
+    } = {},
+  ): Promise<ResponseRow[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const bind = (clause: string, value: unknown) => {
+      params.push(value);
+      where.push(clause.replace("?", `$${params.length}`));
+    };
+    if (filter.statuses) bind("p.status = ANY(?::text[])", filter.statuses);
+    if (filter.contractAddress) {
+      bind("p.contract_address = ?", filter.contractAddress.toLowerCase());
+    }
+    if (filter.before) bind("p.id < ?", filter.before);
+    const limit = Math.min(Math.max(filter.limit ?? LIMIT, 1), LIMIT);
+    return this.#read<ResponseRow>(
+      `SELECT ${RESPONSE} FROM ${this.#responses()}
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY p.id DESC LIMIT ${limit}`,
+      params,
+    );
+  }
+
+  async response(id: string): Promise<ResponseRow | null> {
+    if (!/^\d+$/.test(id)) return null;
+    const rows = await this.#read<ResponseRow>(
+      `SELECT ${RESPONSE} FROM ${this.#responses()} WHERE p.id = $1`,
+      [id],
+    );
+    return rows[0] ?? null;
+  }
+
+  async responseCounts() {
+    const [row] = await this.#read<{ waiting: number; in_flight: number }>(
+      `SELECT count(*) FILTER (WHERE status = 'awaiting_approval')::int AS waiting,
+              count(*) FILTER (WHERE status IN ('pending', 'approved', 'submitted'))::int AS in_flight
+         FROM ${this.#schema}.responses`,
+    );
+    return { waiting: row?.waiting ?? 0, inFlight: row?.in_flight ?? 0 };
+  }
+
+  /** Responses with the violation that caused them and the contract's name. */
+  #responses() {
+    return `${this.#schema}.responses p
+      LEFT JOIN ${this.#schema}.violations v ON v.id = p.violation_id
+      LEFT JOIN ${this.#schema}.contracts c ON c.address = p.contract_address`;
   }
 
   /** Violations with their acknowledgement and their latest response. */
