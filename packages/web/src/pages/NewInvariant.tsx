@@ -18,6 +18,12 @@ import { ApiError, api } from "../lib/api";
 import { shortAddress } from "../lib/format";
 import { initialValues, templates, type Values } from "../lib/templates";
 
+// Development only: a contract to start from, so it need not be pasted
+// on every reload. Production builds ignore it.
+const [devChain, devAddress] = import.meta.env.DEV
+  ? (import.meta.env.VITE_DEV_CONTRACT?.split(":") ?? [])
+  : [];
+
 const steps = [
   { title: "Contract", hint: "Which contract should Tripwire watch?" },
   { title: "Template", hint: "What kind of invariant is it?" },
@@ -30,8 +36,8 @@ export function NewInvariantPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
-  const [chainId, setChainId] = useState(1);
-  const [address, setAddress] = useState("");
+  const [chainId, setChainId] = useState(Number(devChain) || 1);
+  const [address, setAddress] = useState(devAddress ?? "");
   const [pasted, setPasted] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
