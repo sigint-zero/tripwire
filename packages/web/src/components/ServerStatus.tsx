@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLive } from "../lib/live";
 
 async function fetchHealth(signal: AbortSignal): Promise<{ status: string }> {
   // A server that accepts the connection but never answers counts as down.
@@ -25,12 +26,25 @@ export function ServerStatus() {
     refetchInterval: 10_000,
     retry: false,
   });
+  const { paused } = useLive();
   const { dot, label } = states[status];
 
   return (
-    <div className="flex items-center gap-2 px-3 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
-      <span className={`size-1.5 ${dot}`} />
-      {label}
+    <div className="space-y-2 px-3 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
+      <p className="flex items-center gap-2">
+        <span className={`size-1.5 ${dot}`} />
+        {label}
+      </p>
+      {/* Unreachable already says it; this is the stream alone dropping. */}
+      {paused && status === "success" && (
+        <p
+          className="flex items-center gap-2 text-amber-400/80"
+          title="Pages refresh once a minute until the live connection is back"
+        >
+          <span className="size-1.5 bg-amber-400/80" />
+          Reconnecting, updates paused
+        </p>
+      )}
     </div>
   );
 }

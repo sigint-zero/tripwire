@@ -7,6 +7,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { auth, isLoggedOut } from "./lib/api";
+import { useLiveUpdates } from "./lib/live";
 import { AppShell } from "./components/AppShell";
 import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
@@ -56,7 +57,10 @@ const safeRedirect = (value: unknown): string | undefined =>
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
-  component: AppShell,
+  component: function Shell() {
+    useLiveUpdates();
+    return <AppShell />;
+  },
   beforeLoad: async ({ context: { queryClient }, location }) => {
     const setup = await queryClient.fetchQuery(setupQuery);
     if (setup.required) throw redirect({ to: "/setup" });

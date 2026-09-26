@@ -25,7 +25,6 @@ export function OverviewPage() {
     queryKey: ["violations", { open: true, limit: OPEN_LIMIT }],
     queryFn: ({ signal }) =>
       api.violations({ open: true, limit: OPEN_LIMIT }, signal),
-    refetchInterval: 12_000,
   });
   const { data: pinned } = useQuery({
     queryKey: ["pinned"],

@@ -75,8 +75,6 @@ export function ViolationsPage({
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) =>
       last.length === PAGE ? last.at(-1)?.id : undefined,
-    // Until events stream in, a new block's worth every 12 seconds.
-    refetchInterval: 12_000,
   });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],

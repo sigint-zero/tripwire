@@ -47,6 +47,7 @@ beforeAll(async () => {
       engine: {
         commands: stub,
         reads: new ViewReads(database.pool, STUB_VIEWS),
+        events: stub,
         info: { chainId: 1, responseMode: "prepare", simulated: true },
         close: () => Promise.resolve(),
       },

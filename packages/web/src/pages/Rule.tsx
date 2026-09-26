@@ -30,7 +30,6 @@ export function RulePage({ id }: { id: string }) {
   const { data: rule, error } = useQuery({
     queryKey: ["rule", id],
     queryFn: ({ signal }) => api.rule(id, signal),
-    refetchInterval: 12_000,
   });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],
@@ -43,7 +42,6 @@ export function RulePage({ id }: { id: string }) {
   const { data: violations } = useQuery({
     queryKey: ["violations", { rule: id }],
     queryFn: ({ signal }) => api.violations({ rule: id, limit: 200 }, signal),
-    refetchInterval: 12_000,
   });
 
   const changed = async (updated: SavedRule) => {

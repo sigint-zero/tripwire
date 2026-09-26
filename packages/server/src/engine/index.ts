@@ -1,6 +1,8 @@
 import type { EngineInfo } from "@tripwire/shared";
 import { readFile } from "node:fs/promises";
 import type pg from "pg";
+import { EngineStream } from "../events/upstream";
+import type { EngineEvents } from "../events/types";
 import { HttpEngine } from "./http";
 import { ViewReads } from "./reads";
 import { STUB_VIEWS, StubEngine } from "./stub";
@@ -10,6 +12,8 @@ import type { EngineCommands, EngineReads } from "./types";
 export interface EngineBackend {
   commands: EngineCommands;
   reads: EngineReads;
+  /** What changed, as it happens. */
+  events: EngineEvents;
   info: EngineInfo;
   /** Stops whatever the backend runs on its own. */
   close(): Promise<void>;
@@ -27,6 +31,7 @@ export async function stubBackend(
   return {
     commands: stub,
     reads: new ViewReads(pool, STUB_VIEWS),
+    events: stub,
     info: { chainId: 1, responseMode: "prepare", simulated: true },
     close: ticking ? stub.ticking() : () => Promise.resolve(),
   };
@@ -38,6 +43,8 @@ export function engineBackend(
   options: {
     url: string;
     secret: string;
+    /** Read again when the engine refuses the secret it was given. */
+    readSecret?: () => Promise<string>;
     chainId: number;
     responseMode: EngineInfo["responseMode"];
   },
@@ -45,6 +52,10 @@ export function engineBackend(
   return {
     commands: new HttpEngine({ url: options.url, secret: options.secret }),
     reads: new ViewReads(pool, "api_v1"),
+    events: new EngineStream({
+      url: options.url,
+      secret: options.readSecret ?? (() => Promise.resolve(options.secret)),
+    }),
     info: {
       chainId: options.chainId,
       responseMode: options.responseMode,
@@ -78,6 +89,7 @@ export async function connectEngine(
   return engineBackend(pool, {
     url,
     secret: await readFile(secretFile, "utf8"),
+    readSecret: () => readFile(secretFile, "utf8"),
     chainId: Number(env.TRIPWIRE_CHAIN_ID ?? 1),
     responseMode: mode,
   });

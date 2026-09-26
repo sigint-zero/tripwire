@@ -6,6 +6,8 @@ import { authRoutes, requireSession } from "./auth/routes";
 import { contractRoutes } from "./contracts";
 import type { EngineBackend } from "./engine";
 import { EngineError, EngineNotReady } from "./engine/types";
+import { BrowserRelay } from "./events/relay";
+import { eventRoutes } from "./events/route";
 import { refuse } from "./refuse";
 import { RuleService } from "./rule-service";
 import { ruleRoutes } from "./rules";
@@ -56,6 +58,17 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   const rules = new RuleService(commands, reads, store, info.simulated);
   app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
+  if (auth) {
+    const relay = new BrowserRelay(backend.engine.events, (message, detail) =>
+      app.log.warn(detail, message),
+    );
+    // Open streams would hold the server's close; they end first.
+    app.addHook("preClose", (done) => {
+      relay.close();
+      done();
+    });
+    app.register(eventRoutes, { relay, auth });
+  }
 
   done();
 };

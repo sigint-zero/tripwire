@@ -6,6 +6,7 @@ import {
   type Rule,
 } from "@tripwire/shared";
 import type pg from "pg";
+import type { EngineEvents, EngineListener } from "../events/types";
 import {
   blockAt,
   evaluateTrip,
@@ -110,9 +111,11 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
 
 const CONTRACT_COLUMNS = "id::text, address, name, abi, created_at";
 
-export class StubEngine implements EngineCommands {
+export class StubEngine implements EngineCommands, EngineEvents {
   readonly #pool: pg.Pool;
   readonly #clock: () => number;
+  readonly #listeners = new Set<EngineListener>();
+  #lastBlock = 0;
 
   private constructor(pool: pg.Pool, clock: () => number) {
     this.#pool = pool;
@@ -126,6 +129,16 @@ export class StubEngine implements EngineCommands {
   ): Promise<StubEngine> {
     await pool.query(SCHEMA);
     return new StubEngine(pool, clock);
+  }
+
+  /** The same events the engine streams, from the simulated chain. */
+  listen(listener: EngineListener): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #emit(event: string, data: object) {
+    for (const l of this.#listeners) l.event({ event, data });
   }
 
   health(): Promise<EngineHealth> {
@@ -300,6 +313,22 @@ export class StubEngine implements EngineCommands {
     } finally {
       client.release();
     }
+    const { rows } = await this.#pool.query<{
+      id: string;
+      enabled: boolean;
+      warming: boolean;
+    }>(
+      `SELECT id::text, enabled, warming FROM ${STUB_VIEWS}.rules
+        WHERE id = ANY($1::bigint[])`,
+      [[...new Set(ids)]],
+    );
+    for (const r of rows) {
+      this.#emit("rule_state", {
+        rule_id: r.id,
+        enabled: r.enabled,
+        warming: r.warming,
+      });
+    }
   }
 
   async deleteRule(id: string): Promise<void> {
@@ -342,6 +371,15 @@ export class StubEngine implements EngineCommands {
   async tick(): Promise<number> {
     const clock = this.#clock();
     const block = blockAt(clock);
+    const time = new Date(clock).toISOString();
+    if (block > this.#lastBlock) {
+      this.#lastBlock = block;
+      this.#emit("block", {
+        number: block,
+        hash: `0x${block.toString(16).padStart(64, "0")}`,
+        time,
+      });
+    }
     const { rows } = await this.#pool.query<{
       id: string;
       address: string;
@@ -373,21 +411,29 @@ export class StubEngine implements EngineCommands {
         evidence = { error: String(error) };
       }
       // Recording the violation and moving the rule's block commit together.
-      await this.#pool.query(
+      const { rows: recordedRows } = await this.#pool.query<{ id: string }>(
         `WITH moved AS (
            UPDATE stub.rules SET last_evaluated_block = $2 WHERE id = $1 RETURNING id
          )
          INSERT INTO stub.violations (rule_id, kind, block_number, block_time, evidence)
-         SELECT id, $3, $2, $4, $5 FROM moved WHERE $3::text IS NOT NULL`,
-        [
-          row.id,
-          block,
-          kind,
-          new Date(clock).toISOString(),
-          JSON.stringify(evidence ?? null),
-        ],
+         SELECT id, $3, $2, $4, $5 FROM moved WHERE $3::text IS NOT NULL
+         RETURNING id::text`,
+        [row.id, block, kind, time, JSON.stringify(evidence ?? null)],
       );
-      if (kind) recorded++;
+      const recordedId = recordedRows[0]?.id;
+      if (kind && recordedId) {
+        recorded++;
+        this.#emit("violation", {
+          id: recordedId,
+          rule_id: row.id,
+          rule_name: row.document.name,
+          severity: row.document.severity,
+          contract_address: row.address,
+          kind,
+          block_number: block,
+          block_time: time,
+        });
+      }
     }
     return recorded;
   }
