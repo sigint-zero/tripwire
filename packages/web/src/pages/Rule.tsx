@@ -118,16 +118,28 @@ export function RulePage({ id }: { id: string }) {
             >
               <Tag>{contract?.name ?? shortAddress(address)}</Tag>
             </Link>
+            {/* The alert and action are settings, not states: no colour. */}
             {severity && (
-              <Tag tone={severity.tone}>
-                <SeverityIcon
-                  severity={severity.severity}
-                  className="mr-1.5 size-3"
-                />
-                {severity.title}
-              </Tag>
+              <span title="The alert it raises when it trips">
+                <Tag>
+                  <span className="mr-2 text-gray-600">Alert</span>
+                  <SeverityIcon
+                    severity={severity.severity}
+                    className="mr-1.5 size-3"
+                    plain
+                  />
+                  {severity.title}
+                </Tag>
+              </span>
             )}
-            {action && <Tag>{action.title}</Tag>}
+            {action && (
+              <span title="What Tripwire does when it trips">
+                <Tag>
+                  <span className="mr-2 text-gray-600">Action</span>
+                  {action.title}
+                </Tag>
+              </span>
+            )}
             {typeof rule.origin === "object" && (
               <Tag tone="text-violet-300">Via {rule.origin.mcp}</Tag>
             )}

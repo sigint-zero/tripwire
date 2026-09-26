@@ -34,15 +34,19 @@ export const severities: {
   },
 ];
 
-/** A severity as a bell in its colour. */
+/** A severity as a bell in its colour, or in the text's when `plain`. */
 export function SeverityIcon({
   severity,
   className = "size-3.5",
+  plain = false,
 }: {
   severity: Severity;
   className?: string;
+  plain?: boolean;
 }) {
-  const tone = severities.find((s) => s.severity === severity)?.tone;
+  const tone = plain
+    ? ""
+    : severities.find((s) => s.severity === severity)?.tone;
   return (
     <svg
       viewBox="0 0 16 16"
