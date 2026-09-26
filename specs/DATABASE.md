@@ -136,7 +136,7 @@ run and changeable in Settings.
 | Mode | Database | Who provisions | Typical owner |
 |-|-|-|-|
 | `external` | the owner's PostgreSQL, reached by URL | the owner | a team with a database already |
-| `local` | PGlite under the data directory, served over the wire protocol by the application | the application | one person, one machine, zero setup |
+| `local` | PGlite under the data directory, served over the wire protocol through a pooler the application runs | the application | one person, one machine, zero setup |
 
 Whichever mode, the rest of the application sees a URL and a small set
 of facts about the connection. Provisioning is one module
@@ -173,7 +173,11 @@ Grafana; the application creates no roles.
 
 The application brings up PGlite, a PostgreSQL build that runs inside
 the Node process, persisted to `TRIPWIRE_HOME/db/data`, and serves it
-to the engine over the wire protocol with the PGlite socket server.
+over the wire protocol through a pooler it runs in the same process.
+Both clients go through that pooler: the engine by construction, and
+the application itself, whose pool connects to the pooler like any
+wire-protocol client instead of calling the in-process API. One access
+path to the database, one place where serialisation happens.
 
 | Item | Value |
 |-|-|
@@ -181,14 +185,31 @@ to the engine over the wire protocol with the PGlite socket server.
 | endpoint on Linux and macOS | Unix socket `TRIPWIRE_HOME/db/sock/.s.PGSQL.5432`; URL `postgres:///tripwire?host=TRIPWIRE_HOME/db/sock` |
 | endpoint on Windows | `127.0.0.1` on a free port picked at start; URL recorded in `TRIPWIRE_HOME/db/endpoint.json` (`0600`) for the CLI |
 | lock | `TRIPWIRE_HOME/db/lock`, created exclusively with the holder's pid; a stale lock (pid gone) is replaced, a live one is refused with "database in use by process N" |
-| engine pool | `max_connections = 1` |
-| application pool | 1 connection |
+| pooler | in-process, transaction-boundary: it owns PGlite's one session and leases it to one client transaction at a time |
+| engine pool | `max_connections = 1`, connected to the pooler |
+| application pool | 1 connection, connected to the pooler |
 
-PGlite is a single-session database. The socket server lets more than
-one client connect by multiplexing them over that one session, and
-its authors say that not every case is covered. The application
-therefore follows four rules whenever it talks to the local database,
-and they cost nothing in external mode, so they are simply the rules:
+PGlite is a single-session database; the pooler is what lets one
+session serve two processes. It leases the session to one client
+transaction at a time, so a statement from one client never runs
+inside another client's open transaction. The pooler's contract:
+
+| Situation | Pooler behaviour |
+|-|-|
+| a client sends its first message while the session is free | the client takes the lease |
+| the session is leased | other clients' messages wait in arrival order |
+| the database reports the session idle (`ReadyForQuery` with status `I`) | the lease ends; the next waiting client takes it |
+| a transaction is open or failed (status `T` or `E`) | the lease is held until the client commits or rolls back |
+| a client disconnects while holding the lease | the pooler issues `ROLLBACK` before the next lease |
+| a leased transaction sits idle for 30 seconds | the pooler rolls it back and disconnects that client, so a stuck client can never stall the engine's block writes |
+
+The pooler does not reset the session between leases, so anything
+session-scoped one client leaves behind (a setting, a named prepared
+statement, a temporary table) is seen by the other. That is why both
+processes keep nothing session-scoped (requirement E5 for the engine),
+and why the application follows four rules whenever it talks to the
+local database. They cost nothing in external mode, so they are simply
+the rules:
 
 1. Every identifier is schema-qualified. No `search_path`, no
    session-level `SET` of any kind; a per-statement need uses
@@ -200,15 +221,22 @@ and they cost nothing in external mode, so they are simply the rules:
 4. No named prepared statements, no `LISTEN`, no `COPY`.
 
 The checkpoint at the end proves the one property the application
-cannot take on faith: that the multiplexer serialises whole
+cannot take on faith: that the pooler serialises whole
 transactions. A statement from one client, issued while another
 client holds a transaction open, must wait until that transaction
 ends; it must never run inside it. Without that, an application read
 could land inside the engine's block write, or an application
-rollback could undo engine rows. If
-that proof fails on a release of the socket server, local mode moves
-to an embedded PostgreSQL server (decision DB1), and the provisioning
-module is the only code that changes.
+rollback could undo engine rows. The PGlite socket server
+multiplexes clients over the one session, but its documentation does
+not say it holds to transaction boundaries and its authors note that
+not every case is covered, so the checkpoint proves the property
+rather than trusting it. If that proof fails on a release of the
+socket server, the pooling layer is replaced first: a small
+transaction-boundary pooler of the application's own, speaking the
+wire protocol to the clients and PGlite's protocol interface inward,
+inside the provisioning module. Only if PGlite itself cannot hold up
+does local mode move to an embedded PostgreSQL server (decision DB1);
+either way the provisioning module is the only code that changes.
 
 The Unix socket path is not authenticated; it is protected by the
 `0700` directory, which is the same protection the data directory has.
@@ -266,8 +294,8 @@ engine has.
 Start:
 
 1. Load configuration, resolve the URL or take the lock and open the
-   local database, start the socket server.
-2. Pre-flight (external) or a `select 1` over the socket (local).
+   local database, start the pooler.
+2. Pre-flight (external) or a `select 1` through the pooler (local).
 3. Apply the application's migrations (below).
 4. Write `engine.toml`, spawn the engine, begin polling its health.
 5. Listen. Until the engine reports ready the dashboard shows the
@@ -278,7 +306,7 @@ Stop, on `SIGINT` or `SIGTERM`:
 1. Stop accepting requests, finish in-flight ones with a short bound.
 2. Signal the engine, wait for it to exit (bounded, then kill).
 3. Close the application pool.
-4. Local mode: stop the socket server, close PGlite, release the lock.
+4. Local mode: stop the pooler, close PGlite, release the lock.
 
 The engine exiting on its own does not stop the database: the
 supervisor restarts the engine, and the dashboard keeps serving what
@@ -418,7 +446,7 @@ and is about a hundred lines; it has no dependency beyond the driver.
 |-|-|
 | files | `packages/server/migrations/NNNN_name.sql`, four digits, contiguous from `0001`, bundled into the CLI executable |
 | one transaction each | a file runs inside one transaction; a failure rolls it back and stops the start with the file name and the database's message |
-| serialised | the runner takes `pg_advisory_xact_lock` on a fixed key for the whole run, so two processes starting together apply each file once |
+| serialised | each file's transaction starts with `pg_advisory_xact_lock` on a fixed key, then re-reads the ledger and skips the file if another process applied it meanwhile. A transaction-scoped lock is released with its transaction, so it cannot be held across files and is safe behind the pooler; a session lock would outlive the lease |
 | ledger | `app.migrations`; `0001` creates the schema and the ledger together |
 | never edited | an applied file's checksum must match the shipped file, else `migration_altered` and the start stops; changes are new files |
 | forward only | there are no down migrations; a release that must undo something ships a new file that does |
@@ -468,18 +496,19 @@ the URL and the views above.
 | E2 | The minimum PostgreSQL major version, stated in each release's view reference | the external-mode pre-flight names it before the engine is spawned |
 | E3 | A disabled rule behaves as in "Disabling rules and contracts" above, and a batch enable or disable takes many rule ids and applies in one transaction | disabling a contract is a batch, and a half-applied batch would leave a contract partly watched |
 | E4 | The view reference lists, per view, the columns and their types | the application selects columns by name and its types are generated from that file |
+| E5 | The engine stays fully correct when its connection is served by a transaction-boundary pooler: nothing it does is session-scoped (its migration lock is transaction-scoped, it sets no session state, no `LISTEN`/`NOTIFY`, no prepared statement relied on across transactions) | in local mode both processes share PGlite's one session through the pooler, which hands the session over at transaction boundaries |
 
 ## Decisions
 
 | # | Decision | Recommendation and reason |
 |-|-|-|
-| DB1 | Local database engine | PGlite over its socket server. It installs with the package, needs no download and no child binary, and the engine already guarantees correctness at one connection for exactly this case. The fallback, taken only if the checkpoint's isolation proof fails, is an embedded PostgreSQL server; the provisioning module is the only code that changes |
+| DB1 | Local database engine | PGlite behind a transaction-boundary pooler that both processes connect through. It installs with the package, needs no download and no child binary, and the engine already guarantees correctness at one pooled connection for exactly this case. The pooler is the socket server's multiplexer if the checkpoint proves it, else a small pooler of the application's own; the fallback, taken only if PGlite itself fails the proof, is an embedded PostgreSQL server. In every case the provisioning module is the only code that changes |
 | DB2 | One URL for both processes | Yes. The application holds one credential and hands the same one to the engine. A split into a writer and a read-only role is documented for owners who want it, and the application does not need it to keep to its schema: the boundary is enforced by code review and by the test that rejects any query text naming `engine.` |
 | DB3 | Where credentials live | Files, per `AUTHENTICATION.md` AU4. Login must work with the database down, and a CLI command must be able to add a user beside a running server without contending for the local database's one session |
 | DB4 | Own migration runner | A hundred lines of SQL-file runner instead of a migration library. The schema is thirteen tables; a library would be the largest dependency in the server for the least work |
 | DB5 | Cross-schema foreign keys | None. A key from `app` into `engine` would tie the application's schema to the engine's private tables and block the engine's cascades. Orphans are swept instead |
 | DB6 | Where the ABI lives | With the engine, once, at registration; the application keeps verified source only. The engine decodes evidence and needs the ABI; the application does not need a second copy |
-| DB7 | Unix socket versus loopback in local mode | Unix socket where the platform has one: protected by the directory mode, unreachable from other users, and the socket server offers no TLS or password. Loopback only on Windows, documented as reachable by local processes |
+| DB7 | Unix socket versus loopback in local mode | Unix socket where the platform has one: protected by the directory mode, unreachable from other users, and the pooler offers no TLS or password. Loopback only on Windows, documented as reachable by local processes |
 | DB8 | Statement timeout on reads | Yes, a few seconds, set per transaction. In local mode a slow chart query holds the engine's only session; bounded reads keep the block write on time |
 | DB9 | Chain id in `app` tables | None. An installation watches one chain, as the engine's configuration does; contracts are keyed by address alone |
 
@@ -498,8 +527,12 @@ The database layer is done when, provably and repeatably:
 3. Isolation in local mode: client A begins a transaction and inserts
    a row; client B, concurrently, inserts and commits a row of its
    own; A rolls back. B's statement waited for A's transaction to end,
-   B's row is present and A's is not. Run against the socket server
-   the package pins; a failure flips DB1.
+   B's row is present and A's is not. Run against the pooling layer
+   the package pins; a failure replaces the pooler, and only PGlite
+   itself failing flips DB1. The same run proves the contract's edges:
+   a client killed mid-transaction leaves no open transaction for the
+   next lease, and a transaction left idle for 30 seconds is rolled
+   back while the other client proceeds.
 4. A shipped migration file altered after being applied stops the
    start with `migration_altered`; a ledger version above the shipped
    set stops it with `app_schema_newer`.
