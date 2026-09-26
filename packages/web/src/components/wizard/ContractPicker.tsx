@@ -4,6 +4,7 @@ import { rulesLabel, shortAddress } from "../../lib/format";
 import { AddContract } from "../contracts/AddContract";
 import { ContractExplorer } from "../contracts/ContractExplorer";
 import type { LoadedContract } from "../contracts/useRegisteredContract";
+import { Plus } from "../ui";
 
 /**
  * The registered contracts to choose from, and a way to register another
@@ -88,11 +89,8 @@ export function ContractPicker({
                   : "bg-white/3 text-gray-500 hover:bg-white/5 hover:text-emerald-400"
               }`}
             >
-              <span
-                aria-hidden
-                className="text-sm leading-none text-emerald-400"
-              >
-                +
+              <span className="text-emerald-400">
+                <Plus />
               </span>
               Add a contract
             </button>

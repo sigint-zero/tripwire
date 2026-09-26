@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AddContract } from "../components/contracts/AddContract";
 import { PageHeader } from "../components/PageHeader";
-import { Button, Eyebrow, Tag } from "../components/ui";
+import { Button, Eyebrow, Plus, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { sourceLabel } from "../lib/format";
 
@@ -35,7 +35,14 @@ export function ContractsPage() {
               variant={adding ? "ghost" : "primary"}
               onClick={() => setAdding(!adding)}
             >
-              {adding ? "Cancel" : "Add contract"}
+              {adding ? (
+                "Cancel"
+              ) : (
+                <>
+                  <Plus />
+                  Add contract
+                </>
+              )}
             </Button>
           )
         }

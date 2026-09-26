@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PageHeader } from "../components/PageHeader";
 import { RuleList } from "../components/RuleList";
-import { buttonClass, EmptyState } from "../components/ui";
+import { buttonClass, EmptyState, Plus } from "../components/ui";
 import { api } from "../lib/api";
 
 export function RulesPage({ created }: { created?: string }) {
@@ -24,6 +24,7 @@ export function RulesPage({ created }: { created?: string }) {
           rules &&
           rules.length > 0 && (
             <Link to="/rules/new" className={buttonClass()}>
+              <Plus />
               New rule
             </Link>
           )
@@ -38,6 +39,7 @@ export function RulesPage({ created }: { created?: string }) {
           hint="Pick a contract and a starting point, then fill in the blanks."
         >
           <Link to="/rules/new" className={buttonClass()}>
+            <Plus />
             Create your first rule
           </Link>
         </EmptyState>

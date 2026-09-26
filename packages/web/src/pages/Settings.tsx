@@ -7,6 +7,7 @@ import {
   choice,
   fieldClass,
   labelClass,
+  Plus,
   Tag,
   track,
 } from "../components/ui";
@@ -358,6 +359,7 @@ function Accounts() {
           variant="ghost"
           disabled={mismatch || add.isPending}
         >
+          <Plus />
           Add account
         </Button>
         {mismatch && (
@@ -491,6 +493,7 @@ function AgentTokens() {
           disabled={create.isPending}
           title="Agents propose rules; they land switched off for you to review"
         >
+          <Plus />
           Create token
         </Button>
         {create.error && (

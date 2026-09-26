@@ -28,6 +28,22 @@ export function Button({
   );
 }
 
+/** The mark on buttons that add something new. */
+export function Plus() {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      aria-hidden="true"
+      className="size-3 shrink-0"
+    >
+      <path d="M6 1v10M1 6h10" />
+    </svg>
+  );
+}
+
 /** A form field's label, and the field. */
 export const labelClass =
   "mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";

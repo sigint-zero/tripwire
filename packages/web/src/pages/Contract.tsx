@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { ContractExplorer } from "../components/contracts/ContractExplorer";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
 import { RuleList } from "../components/RuleList";
-import { buttonClass, EmptyState, Switch, Tag } from "../components/ui";
+import { buttonClass, EmptyState, Plus, Switch, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { shortAddress } from "../lib/format";
 
@@ -47,6 +47,7 @@ export function ContractPage({ address }: { address: string }) {
   const hasRules = rules !== undefined && rules.length > 0;
   const newRule = (label: string) => (
     <Link to="/rules/new" search={{ contract: key }} className={buttonClass()}>
+      <Plus />
       {label}
     </Link>
   );
