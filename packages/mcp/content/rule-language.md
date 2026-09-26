@@ -68,11 +68,11 @@ A **view_call** reads a function at the evaluated block. `address` reads another
 { "node": "view_call", "address": "0x2222222222222222222222222222222222222222", "function": "balanceOf(address) returns (uint256)", "args": ["0x1111111111111111111111111111111111111111"] }
 ```
 
-A **literal** is a fixed number: `{ "node": "literal", "value": "1000" }`.
+A **literal** is a fixed value in the form its position expects: a decimal number against a number, `{ "node": "literal", "value": "1000" }`, or, compared with an `address`, `bool` or `bytes` read, that type's form: `"0x3000000000000000000000000000000000000003"`, `"true"`.
 
 **now** is the block's timestamp in seconds: `{ "node": "now" }`.
 
-An **event_arg** reads an argument of the triggering log, by name: `{ "node": "event_arg", "arg": "value" }`.
+An **event_arg** reads an argument of the triggering log, by name: `{ "node": "event_arg", "arg": "value" }`. An `indexed` `string` or `bytes` argument is on chain only as its hash, so it can be neither read nor filtered.
 
 **arithmetic** combines two values with `add`, `sub`, `mul` or `div`:
 
@@ -82,7 +82,7 @@ An **event_arg** reads an argument of the triggering log, by name: `{ "node": "e
 
 **sum** adds two or more values: `{ "node": "sum", "terms": [ … ] }`.
 
-**scale** multiplies by a power of ten; a negative `decimals` divides. It turns a 6-decimal raw amount into whole tokens with `"decimals": -6`:
+**scale** multiplies by a power of ten, at most 77 either way; a negative `decimals` divides. It turns a 6-decimal raw amount into whole tokens with `"decimals": -6`:
 
 ```json
 { "node": "scale", "decimals": -6, "expr": { "node": "view_call", "function": "totalSupply() returns (uint256)", "args": [] } }

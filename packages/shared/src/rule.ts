@@ -5,6 +5,11 @@ import { z, type ZodError } from "zod";
 // `trip_when` is true. The engine validates every document again and stays
 // the authority on what a rule is.
 
+/** How far `scale` may shift a value: the engine's number model allows ±77. */
+const MAX_SCALE_DECIMALS = 77;
+
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+
 /** A decimal string: "5000000", "1.5", "-0.03". */
 export const decimal = z
   .string()
@@ -131,15 +136,34 @@ export const eventSignature = z
 
 /** The parameters of a declaration-style event signature, by name, with their types. */
 export function eventParams(signature: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(eventParamsIndexed(signature)).map(([n, p]) => [n, p.type]),
+  );
+}
+
+/** Each named parameter's type, and whether it is indexed. */
+function eventParamsIndexed(
+  signature: string,
+): Record<string, { type: string; indexed: boolean }> {
   const params = signature.slice(signature.indexOf("(") + 1, -1);
   if (!params) return {};
   return Object.fromEntries(
     params.split(",").map((p) => {
       const words = p.trim().split(" ");
-      return [words.at(-1)!, words[0]!];
+      return [
+        words.at(-1)!,
+        { type: words[0]!, indexed: words.includes("indexed") },
+      ];
     }),
   );
 }
+
+/**
+ * An indexed string or bytes argument is on chain only as its hash, so
+ * its value can be neither read nor compared.
+ */
+const hashedOnly = (p: { type: string; indexed: boolean }) =>
+  p.indexed && (p.type === "string" || p.type === "bytes");
 
 export const window = z.strictObject({
   seconds: z
@@ -280,7 +304,19 @@ const metric = z
 export const valueNode: z.ZodType<ValueNode> = z.lazy(() =>
   z.discriminatedUnion("node", [
     viewCall,
-    z.strictObject({ node: z.literal("literal"), value: decimal }),
+    // A literal takes the type its position expects: a decimal string
+    // against a number, or an address, bool or bytes literal against one.
+    // Its shape is checked here; its fit to the position, once the rule
+    // parses.
+    z.strictObject({
+      node: z.literal("literal"),
+      value: z
+        .string()
+        .regex(
+          /^(-?\d+(\.\d+)?|0x[0-9a-fA-F]*|true|false)$/,
+          'must be a decimal string, like "1.5", or an address, bool or bytes value',
+        ),
+    }),
     z.strictObject({ node: z.literal("event_arg"), arg: z.string().min(1) }),
     z.strictObject({
       node: z.literal("arithmetic"),
@@ -295,7 +331,11 @@ export const valueNode: z.ZodType<ValueNode> = z.lazy(() =>
     z.strictObject({
       node: z.literal("scale"),
       expr: valueNode,
-      decimals: z.number().int(),
+      decimals: z
+        .number()
+        .int()
+        .min(-MAX_SCALE_DECIMALS, `must stay within ±${MAX_SCALE_DECIMALS}`)
+        .max(MAX_SCALE_DECIMALS, `must stay within ±${MAX_SCALE_DECIMALS}`),
     }),
     z.strictObject({ node: z.literal("now") }),
     metric,
@@ -441,7 +481,7 @@ type Report = (path: Path, message: string) => void;
 interface Checking {
   issue: Report;
   /** The trigger event's parameters and their types; null for every_block. */
-  events: Record<string, string> | null;
+  events: Record<string, { type: string; indexed: boolean }> | null;
   /** Checking `call.verify`, which must be readable at any block. */
   verify: boolean;
 }
@@ -482,6 +522,7 @@ function readType(
 function checkValue(n: ValueNode, path: Path, c: Checking): ValueType | "any" {
   const numeric = (child: ValueNode, at: Path) => {
     const type = checkValue(child, at, c);
+    checkLiteral(child, at, "numeric", c);
     if (type !== "any" && type !== "numeric") {
       c.issue(at, `must be a number, not ${type}`);
     }
@@ -504,12 +545,22 @@ function checkValue(n: ValueNode, path: Path, c: Checking): ValueType | "any" {
         c.issue(path, "reads an event argument without an event trigger");
         return "any";
       }
-      const type = c.events[n.arg];
-      if (!type) {
-        c.issue(path, `reads "${n.arg}", which the event does not have`);
+      const param = c.events[n.arg];
+      if (!param) {
+        c.issue(
+          [...path, "arg"],
+          `reads "${n.arg}", which the event does not have`,
+        );
         return "any";
       }
-      return valueTypeOf(type);
+      if (hashedOnly(param)) {
+        c.issue(
+          [...path, "arg"],
+          `"${n.arg}" is an indexed ${param.type}: only its hash appears on chain, so its value cannot be read`,
+        );
+        return "any";
+      }
+      return valueTypeOf(param.type);
     }
     case "now":
       return "numeric";
@@ -530,10 +581,31 @@ function checkValue(n: ValueNode, path: Path, c: Checking): ValueType | "any" {
   }
 }
 
+/**
+ * A literal holds the form of the type its position expects: a decimal
+ * against a number, an address, bool or bytes literal against those.
+ */
+function checkLiteral(
+  n: ValueNode,
+  at: Path,
+  expected: ValueType | "any",
+  c: Checking,
+) {
+  if (n.node !== "literal") return;
+  const problem =
+    expected === "numeric" || expected === "any"
+      ? DECIMAL.test(n.value)
+        ? null
+        : 'must be a decimal string, like "1.5"'
+      : literalProblem(expected, n.value);
+  if (problem) c.issue([...at, "value"], problem);
+}
+
 function checkBool(n: BoolNode, path: Path, c: Checking) {
   if (n === true) return;
   const numeric = (child: ValueNode, at: Path) => {
     const type = checkValue(child, at, c);
+    checkLiteral(child, at, "numeric", c);
     if (type !== "any" && type !== "numeric") {
       c.issue(at, `must be a number, not ${type}`);
     }
@@ -543,6 +615,8 @@ function checkBool(n: BoolNode, path: Path, c: Checking) {
       if (n.op === "eq" || n.op === "ne") {
         const left = checkValue(n.left, [...path, "left"], c);
         const right = checkValue(n.right, [...path, "right"], c);
+        checkLiteral(n.left, [...path, "left"], right, c);
+        checkLiteral(n.right, [...path, "right"], left, c);
         if (left !== "any" && right !== "any" && left !== right) {
           c.issue(path, `compares ${left} with ${right}`);
         }
@@ -600,16 +674,26 @@ export const rule = z
       issue(["trip_when"], `makes more than ${MAX_CALLS} calls`);
     }
 
-    const events = r.when === "every_block" ? null : eventParams(r.when.event);
+    const events =
+      r.when === "every_block" ? null : eventParamsIndexed(r.when.event);
     checkBool(r.trip_when, ["trip_when"], { issue, events, verify: false });
 
     if (r.when !== "every_block") {
       r.when.filters?.forEach((filter, i) => {
-        if (!(filter.arg in events!)) {
+        const param = events![filter.arg];
+        if (!param) {
           issue(
             ["when", "filters", i, "arg"],
             `"${filter.arg}" is not an argument of the event`,
           );
+        } else if (hashedOnly(param)) {
+          issue(
+            ["when", "filters", i, "arg"],
+            `"${filter.arg}" is an indexed ${param.type}: only its hash appears on chain, so its value cannot be compared`,
+          );
+        } else {
+          const problem = literalProblem(param.type, filter.eq);
+          if (problem) issue(["when", "filters", i, "eq"], problem);
         }
       });
     }
@@ -635,10 +719,68 @@ export interface Issue {
   path: string;
 }
 
+/** The parts of a Zod issue these reports read. */
+interface RawIssue {
+  code: string;
+  message: string;
+  path: PropertyKey[];
+  errors?: RawIssue[][];
+  keys?: string[];
+  values?: unknown[];
+  options?: unknown[];
+  discriminator?: string;
+}
+
+const pointer = (path: PropertyKey[]) =>
+  path.map((key) => `/${String(key)}`).join("");
+
+/**
+ * Zod's issues as located problems. Where a node could have been one of
+ * several things, the alternative that got furthest says what is wrong,
+ * so an agent or the JSON editor is pointed at the field itself.
+ */
+function located(issue: RawIssue, base: PropertyKey[]): Issue[] {
+  const path = [...base, ...issue.path];
+  if (issue.code === "invalid_union" && issue.discriminator) {
+    return [
+      {
+        code: "unknown_node",
+        message: `is not a node type here; expected one of: ${(issue.options ?? []).join(", ")}`,
+        path: pointer(path),
+      },
+    ];
+  }
+  if (issue.code === "invalid_union" && issue.errors?.length) {
+    const reach = (branch: RawIssue[]) =>
+      Math.max(...branch.map((i) => i.path.length));
+    const best = issue.errors.reduce((a, b) => (reach(b) > reach(a) ? b : a));
+    // A node of the wrong kind is said once, at the node.
+    const wrongNode = best.find(
+      (i) => i.code === "invalid_value" && i.path.at(-1) === "node",
+    );
+    if (wrongNode) {
+      return [
+        {
+          code: "wrong_node",
+          message: `must be a ${(wrongNode.values ?? []).join(" or ")} node`,
+          path: pointer([...path, ...wrongNode.path.slice(0, -1)]),
+        },
+      ];
+    }
+    return best.flatMap((i) => located(i, path));
+  }
+  if (issue.code === "unrecognized_keys" && issue.keys) {
+    return issue.keys.map((key) => ({
+      code: issue.code,
+      message: "is not a field here",
+      path: pointer([...path, key]),
+    }));
+  }
+  return [{ code: issue.code, message: issue.message, path: pointer(path) }];
+}
+
 export function issuesOf(error: ZodError): Issue[] {
-  return error.issues.map((issue) => ({
-    code: issue.code,
-    message: issue.message,
-    path: issue.path.map((key) => `/${String(key)}`).join(""),
-  }));
+  return error.issues.flatMap((issue) =>
+    located(issue as unknown as RawIssue, []),
+  );
 }

@@ -268,6 +268,99 @@ describe("rule schema", () => {
   });
 });
 
+describe("agreeing with the engine's rule language", () => {
+  const literal = (value: string) => ({ node: "literal", value });
+  const against = (left: object, value: string, op = "eq") =>
+    issues(withCondition({ node: "compare", op, left, right: literal(value) }));
+
+  it("takes a literal in the form its position expects", () => {
+    const owner = read("owner()", "address");
+    expect(
+      against(owner, "0x3000000000000000000000000000000000000003", "ne"),
+    ).toEqual([]);
+    expect(against(owner, "1000")).toEqual([
+      expect.objectContaining({ path: "/trip_when/right/value" }),
+    ]);
+    expect(against(read("paused()", "bool"), "true")).toEqual([]);
+    expect(against(read("totalSupply()"), "true", "gt")).toEqual([
+      expect.objectContaining({
+        path: "/trip_when/right/value",
+        message: 'must be a decimal string, like "1.5"',
+      }),
+    ]);
+  });
+
+  it("keeps a scale within 77 places either way", () => {
+    const scaled = (decimals: number) =>
+      against({ node: "scale", expr: read("price()"), decimals }, "1", "gt");
+    expect(scaled(-77)).toEqual([]);
+    expect(scaled(100)).toEqual([
+      expect.objectContaining({ path: "/trip_when/left/decimals" }),
+    ]);
+  });
+
+  it("neither reads nor filters an indexed string, only its hash is on chain", () => {
+    const uri = {
+      ...floor,
+      when: {
+        event: "URI(string indexed value, uint256 id)",
+        filters: [{ arg: "value", eq: "ipfs://x" }],
+      },
+      trip_when: true,
+    };
+    expect(issues(uri)).toEqual([
+      expect.objectContaining({ path: "/when/filters/0/arg" }),
+    ]);
+    expect(
+      issues({
+        ...uri,
+        when: { event: uri.when.event },
+        trip_when: {
+          node: "compare",
+          op: "eq",
+          left: { node: "event_arg", arg: "value" },
+          right: literal("1"),
+        },
+      }),
+    ).toEqual([expect.objectContaining({ path: "/trip_when/left/arg" })]);
+  });
+
+  it("checks a filter's value against its argument's type", () => {
+    const minted = {
+      ...floor,
+      when: {
+        event:
+          "Transfer(address indexed from, address indexed to, uint256 value)",
+        filters: [{ arg: "from", eq: "nobody" }],
+      },
+      trip_when: true,
+    };
+    expect(issues(minted)).toEqual([
+      expect.objectContaining({ path: "/when/filters/0/eq" }),
+    ]);
+  });
+
+  it("points at the field itself for unknown nodes, kinds and keys", () => {
+    expect(against({ node: "mystery" }, "1", "gt")).toEqual([
+      expect.objectContaining({ path: "/trip_when/left/node" }),
+    ]);
+    expect(
+      against({ node: "metric", metric: "ath", of: literal("5") }, "1", "gt"),
+    ).toEqual([
+      expect.objectContaining({
+        path: "/trip_when/left/of",
+        message: "must be a view_call node",
+      }),
+    ]);
+    expect(issues({ ...floor, note: "hi" })).toEqual([
+      expect.objectContaining({
+        path: "/note",
+        message: "is not a field here",
+      }),
+    ]);
+  });
+});
+
 describe("calling a function when a rule trips", () => {
   const call = (fields: object) => ({
     ...floor,

@@ -66,7 +66,10 @@ export function describeValue(value: ValueNode, name?: CallNamer): string {
     case "view_call":
       return describeCall(value, name);
     case "literal":
-      return formatNumber(value.value);
+      // Against an address, bool or bytes operand it holds that form.
+      return /^-?\d+(\.\d+)?$/.test(value.value)
+        ? formatNumber(value.value)
+        : value.value;
     case "event_arg":
       return `the event's ${value.arg}`;
     case "now":
