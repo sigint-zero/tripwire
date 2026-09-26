@@ -159,13 +159,15 @@ export interface Needs {
 
 /**
  * A mirror of `trip_when` carrying each node's evaluated value: a decimal
- * string for a number, a boolean for a condition. A node that was not
- * reached is `unevaluated`; a metric without history yet is `warming`.
+ * string for a number, a boolean for a condition. A term that was not
+ * reached is only `{ unevaluated: true }`; a value that cannot be known
+ * yet, a metric without history, is marked `warming`.
  */
 export type Evidence = {
   node?: string;
   value?: string | boolean;
-  state?: "unevaluated" | "warming";
+  unevaluated?: true;
+  warming?: true;
   [child: string]: unknown;
 };
 

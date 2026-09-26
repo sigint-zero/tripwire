@@ -111,9 +111,9 @@ interface Context {
 
 type Valued = { evidence: Evidence; value: bigint | null };
 
-/** A node that was not reached, with everything beneath it. */
-function unevaluated(node: unknown): Evidence {
-  return { ...(node as object), state: "unevaluated" };
+/** A term the evaluation did not reach: the engine marks it and nothing more. */
+function unevaluated(): Evidence {
+  return { unevaluated: true };
 }
 
 function valued(
@@ -126,7 +126,7 @@ function valued(
     evidence: {
       ...node,
       ...extra,
-      ...(value === null ? { state: "warming" } : { value: toDecimal(value) }),
+      ...(value === null ? { warming: true } : { value: toDecimal(value) }),
     },
   };
 }
@@ -141,10 +141,15 @@ function evaluate(node: ValueNode, ctx: Context): Valued {
         node.returns ?? 0,
         ctx.clock,
       );
-      // A read's evidence is the raw integer the chain returned.
+      // A read's evidence is the raw integer the chain returned, and, as
+      // the engine writes it, the address it was read from.
       return {
         value: raw * SCALE,
-        evidence: { ...node, value: raw.toString() },
+        evidence: {
+          ...node,
+          address: (node.address ?? ctx.contract).toLowerCase(),
+          value: raw.toString(),
+        },
       };
     }
     case "simulate": {
@@ -165,13 +170,13 @@ function evaluate(node: ValueNode, ctx: Context): Valued {
       return valued(node, nowSeconds(ctx.clock) * SCALE);
     case "event_arg":
       // No log at the head: an event argument has no value in a check.
-      return { value: null, evidence: { ...node, state: "unevaluated" } };
+      return { value: null, evidence: { ...node, unevaluated: true } };
     case "metric": {
       // A new rule has no history yet, so every metric is warming.
       const of = evaluate(node.of, ctx);
       return {
         value: null,
-        evidence: { ...node, of: of.evidence, state: "warming" },
+        evidence: { ...node, of: of.evidence, warming: true },
       };
     }
     case "scale": {
@@ -215,7 +220,8 @@ function judged(node: object, holds: boolean | null, extra: object): Judged {
     evidence: {
       ...node,
       ...extra,
-      ...(holds === null ? { state: "warming" } : { value: holds }),
+      // Like the engine: a condition still warming reads false, and says so.
+      ...(holds === null ? { value: false, warming: true } : { value: holds }),
     },
   };
 }
@@ -275,7 +281,7 @@ function evaluateBool(node: BoolNode, ctx: Context): Judged {
       let holds: boolean | null = !deciding;
       for (const term of node.terms) {
         if (holds === deciding) {
-          terms.push(unevaluated(term));
+          terms.push(unevaluated());
           continue;
         }
         const result = evaluateBool(term, ctx);

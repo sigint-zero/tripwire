@@ -227,7 +227,11 @@ function RunDetail({
         <p className="mb-2 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
           {count > 1 ? "At the latest block" : "What the engine saw"}
         </p>
-        <Evidence evidence={newest.evidence} display={display} />
+        <Evidence
+          evidence={newest.evidence}
+          display={display}
+          contract={newest.contractAddress}
+        />
       </div>
 
       {/* Nothing is said when there was no response: under notify, a

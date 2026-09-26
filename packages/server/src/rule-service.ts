@@ -52,7 +52,11 @@ function watchKey(document: Rule): string {
 }
 
 /** Every contract read in the evidence, with the value the engine saw. */
-function readsOf(evidence: unknown): { call: string; value: string }[] {
+/** Each read the evidence saw, naming its address only when it is not the rule's contract. */
+function readsOf(
+  evidence: unknown,
+  contract: string,
+): { call: string; value: string }[] {
   const found = new Map<string, string>();
   const walk = (node: unknown) => {
     if (!node || typeof node !== "object") return;
@@ -64,7 +68,9 @@ function readsOf(evidence: unknown): { call: string; value: string }[] {
     if (e.node === "view_call" && typeof e.value === "string" && e.function) {
       const short = shortSignature(e.function);
       const call = e.returns === undefined ? short : `${short}[${e.returns}]`;
-      found.set(e.address ? `${call} of ${e.address}` : call, e.value);
+      const elsewhere =
+        e.address && e.address.toLowerCase() !== contract.toLowerCase();
+      found.set(elsewhere ? `${call} of ${e.address}` : call, e.value);
     }
     Object.values(node).forEach(walk);
   };
@@ -85,7 +91,7 @@ function toCheck(
     evaluation: {
       block,
       wouldTripNow: dry.evaluation.would_trip,
-      reads: readsOf(dry.evaluation.evidence),
+      reads: readsOf(dry.evaluation.evidence, dry.document.contract),
     },
     warmupSeconds: dry.needs.warmup_seconds,
     duplicateOf,

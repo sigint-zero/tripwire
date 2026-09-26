@@ -97,7 +97,7 @@ describe("violations", () => {
       severity: "critical",
       contractAddress: token,
       kind: "tripped",
-      evidence: { node: "compare", value: true },
+      evidence: { trip_when: { node: "compare", value: true } },
       acknowledged: null,
       response: null,
     });

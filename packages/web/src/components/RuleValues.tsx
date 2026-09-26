@@ -113,7 +113,11 @@ export function RuleValues({
                 </span>
               )}
             </p>
-            <Evidence evidence={result.evidence} display={rule.display} />
+            <Evidence
+              evidence={result.evidence}
+              display={rule.display}
+              contract={rule.rule.contract}
+            />
           </div>
         )}
       </section>

@@ -8,10 +8,14 @@ import {
 } from "@tripwire/shared";
 import { formatBig, formatUnits } from "../lib/format";
 
+/** An evidence node, as the engine writes it. */
 type Node = {
   node?: string;
   value?: unknown;
-  state?: "unevaluated" | "warming";
+  /** A term the evaluation stopped before; the engine writes nothing else. */
+  unevaluated?: true;
+  /** A value that cannot be known yet: a metric without history. */
+  warming?: true;
   [child: string]: unknown;
 };
 
@@ -44,6 +48,7 @@ function childrenOf(node: Node): Node[] {
 }
 
 function label(node: Node): string {
+  if (node.unevaluated) return "a later term";
   try {
     return CONDITIONS.has(node.node ?? "") ||
       (node.node === "simulate" && node.yields === "reverted")
@@ -55,10 +60,10 @@ function label(node: Node): string {
 }
 
 function Reading({ node, display }: { node: Node; display?: RuleDisplay }) {
-  if (node.state === "unevaluated") {
+  if (node.unevaluated) {
     return <span className="text-gray-600">not reached</span>;
   }
-  if (node.state === "warming") {
+  if (node.warming) {
     return <span className="text-amber-400/80">warming up</span>;
   }
   if (typeof node.value === "boolean") {
@@ -124,6 +129,21 @@ function Line({
   );
 }
 
+/** The tree with reads of the rule's own contract unaddressed, as the rule was written. */
+function ownReads(node: unknown, contract: string): unknown {
+  if (Array.isArray(node)) return node.map((n) => ownReads(n, contract));
+  if (!node || typeof node !== "object") return node;
+  const copy: Node = {};
+  for (const [key, value] of Object.entries(node as Node)) {
+    const own =
+      key === "address" &&
+      typeof value === "string" &&
+      value.toLowerCase() === contract.toLowerCase();
+    if (!own) copy[key] = ownReads(value, contract);
+  }
+  return copy;
+}
+
 /**
  * What the engine saw: the condition as a tree, each part with its value
  * at that block, or why it has none.
@@ -131,16 +151,25 @@ function Line({
 export function Evidence({
   evidence,
   display,
+  contract,
 }: {
   evidence: unknown;
   /** How the rule's reads are shown. */
   display?: RuleDisplay;
+  /** The rule's contract, whose address its reads need not repeat. */
+  contract?: string;
 }) {
   if (!evidence || typeof evidence !== "object") return null;
-  const node = evidence as Node;
-  if (typeof node.error === "string") {
-    return <p className="font-mono text-xs text-red-400">{node.error}</p>;
+  const filed = evidence as Node;
+  if (typeof filed.error === "string") {
+    return <p className="font-mono text-xs text-red-400">{filed.error}</p>;
   }
+  // A violation files the tree under `trip_when`; a check gives it bare.
+  const tree =
+    filed.trip_when && typeof filed.trip_when === "object"
+      ? filed.trip_when
+      : filed;
+  const node = (contract ? ownReads(tree, contract) : tree) as Node;
   return (
     <ul className="font-mono text-xs">
       <Line node={node} depth={0} display={display} />

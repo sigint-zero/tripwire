@@ -494,11 +494,12 @@ export class StubEngine implements EngineCommands, EngineEvents {
         );
         if (evaluation.would_trip) {
           kind = "tripped";
-          evidence = evaluation.evidence;
+          // A violation files the tree under `trip_when`, as the engine does.
+          evidence = { trip_when: evaluation.evidence };
         }
       } catch (error) {
         kind = "evaluation_error";
-        evidence = { error: String(error) };
+        evidence = { path: "/trip_when", error: String(error) };
       }
       // Recording the violation and moving the rule's block commit together.
       const { rows: recordedRows } = await this.#pool.query<{ id: string }>(

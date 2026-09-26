@@ -165,7 +165,7 @@ describe("a dry run", () => {
     expect(dry.evaluation.would_trip).toBe(true);
     const terms = (dry.evaluation.evidence as { terms: object[] }).terms;
     expect(terms[0]).toMatchObject({ value: true });
-    expect(terms[1]).toMatchObject({ state: "unevaluated" });
+    expect(terms[1]).toEqual({ unevaluated: true });
   });
 
   it("reports a metric without history as warming, never tripping", async () => {
