@@ -12,6 +12,7 @@ import {
   EngineError,
   type ContractRow,
   type DryRun,
+  headOf,
   type EngineCommands,
   type EngineReads,
   type Evidence,
@@ -233,7 +234,7 @@ export class RuleService {
       contract,
       check: toCheck(
         dry,
-        health.head ?? 0,
+        headOf(health) ?? 0,
         duplicate?.id ?? null,
         this.simulated,
       ),

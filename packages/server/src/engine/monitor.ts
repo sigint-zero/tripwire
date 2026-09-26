@@ -5,11 +5,12 @@ import type {
   EngineStatus,
 } from "@tripwire/shared";
 import type { EngineEvents, EngineListener } from "../events/types";
-import type {
-  CursorRow,
-  EngineCommands,
-  EngineHealth as HealthAnswer,
-  EngineReads,
+import {
+  headOf,
+  type CursorRow,
+  type EngineCommands,
+  type EngineHealth as HealthAnswer,
+  type EngineReads,
 } from "./types";
 
 /** How often the engine is asked, and how long an answer may take. */
@@ -118,7 +119,9 @@ export class EngineMonitor implements EngineEvents {
       pinnedVersion: null,
       unpinned: false,
       install: null,
-      health: answer ? fromAnswer(answer) : this.#fromCursors(cursors),
+      health: answer
+        ? fromAnswer(answer, this.#clock())
+        : this.#fromCursors(cursors),
       restarts: { last10Minutes: 0, total: 0 },
       lastExit: null,
       problem: this.#problem,
@@ -169,19 +172,28 @@ export class EngineMonitor implements EngineEvents {
   }
 }
 
-function fromAnswer(answer: HealthAnswer): EngineHealth {
-  const cursors = (answer.cursors ?? []).map((c) => ({
+/**
+ * The engine's answer as the strip reads it. The head is the last block
+ * evaluated, seen when the ingest cursor last moved; lag is the node's
+ * head beyond the ingest cursor.
+ */
+function fromAnswer(answer: HealthAnswer, now: number): EngineHealth {
+  const cursors = answer.cursors.map((c) => ({
     name: c.name,
     block: c.block_number,
     ageSeconds: c.age_seconds,
   }));
   const ingest = cursors.find((c) => c.name === "ingest");
   return {
-    head: answer.head,
-    headTime: answer.head_time ?? null,
+    head: headOf(answer),
+    headTime: ingest
+      ? new Date(now - ingest.ageSeconds * 1000).toISOString()
+      : null,
     lagBlocks:
-      answer.head !== null && ingest ? answer.head - ingest.block : null,
-    rpc: answer.rpc ?? null,
+      answer.observed_head !== null && ingest
+        ? Math.max(0, answer.observed_head - ingest.block)
+        : null,
+    rpc: answer.rpc.state,
     cursors,
   };
 }

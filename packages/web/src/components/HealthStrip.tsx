@@ -130,7 +130,10 @@ export function HealthStrip() {
   };
 
   const facts = [
-    known?.rpc && `RPC ${known.rpc === "ok" ? "connected" : known.rpc}`,
+    // The stand-in has no RPC to speak of.
+    engine.runner !== "stand-in" &&
+      known?.rpc &&
+      `RPC ${known.rpc === "ok" ? "connected" : known.rpc}`,
     engine.runner !== "stand-in" && engine.version && `v${engine.version}`,
   ].filter(Boolean);
   const tone = toneOf[engine.state];

@@ -7,7 +7,7 @@ import {
 } from "@tripwire/shared";
 import type { FastifyPluginCallback, FastifyReply } from "fastify";
 import { z } from "zod";
-import type { EngineCommands, EngineReads } from "./engine/types";
+import { headOf, type EngineCommands, type EngineReads } from "./engine/types";
 import { refuse } from "./refuse";
 import type { Checked, RuleService } from "./rule-service";
 import { seriesOfRule } from "./rule-series";
@@ -151,7 +151,7 @@ export const ruleRoutes: FastifyPluginCallback<{
           )
         : 0;
       return {
-        block: health.head,
+        block: headOf(health),
         wouldTripNow: dry.evaluation.would_trip,
         warming: dry.evaluation.warming,
         warmupSecondsLeft: left,

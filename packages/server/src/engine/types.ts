@@ -133,14 +133,29 @@ export interface EngineHealth {
   status: "starting" | "ready" | "degraded";
   version: string;
   chain_id: number;
-  /** The newest block the engine has observed. */
-  head: number | null;
-  /** When that block was made. */
-  head_time?: string | null;
-  /** Where each of its cursors stands, and how long since it moved. */
-  cursors?: { name: string; block_number: number; age_seconds: number }[];
-  /** The RPC's state: "ok", "retrying" and the like. */
-  rpc?: string | null;
+  /** The head the follower last observed on the node. */
+  observed_head: number | null;
+  /** The last block the evaluator committed. */
+  evaluated_block: number | null;
+  /** Where each cursor stands, and how long since it moved. */
+  cursors: {
+    name: string;
+    block_number: number;
+    block_hash: string;
+    age_seconds: number;
+  }[];
+  rpc: {
+    /** `ok`, `failing`, or `unknown` before the first poll. */
+    state: string;
+    observed_head: number | null;
+    last_success_unix_ms: number | null;
+    last_failure_unix_ms: number | null;
+  };
+}
+
+/** The block the engine's answers are true at: the last it evaluated. */
+export function headOf(health: EngineHealth): number | null {
+  return health.evaluated_block ?? health.observed_head;
 }
 
 /** A row of `api_v1.engine_status`: one cursor, as the engine last recorded it. */
@@ -179,7 +194,10 @@ export interface DryRun {
   evaluation: {
     would_trip: boolean;
     warming: boolean;
-    evidence: Evidence;
+    /** Null when the rule could not be judged; `error` says why. */
+    evidence: Evidence | null;
+    /** The failing node's path and what happened. */
+    error?: { path?: string; message?: string } | null;
   };
 }
 
@@ -244,7 +262,8 @@ export interface EngineCommands {
   setRulesEnabled(ids: string[], enabled: boolean): Promise<void>;
   deleteRule(id: string): Promise<void>;
   dryRun(document: unknown): Promise<DryRun>;
-  read(calls: ReadCall[]): Promise<(string | string[])[]>;
+  /** Each call's value, its components for several, or null when it failed. */
+  read(calls: ReadCall[]): Promise<(string | string[] | null)[]>;
   /** Sends a held response; `409` when it is no longer waiting. */
   approveResponse(id: string): Promise<void>;
   /** Abandons a held response; `409` when it is no longer waiting. */

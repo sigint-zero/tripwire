@@ -229,8 +229,22 @@ export class StubEngine implements EngineCommands, EngineEvents {
       status: "ready",
       version: "stand-in",
       chain_id: 1,
-      head,
-      head_time: new Date(timeOf(head)).toISOString(),
+      observed_head: head,
+      evaluated_block: head,
+      cursors: [
+        {
+          name: "ingest",
+          block_number: head,
+          block_hash: `0x${head.toString(16).padStart(64, "0")}`,
+          age_seconds: Math.floor((clock - timeOf(head)) / 1000),
+        },
+      ],
+      rpc: {
+        state: "ok",
+        observed_head: head,
+        last_success_unix_ms: clock,
+        last_failure_unix_ms: null,
+      },
     });
   }
 

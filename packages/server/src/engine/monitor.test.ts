@@ -10,6 +10,23 @@ import type {
 
 const info = { chainId: 1, responseMode: "notify", simulated: false } as const;
 
+/** A health answer as the engine gives it. */
+const answer = (change: Partial<EngineHealth> = {}): EngineHealth => ({
+  status: "ready",
+  version: "1.4.2",
+  chain_id: 1,
+  observed_head: 1,
+  evaluated_block: 1,
+  cursors: [],
+  rpc: {
+    state: "ok",
+    observed_head: 1,
+    last_success_unix_ms: 0,
+    last_failure_unix_ms: null,
+  },
+  ...change,
+});
+
 /** An engine whose health answers what `answer` holds, or fails while it is null. */
 function engine(cursors: CursorRow[] = []) {
   const state: { answer: EngineHealth | null } = { answer: null };
@@ -32,27 +49,37 @@ describe("the engine monitor", () => {
     const monitor = new EngineMonitor(commands, reads, "attached", () => now);
     expect((await monitor.status(info)).state).toBe("starting");
 
-    state.answer = {
+    state.answer = answer({
       status: "degraded",
-      version: "1.4.2",
-      chain_id: 1,
-      head: 110,
-      head_time: "2026-09-26T09:20:11.000Z",
-      rpc: "retrying",
-      cursors: [{ name: "ingest", block_number: 72, age_seconds: 400 }],
-    };
-    now = 1_000;
+      observed_head: 110,
+      evaluated_block: 72,
+      cursors: [
+        {
+          name: "ingest",
+          block_number: 72,
+          block_hash: "0x48",
+          age_seconds: 400,
+        },
+      ],
+      rpc: {
+        state: "failing",
+        observed_head: 110,
+        last_success_unix_ms: 0,
+        last_failure_unix_ms: 1,
+      },
+    });
+    now = 1_000_000;
     await monitor.poll();
     expect(await monitor.status(info)).toMatchObject({
       state: "degraded",
-      since: new Date(1_000).toISOString(),
+      since: new Date(1_000_000).toISOString(),
       runner: "attached",
       version: "1.4.2",
       health: {
-        head: 110,
-        headTime: "2026-09-26T09:20:11.000Z",
+        head: 72,
+        headTime: new Date(600_000).toISOString(),
         lagBlocks: 38,
-        rpc: "retrying",
+        rpc: "failing",
       },
       problem: null,
     });
@@ -71,7 +98,7 @@ describe("the engine monitor", () => {
     const monitor = new EngineMonitor(commands, reads, "attached", () => now);
     const heard: EngineEvent[] = [];
     monitor.listen({ event: (e) => heard.push(e), resync: () => {} });
-    state.answer = { status: "ready", version: "1.4.2", chain_id: 1, head: 1 };
+    state.answer = answer();
     await monitor.poll();
     state.answer = null;
 
@@ -101,12 +128,7 @@ describe("the engine monitor", () => {
 
   it("calls the stand-in what it is, whatever it answers", async () => {
     const { state, commands, reads } = engine();
-    state.answer = {
-      status: "ready",
-      version: "stand-in",
-      chain_id: 1,
-      head: 5,
-    };
+    state.answer = answer({ evaluated_block: 5 });
     const monitor = new EngineMonitor(commands, reads, "stand-in");
     expect(await monitor.status({ ...info, simulated: true })).toMatchObject({
       state: "stand-in",

@@ -28,19 +28,26 @@ export class HttpEngine implements EngineCommands {
     return this.#call<EngineHealth>("GET", "/v1/health");
   }
 
-  registerContract(contract: {
+  async registerContract(contract: {
     address: string;
     name: string;
     abi?: unknown[];
   }) {
-    return this.#call<ContractRow>("POST", "/v1/contracts", contract);
+    return toContract(
+      await this.#call<WireContract>("POST", "/v1/contracts", contract),
+    );
   }
 
-  updateContract(address: string, change: { name?: string; abi?: unknown[] }) {
-    return this.#call<ContractRow>(
-      "PATCH",
-      `/v1/contracts/${encodeURIComponent(address)}`,
-      change,
+  async updateContract(
+    address: string,
+    change: { name?: string; abi?: unknown[] },
+  ) {
+    return toContract(
+      await this.#call<WireContract>(
+        "PATCH",
+        `/v1/contracts/${encodeURIComponent(address)}`,
+        change,
+      ),
     );
   }
 
@@ -48,18 +55,20 @@ export class HttpEngine implements EngineCommands {
     await this.#call("DELETE", `/v1/contracts/${encodeURIComponent(address)}`);
   }
 
-  createRule(rule: {
+  async createRule(rule: {
     document: Rule;
     enabled: boolean;
     origin: RuleRow["origin"];
   }) {
-    return this.#call<CreatedRule>("POST", "/v1/rules", rule);
+    return toCreated(await this.#call<WireRule>("POST", "/v1/rules", rule));
   }
 
-  replaceRule(id: string, document: Rule) {
-    return this.#call<CreatedRule>("PUT", `/v1/rules/${ruleId(id)}`, {
-      document,
-    });
+  async replaceRule(id: string, document: Rule) {
+    return toCreated(
+      await this.#call<WireRule>("PUT", `/v1/rules/${ruleId(id)}`, {
+        document,
+      }),
+    );
   }
 
   async setRuleEnabled(id: string, enabled: boolean) {
@@ -68,7 +77,11 @@ export class HttpEngine implements EngineCommands {
 
   async setRulesEnabled(ids: string[], enabled: boolean) {
     if (ids.length === 0) return;
-    await this.#call("POST", "/v1/rules/enabled", { ids, enabled });
+    // Ids are integers on the wire.
+    await this.#call("POST", "/v1/rules/enabled", {
+      ids: ids.map((id) => Number(ruleId(id))),
+      enabled,
+    });
   }
 
   async deleteRule(id: string) {
@@ -80,12 +93,14 @@ export class HttpEngine implements EngineCommands {
   }
 
   async read(calls: ReadCall[]) {
-    const body = await this.#call<{ values: (string | string[])[] }>(
-      "POST",
-      "/v1/read",
-      { calls },
-    );
-    return body.values;
+    const body = await this.#call<{
+      results: { values?: unknown[] | null; error?: string | null }[];
+    }>("POST", "/v1/read", { calls });
+    return body.results.map((result) => {
+      if (!result.values) return null;
+      const values = result.values.map(scalar);
+      return values.length === 1 ? values[0]! : values;
+    });
   }
 
   async approveResponse(id: string) {
@@ -139,6 +154,50 @@ export class HttpEngine implements EngineCommands {
     }
     return parsed as T;
   }
+}
+
+/** `ContractResponse`: the stored contract, without the view's counts. */
+interface WireContract {
+  id: number;
+  address: string;
+  name: string;
+  abi: unknown[] | null;
+  created_at: string;
+}
+
+/** `RuleResponse`, as far as the application reads it. */
+interface WireRule {
+  id: number;
+  document: Rule;
+  description: string;
+  needs: CreatedRule["needs"];
+}
+
+function toContract(wire: WireContract): ContractRow {
+  // The counts are the view's; a contract the engine just stored has none.
+  return {
+    ...wire,
+    id: String(wire.id),
+    created_at: new Date(wire.created_at).toISOString(),
+    rule_count: 0,
+    enabled_count: 0,
+  };
+}
+
+function toCreated(wire: WireRule): CreatedRule {
+  return {
+    id: String(wire.id),
+    document: wire.document,
+    description: wire.description,
+    needs: wire.needs,
+  };
+}
+
+/** A decoded return component as text: tuples joined, anything else as written. */
+function scalar(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return `(${value.map(scalar).join(",")})`;
+  return JSON.stringify(value);
 }
 
 function responseId(id: string) {

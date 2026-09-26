@@ -54,7 +54,18 @@ const engine = () => new HttpEngine({ url: `${base}/`, secret: "s3cret\n" });
 describe("HttpEngine", () => {
   it("sends each command to its M6 path with the interface secret", async () => {
     const e = engine();
+    answer = {
+      status: 201,
+      body: {
+        id: 3,
+        address: "0xabc",
+        name: "Vault",
+        abi: null,
+        created_at: "2026-09-26T13:21:40.887+00:00",
+      },
+    };
     await e.registerContract({ address: "0xabc", name: "Vault" });
+    answer = { status: 200, body: {} };
     await e.setRulesEnabled(["4", "7"], false);
     await e.setRuleEnabled("4", true);
     await e.dryRun({ version: 1 });
@@ -67,8 +78,77 @@ describe("HttpEngine", () => {
       "DELETE /v1/rules/7",
     ]);
     expect(seen.every((s) => s.authorization === "Bearer s3cret")).toBe(true);
-    expect(seen[1]?.body).toEqual({ ids: ["4", "7"], enabled: false });
+    // Ids are integers on the wire.
+    expect(seen[1]?.body).toEqual({ ids: [4, 7], enabled: false });
     expect(seen[3]?.body).toEqual({ document: { version: 1 } });
+  });
+
+  it("reads the engine's integer ids as the application's strings", async () => {
+    answer = {
+      status: 201,
+      body: {
+        id: 12,
+        document: { version: 1 },
+        description: "",
+        needs: { warmup_seconds: 0 },
+      },
+    };
+    expect(
+      await engine().createRule({
+        document: { version: 1 } as never,
+        enabled: true,
+        origin: "app",
+      }),
+    ).toMatchObject({ id: "12" });
+    answer = {
+      status: 201,
+      body: {
+        id: 3,
+        address: "0xabc",
+        name: "Vault",
+        abi: null,
+        created_at: "2026-09-26T13:21:40.887+00:00",
+      },
+    };
+    expect(
+      await engine().registerContract({ address: "0xabc", name: "Vault" }),
+    ).toMatchObject({
+      id: "3",
+      created_at: "2026-09-26T13:21:40.887Z",
+      rule_count: 0,
+    });
+  });
+
+  it("gives each read its value, its components, or null when it failed", async () => {
+    answer = {
+      status: 200,
+      body: {
+        results: [
+          { values: ["1000"] },
+          { values: ["7", "0x5555555555555555555555555555555555555555", true] },
+          { error: "execution reverted" },
+        ],
+      },
+    };
+    expect(
+      await engine().read([
+        {
+          address: "0xabc",
+          function: "totalSupply() returns (uint256)",
+          args: [],
+        },
+        {
+          address: "0xabc",
+          function: "slot0() returns (uint256,address,bool)",
+          args: [],
+        },
+        { address: "0xabc", function: "broken() returns (uint256)", args: [] },
+      ]),
+    ).toEqual([
+      "1000",
+      ["7", "0x5555555555555555555555555555555555555555", "true"],
+      null,
+    ]);
   });
 
   it("sends nothing for an empty batch", async () => {

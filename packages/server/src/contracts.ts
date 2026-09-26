@@ -141,9 +141,10 @@ export const contractRoutes: FastifyPluginCallback<{
     if (!(await reads.contract(request.params.address))) {
       return notFound(reply);
     }
-    return detail(
-      await commands.updateContract(request.params.address, body.data),
-    );
+    await commands.updateContract(request.params.address, body.data);
+    // The engine answers with the contract alone; the view adds its counts.
+    const updated = await reads.contract(request.params.address);
+    return updated ? detail(updated) : notFound(reply);
   });
 
   // The engine deletes the contract with its rules and their history; what

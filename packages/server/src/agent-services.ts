@@ -18,6 +18,7 @@ import { warmupSeconds } from "./engine/simulate";
 import {
   EngineError,
   EngineNotReady,
+  headOf,
   type ContractRow,
   type EngineCommands,
   type EngineReads,
@@ -261,7 +262,7 @@ export class AgentServices implements McpServices {
         ),
       ]);
       state = {
-        block: health.head ?? 0,
+        block: headOf(health) ?? 0,
         values: readable.map((v, i) => ({
           function: v.signature,
           value: values[i] ?? "",
