@@ -1,5 +1,6 @@
 import {
   describeRule,
+  documentReads,
   type EngineInfo,
   issuesOf,
   parseSignature,
@@ -77,6 +78,35 @@ CREATE TABLE IF NOT EXISTS stub.violations (
   evidence jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS stub.series (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  key text NOT NULL UNIQUE,
+  address text NOT NULL,
+  function text NOT NULL,
+  args jsonb NOT NULL,
+  returns int,
+  metric text,
+  window_seconds bigint,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS stub.series_points (
+  series_id bigint NOT NULL REFERENCES stub.series (id) ON DELETE CASCADE,
+  block_number bigint NOT NULL,
+  block_time timestamptz NOT NULL,
+  value numeric NOT NULL,
+  PRIMARY KEY (series_id, block_number)
+);
+CREATE TABLE IF NOT EXISTS stub.series_rollups (
+  series_id bigint NOT NULL REFERENCES stub.series (id) ON DELETE CASCADE,
+  bucket_start timestamptz NOT NULL,
+  first numeric NOT NULL,
+  last numeric NOT NULL,
+  min numeric NOT NULL,
+  max numeric NOT NULL,
+  avg numeric NOT NULL,
+  samples int NOT NULL,
+  PRIMARY KEY (series_id, bucket_start)
+);
 CREATE TABLE IF NOT EXISTS stub.responses (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   violation_id bigint NOT NULL REFERENCES stub.violations (id) ON DELETE CASCADE,
@@ -108,6 +138,14 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.violations AS
     FROM stub.violations v
     JOIN stub.rules r ON r.id = v.rule_id
     JOIN stub.contracts c ON c.id = r.contract_id;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.series AS
+  SELECT id, key, address, function, args, returns, metric, window_seconds, created_at
+    FROM stub.series;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.series_points AS
+  SELECT series_id, block_number, block_time, value FROM stub.series_points;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.series_rollups AS
+  SELECT series_id, bucket_start, first, last, min, max, avg, samples
+    FROM stub.series_rollups;
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
   SELECT p.id, p.violation_id, v.rule_id, r.name AS rule_name,
          c.address AS contract_address, p.action, p.mode, p.status, p.tx,
@@ -119,6 +157,10 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.responses AS
 `;
 
 type ResponseMode = EngineInfo["responseMode"];
+
+/** A new series' simulated history: a day, a point a minute. */
+const HISTORY_POINTS = 1_440;
+const HISTORY_STEP_MS = 60_000;
 
 const CONTRACT_COLUMNS = "id::text, address, name, abi, created_at";
 
@@ -413,6 +455,7 @@ export class StubEngine implements EngineCommands, EngineEvents {
     );
     let recorded = 0;
     for (const row of rows) {
+      await this.#record(row, block, clock);
       let kind: "tripped" | "evaluation_error" | null = null;
       let evidence: unknown;
       try {
@@ -477,6 +520,61 @@ export class StubEngine implements EngineCommands, EngineEvents {
   }
 
   /** One value per call; a function with several outputs gives a list. */
+  /**
+   * Records the value of each number the rule reads at this block, into
+   * series shared by every rule reading the same thing. A series seen for
+   * the first time gets a day of simulated history, so a chart has
+   * something to show from the start.
+   */
+  async #record(
+    rule: { address: string; document: Rule },
+    block: number,
+    clock: number,
+  ) {
+    for (const read of documentReads(rule.document)) {
+      const address = (read.address ?? rule.address).toLowerCase();
+      const returns = read.returns ?? 0;
+      const type = parseSignature(read.function).returns[returns] ?? "";
+      if (!/^u?int\d*$/.test(type)) continue;
+      const key = JSON.stringify([address, read.function, read.args, returns]);
+      const created = await this.#pool.query<{ id: string }>(
+        `INSERT INTO stub.series (key, address, function, args, returns)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (key) DO NOTHING RETURNING id::text`,
+        [key, address, read.function, JSON.stringify(read.args), returns],
+      );
+      const id =
+        created.rows[0]?.id ??
+        (
+          await this.#pool.query<{ id: string }>(
+            "SELECT id::text FROM stub.series WHERE key = $1",
+            [key],
+          )
+        ).rows[0]!.id;
+      const value = (t: number) =>
+        simulatedValue(address, read.function, returns, type, t);
+      const times = created.rows[0]
+        ? Array.from(
+            { length: HISTORY_POINTS },
+            (_, i) => clock - (HISTORY_POINTS - i) * HISTORY_STEP_MS,
+          )
+        : [];
+      times.push(clock);
+      await this.#pool.query(
+        `INSERT INTO stub.series_points (series_id, block_number, block_time, value)
+         SELECT $1, b, t, v
+           FROM unnest($2::bigint[], $3::timestamptz[], $4::numeric[]) AS p(b, t, v)
+         ON CONFLICT DO NOTHING`,
+        [
+          id,
+          times.map((t) => (t === clock ? block : blockAt(t))),
+          times.map((t) => new Date(t).toISOString()),
+          times.map(value),
+        ],
+      );
+    }
+  }
+
   /**
    * A response for a violation whose rule acts on chain: held for
    * approval, or sent at once, as the mode says. At most one is live per

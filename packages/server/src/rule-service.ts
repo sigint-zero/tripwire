@@ -5,6 +5,7 @@ import {
   type Issue,
   type Rule,
   type RuleCheck,
+  type RuleStatus,
   type SavedRule,
 } from "@tripwire/shared";
 import {
@@ -14,6 +15,7 @@ import {
   type EngineCommands,
   type EngineReads,
   type Evidence,
+  type RuleActivity,
   type RuleRow,
 } from "./engine/types";
 import type { AppStore, Display } from "./store";
@@ -91,10 +93,27 @@ function toCheck(
   };
 }
 
+/**
+ * Where a rule stands now. Tripped means tripped at the block it was last
+ * evaluated at, not merely that it has open violations.
+ */
+function statusOf(row: RuleRow, activity?: RuleActivity): RuleStatus {
+  if (!row.enabled) return "off";
+  const now =
+    activity?.newest_block !== null &&
+    activity?.newest_block !== undefined &&
+    activity.newest_block === row.last_evaluated_block;
+  if (now && activity?.newest_kind === "tripped") return "tripped";
+  if (now && activity?.newest_kind === "evaluation_error") return "error";
+  if (row.warming) return "warming";
+  return "holding";
+}
+
 function toSaved(
   row: RuleRow,
   submitters: Map<string, string>,
   displays: Map<string, Display>,
+  activity: Map<string, RuleActivity>,
 ): SavedRule {
   return {
     id: row.id,
@@ -112,6 +131,8 @@ function toSaved(
     display: displays.get(row.id) ?? NO_DISPLAY,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    status: statusOf(row, activity.get(row.id)),
+    openViolations: activity.get(row.id)?.open_count ?? 0,
   };
 }
 
@@ -231,12 +252,14 @@ export class RuleService {
 
   /** Rules as the API shows them, with who submitted them and their display. */
   async saved(rows: RuleRow[]): Promise<SavedRule[]> {
-    const [submitters, displays] = await Promise.all([
+    const [submitters, displays, activity] = await Promise.all([
       this.#store.submitters(
         rows.filter((r) => r.origin === "mcp").map((r) => r.id),
       ),
       this.#store.displays(rows.map((r) => r.id)),
+      this.#reads.ruleActivity(rows.map((r) => r.id)),
     ]);
-    return rows.map((row) => toSaved(row, submitters, displays));
+    const byRule = new Map(activity.map((a) => [a.rule_id, a]));
+    return rows.map((row) => toSaved(row, submitters, displays, byRule));
   }
 }

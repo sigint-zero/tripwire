@@ -10,6 +10,7 @@ import { BrowserRelay } from "./events/relay";
 import { eventRoutes } from "./events/route";
 import { refuse } from "./refuse";
 import { responseRoutes } from "./responses";
+import { seriesRoutes } from "./series";
 import { RuleService } from "./rule-service";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
@@ -60,6 +61,7 @@ export const api: FastifyPluginCallback<{ backend?: Backend; auth?: Auth }> = (
   app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
   app.register(responseRoutes, { commands, reads });
+  app.register(seriesRoutes, { reads });
   if (auth) {
     const relay = new BrowserRelay(backend.engine.events, (message, detail) =>
       app.log.warn(detail, message),

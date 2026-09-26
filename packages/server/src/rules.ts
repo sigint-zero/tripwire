@@ -1,9 +1,16 @@
-import { issuesOf, type StoredRuleCheck } from "@tripwire/shared";
+import {
+  issuesOf,
+  type CheckNow,
+  type CurrentValue,
+  type RuleStatus,
+  type StoredRuleCheck,
+} from "@tripwire/shared";
 import type { FastifyPluginCallback, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { EngineCommands, EngineReads } from "./engine/types";
 import { refuse } from "./refuse";
 import type { Checked, RuleService } from "./rule-service";
+import { seriesOfRule } from "./rule-series";
 import type { AppStore } from "./store";
 
 const submission = z.object({
@@ -29,6 +36,14 @@ const pins = z.object({
 });
 
 type ById = { Params: { id: string } };
+
+const STATUSES: RuleStatus[] = [
+  "off",
+  "tripped",
+  "error",
+  "warming",
+  "holding",
+];
 
 export const ruleRoutes: FastifyPluginCallback<{
   commands: EngineCommands;
@@ -61,13 +76,89 @@ export const ruleRoutes: FastifyPluginCallback<{
     return null;
   };
 
-  app.get<{ Querystring: { contract?: string } }>("/rules", async (request) => {
-    if (!request.query.contract) return rules.saved(await reads.rules());
-    const contract = await reads.contract(request.query.contract);
-    return contract
-      ? rules.saved(await reads.rules({ contractId: contract.id }))
-      : [];
+  app.get<{ Querystring: { contract?: string; status?: string } }>(
+    "/rules",
+    async (request, reply) => {
+      const { contract: address, status } = request.query;
+      if (status !== undefined && !STATUSES.includes(status as RuleStatus)) {
+        return refuse(
+          reply,
+          400,
+          "invalid_request",
+          `status must be one of ${STATUSES.join(", ")}.`,
+        );
+      }
+      let rows;
+      if (address) {
+        const contract = await reads.contract(address);
+        if (!contract) return [];
+        rows = await reads.rules({ contractId: contract.id });
+      } else {
+        rows = await reads.rules();
+      }
+      const saved = await rules.saved(rows);
+      return status ? saved.filter((r) => r.status === status) : saved;
+    },
+  );
+
+  app.get<ById>("/rules/:id/series", async (request, reply) => {
+    const row = await reads.rule(request.params.id);
+    return row ? seriesOfRule(reads, row) : notFound(reply);
   });
+
+  app.get<ById>(
+    "/rules/:id/current",
+    async (request, reply): Promise<CurrentValue[] | undefined> => {
+      const row = await reads.rule(request.params.id);
+      if (!row) return notFound(reply);
+      const series = await seriesOfRule(reads, row);
+      const points = await reads.newestPoints(series.map((s) => s.id));
+      return series.flatMap((s) => {
+        const p = points.find((point) => point.series_id === s.id);
+        return p
+          ? [
+              {
+                seriesId: s.id,
+                value: p.value,
+                blockNumber: p.block_number,
+                blockTime: p.block_time,
+              },
+            ]
+          : [];
+      });
+    },
+  );
+
+  // The engine's own judgement at the current block, recording nothing:
+  // no value, violation, notification or response. It works on a rule
+  // that is off, which is how a person checks one before arming it.
+  app.post<ById>(
+    "/rules/:id/check",
+    async (request, reply): Promise<CheckNow | undefined> => {
+      const row = await reads.rule(request.params.id);
+      if (!row) return notFound(reply);
+      const [dry, health] = await Promise.all([
+        commands.dryRun(row.document),
+        commands.health(),
+      ]);
+      const warmup = dry.needs.warmup_seconds;
+      const left = dry.evaluation.warming
+        ? Math.max(
+            0,
+            Math.ceil(
+              (Date.parse(row.created_at) + warmup * 1000 - Date.now()) / 1000,
+            ),
+          )
+        : 0;
+      return {
+        block: health.head,
+        wouldTripNow: dry.evaluation.would_trip,
+        warming: dry.evaluation.warming,
+        warmupSecondsLeft: left,
+        evidence: dry.evaluation.evidence,
+      };
+    },
+  );
 
   app.get<ById>("/rules/:id", async (request, reply) => {
     const row = await reads.rule(request.params.id);

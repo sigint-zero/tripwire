@@ -62,6 +62,43 @@ export interface ViolationRow {
   response_status: ResponseStatus | null;
 }
 
+/** A row of the `series` view: one recorded read, or a metric over one. */
+export interface SeriesRow {
+  id: string;
+  key: string;
+  address: string;
+  function: string;
+  args: string[];
+  returns: number | null;
+  metric: string | null;
+  window_seconds: number | null;
+}
+
+/** A rule's newest violation and how many nobody has acknowledged. */
+export interface RuleActivity {
+  rule_id: string;
+  newest_kind: ViolationKind | null;
+  newest_block: number | null;
+  open_count: number;
+}
+
+export interface PointRow {
+  series_id: string;
+  block_number: number;
+  block_time: string;
+  value: string;
+}
+
+export interface BucketRow {
+  series_id: string;
+  bucket: number;
+  first: string;
+  last: string;
+  min: string;
+  max: string;
+  count: number;
+}
+
 /** A row of the `responses` view, with its violation and contract. */
 export interface ResponseRow {
   id: string;
@@ -215,4 +252,33 @@ export interface EngineReads {
   }): Promise<ResponseRow[]>;
   response(id: string): Promise<ResponseRow | null>;
   responseCounts(): Promise<{ waiting: number; inFlight: number }>;
+  /** Each rule's newest violation and open count, in one bounded read. */
+  ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
+  /** The series recorded for reads of these contracts. */
+  series(addresses: string[]): Promise<SeriesRow[]>;
+  seriesById(id: string): Promise<SeriesRow | null>;
+  /** The newest point of each series. */
+  newestPoints(seriesIds: string[]): Promise<PointRow[]>;
+  /** How many raw points and rollups fall in the range. */
+  countPoints(
+    seriesId: string,
+    from: Date,
+    to: Date,
+  ): Promise<{ raw: number; rollups: number }>;
+  points(
+    seriesId: string,
+    from: Date,
+    to: Date,
+    limit: number,
+  ): Promise<PointRow[]>;
+  /**
+   * The range cut into `buckets` equal stretches per series, from raw
+   * points and rollups alike, each with first, last, min, max and count.
+   */
+  buckets(
+    seriesIds: string[],
+    from: Date,
+    to: Date,
+    buckets: number,
+  ): Promise<BucketRow[]>;
 }

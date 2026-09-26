@@ -93,6 +93,9 @@ export interface RuleDisplay {
   unit: string | null;
 }
 
+/** Where a rule stands now; `RULES.md` defines each. */
+export type RuleStatus = "off" | "tripped" | "error" | "warming" | "holding";
+
 /** A rule as the engine keeps it. */
 export interface SavedRule {
   id: string;
@@ -106,6 +109,70 @@ export interface SavedRule {
   display: RuleDisplay;
   createdAt: string;
   updatedAt: string;
+  status: RuleStatus;
+  /** Violations nobody has acknowledged. */
+  openViolations: number;
+}
+
+/** A contract read the engine records a value of at every block. */
+export interface RuleSeries {
+  id: string;
+  call: {
+    address: string;
+    function: string;
+    args: string[];
+    returns: number | null;
+  };
+  metric: string | null;
+  windowSeconds: number | null;
+  /** `read` for a contract read, `metric` for a value computed over one. */
+  role: "read" | "metric";
+}
+
+/** A series' newest value. */
+export interface CurrentValue {
+  seriesId: string;
+  value: string;
+  blockNumber: number;
+  blockTime: string;
+}
+
+export interface SeriesPoint {
+  blockNumber: number;
+  blockTime: string;
+  value: string;
+}
+
+/** A stretch of time summarised: the spike inside it survives in min and max. */
+export interface SeriesBucket {
+  start: string;
+  first: string;
+  last: string;
+  min: string;
+  max: string;
+  count: number;
+}
+
+/** A window of a series: its points when few, else buckets. */
+export type SeriesWindow =
+  | { resolution: "block"; points: SeriesPoint[] }
+  | { resolution: string; buckets: SeriesBucket[] };
+
+/** A rule's first series over a day, for the list and the Overview. */
+export interface Sparkline {
+  ruleId: string;
+  seriesId: string;
+  buckets: SeriesBucket[];
+}
+
+/** One evaluation of a stored rule at the current block; nothing is recorded. */
+export interface CheckNow {
+  /** The head it was evaluated at; null before the engine has seen a block. */
+  block: number | null;
+  wouldTripNow: boolean;
+  warming: boolean;
+  warmupSecondsLeft: number;
+  evidence: unknown;
 }
 
 /** Changing a stored rule: switching it, or how it is shown. */

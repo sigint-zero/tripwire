@@ -4,8 +4,12 @@ import {
   EngineNotReady,
   type ContractRow,
   type EngineReads,
+  type BucketRow,
+  type PointRow,
   type ResponseRow,
+  type RuleActivity,
   type RuleRow,
+  type SeriesRow,
   type ViolationRow,
 } from "./types";
 
@@ -26,6 +30,9 @@ const VIOLATION = `v.id::text, v.rule_id::text, v.rule_name, v.severity,
   v.contract_address, v.kind, v.block_number::int, v.block_time, v.tx_hash,
   v.evidence, v.created_at, a.acknowledged_by, a.note, a.acknowledged_at,
   p.id::text AS response_id, p.status AS response_status`;
+
+const SERIES = `id::text, key, address, function, args, returns,
+  metric, window_seconds::int`;
 
 const RESPONSE = `p.id::text, p.violation_id::text, p.rule_id::text,
   p.rule_name, p.contract_address, c.name AS contract_name, p.action, p.mode,
@@ -173,6 +180,117 @@ export class ViewReads implements EngineReads {
          FROM ${this.#schema}.responses`,
     );
     return { waiting: row?.waiting ?? 0, inFlight: row?.in_flight ?? 0 };
+  }
+
+  async ruleActivity(ruleIds: string[]): Promise<RuleActivity[]> {
+    if (ruleIds.length === 0) return [];
+    return this.#read<RuleActivity>(
+      `SELECT r.id::text AS rule_id, n.kind AS newest_kind,
+              n.block_number::int AS newest_block,
+              (SELECT count(*)::int FROM ${this.#schema}.violations v
+                 LEFT JOIN app.violation_acks a ON a.violation_id = v.id
+                WHERE v.rule_id = r.id AND a.violation_id IS NULL) AS open_count
+         FROM unnest($1::bigint[]) AS r(id)
+         LEFT JOIN LATERAL (
+           SELECT v.kind, v.block_number FROM ${this.#schema}.violations v
+            WHERE v.rule_id = r.id ORDER BY v.id DESC LIMIT 1
+         ) n ON true
+        LIMIT ${LIMIT}`,
+      [ruleIds.slice(0, LIMIT)],
+    );
+  }
+
+  async series(addresses: string[]): Promise<SeriesRow[]> {
+    if (addresses.length === 0) return [];
+    return this.#read<SeriesRow>(
+      `SELECT ${SERIES} FROM ${this.#schema}.series
+        WHERE lower(address) = ANY($1::text[]) ORDER BY id LIMIT ${LIMIT}`,
+      [addresses.map((a) => a.toLowerCase())],
+    );
+  }
+
+  async seriesById(id: string): Promise<SeriesRow | null> {
+    if (!/^\d+$/.test(id)) return null;
+    const rows = await this.#read<SeriesRow>(
+      `SELECT ${SERIES} FROM ${this.#schema}.series WHERE id = $1`,
+      [id],
+    );
+    return rows[0] ?? null;
+  }
+
+  async newestPoints(seriesIds: string[]): Promise<PointRow[]> {
+    if (seriesIds.length === 0) return [];
+    return this.#read<PointRow>(
+      `SELECT DISTINCT ON (series_id) series_id::text, block_number::int,
+              block_time, value::text
+         FROM ${this.#schema}.series_points
+        WHERE series_id = ANY($1::bigint[])
+        ORDER BY series_id, block_number DESC
+        LIMIT ${LIMIT}`,
+      [seriesIds],
+    );
+  }
+
+  async countPoints(seriesId: string, from: Date, to: Date) {
+    const [row] = await this.#read<{ raw: number; rollups: number }>(
+      `SELECT (SELECT count(*)::int FROM ${this.#schema}.series_points
+                WHERE series_id = $1 AND block_time >= $2 AND block_time < $3) AS raw,
+              (SELECT count(*)::int FROM ${this.#schema}.series_rollups
+                WHERE series_id = $1 AND bucket_start >= $2 AND bucket_start < $3) AS rollups`,
+      [seriesId, from, to],
+    );
+    return { raw: row?.raw ?? 0, rollups: row?.rollups ?? 0 };
+  }
+
+  async points(
+    seriesId: string,
+    from: Date,
+    to: Date,
+    limit: number,
+  ): Promise<PointRow[]> {
+    return this.#read<PointRow>(
+      `SELECT series_id::text, block_number::int, block_time, value::text
+         FROM ${this.#schema}.series_points
+        WHERE series_id = $1 AND block_time >= $2 AND block_time < $3
+        ORDER BY block_number LIMIT ${Math.min(limit, LIMIT)}`,
+      [seriesId, from, to],
+    );
+  }
+
+  async buckets(
+    seriesIds: string[],
+    from: Date,
+    to: Date,
+    buckets: number,
+  ): Promise<BucketRow[]> {
+    if (seriesIds.length === 0) return [];
+    const width = Math.max((to.getTime() - from.getTime()) / 1000 / buckets, 1);
+    // Raw points and hourly rollups hold each value exactly once, so both
+    // feed the same buckets: min of mins, max of maxes, first and last by
+    // time. A spike inside a bucket survives in its min or max.
+    return this.#read<BucketRow>(
+      `WITH parts AS (
+         SELECT series_id, block_time AS t, value AS first, value AS last,
+                value AS min, value AS max, 1 AS n
+           FROM ${this.#schema}.series_points
+          WHERE series_id = ANY($1::bigint[]) AND block_time >= $2 AND block_time < $3
+         UNION ALL
+         SELECT series_id, bucket_start, first, last, min, max, samples
+           FROM ${this.#schema}.series_rollups
+          WHERE series_id = ANY($1::bigint[]) AND bucket_start >= $2 AND bucket_start < $3
+       )
+       SELECT series_id::text,
+              floor(extract(epoch FROM t - $2::timestamptz) / $4)::int AS bucket,
+              (array_agg(first ORDER BY t))[1]::text AS first,
+              (array_agg(last ORDER BY t DESC))[1]::text AS last,
+              min(min)::text AS min, max(max)::text AS max,
+              sum(n)::int AS count
+         FROM parts
+        GROUP BY series_id, bucket
+        ORDER BY series_id, bucket
+        LIMIT ${LIMIT * 10}`,
+      [seriesIds, from, to, width],
+    );
   }
 
   /** Responses with the violation that caused them and the contract's name. */

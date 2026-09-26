@@ -466,6 +466,37 @@ function children(n: AnyNode): AnyNode[] {
   }
 }
 
+/** The contract reads in `trip_when`, in the order the document reads them. */
+export function documentReads(rule: Rule): ViewCall[] {
+  const found: ViewCall[] = [];
+  const seen = new Set<string>();
+  walk(rule.trip_when, (n) => {
+    if (n === true || n.node !== "view_call") return;
+    const key = JSON.stringify([
+      (n.address ?? rule.contract).toLowerCase(),
+      n.function,
+      n.args,
+      n.returns ?? 0,
+    ]);
+    if (!seen.has(key)) {
+      seen.add(key);
+      found.push(n);
+    }
+  });
+  return found;
+}
+
+/** The metrics in `trip_when` computed over a contract read, in reading order. */
+export function documentMetrics(
+  rule: Rule,
+): Extract<ValueNode, { node: "metric" }>[] {
+  const found: Extract<ValueNode, { node: "metric" }>[] = [];
+  walk(rule.trip_when, (n) => {
+    if (n !== true && n.node === "metric") found.push(n);
+  });
+  return found;
+}
+
 function walk(
   n: AnyNode,
   visit: (n: AnyNode, depth: number) => void,
