@@ -129,28 +129,46 @@ export function HealthStrip() {
     ),
   };
 
-  const facts = [
+  const controller = known?.controller;
+  const keys = known?.keys;
+  const facts: { text: string; hint?: string }[] = [
     // The stand-in has no RPC to speak of.
     engine.runner !== "stand-in" &&
-      known?.rpc &&
-      `RPC ${known.rpc === "ok" ? "connected" : known.rpc}`,
-    engine.runner !== "stand-in" && engine.version && `v${engine.version}`,
-  ].filter(Boolean);
+      known?.rpc && {
+        text: `RPC ${known.rpc === "ok" ? "connected" : known.rpc}`,
+      },
+    controller && {
+      text: `controller ${controller.address.slice(0, 6)}…${controller.address.slice(-4)}`,
+      hint: `Mirroring the TripwireController at ${controller.address}${controller.mirroredBlock != null ? `, to block ${controller.mirroredBlock.toLocaleString("en-US")}` : ""}`,
+    },
+    keys &&
+      keys.known > 0 && {
+        text: `${keys.unlocked}/${keys.known} ${keys.known === 1 ? "key" : "keys"} unlocked`,
+        hint: "Keys that can sign a response now, of those Tripwire has",
+      },
+    engine.runner !== "stand-in" &&
+      engine.version && { text: `v${engine.version}` },
+  ].filter((fact) => !!fact);
   const tone = toneOf[engine.state];
 
   return (
     <Link
       to={engine.state === "unconfigured" ? "/setup" : "/settings"}
-      className={`mb-8 flex min-h-10 items-center gap-3 px-4 py-2.5 text-xs transition-colors ${tones[tone]}`}
+      className={`mb-8 flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-xs transition-colors ${tones[tone]}`}
     >
       <span
         aria-hidden
         className={`size-1.5 shrink-0 ${engine.state === "ready" ? "bg-emerald-400" : "bg-current"}`}
       />
-      <span className="min-w-0 flex-1">{sentence[engine.state]}</span>
+      <span className="min-w-48 flex-1">{sentence[engine.state]}</span>
       {facts.length > 0 && (
-        <span className="shrink-0 font-mono text-[10px] text-gray-500">
-          {facts.join(" · ")}
+        <span className="ml-auto font-mono text-[10px] text-gray-500">
+          {facts.map((fact, i) => (
+            <span key={fact.text} title={fact.hint}>
+              {i > 0 && " · "}
+              {fact.text}
+            </span>
+          ))}
         </span>
       )}
     </Link>

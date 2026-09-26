@@ -14,7 +14,9 @@ import type {
   ContractRegistration,
   EngineStatus,
   Issue,
+  KeyList,
   McpTokenSummary,
+  NewKey,
   CheckNow,
   CurrentValue,
   ResponseCounts,
@@ -275,5 +277,18 @@ export const api = {
   rejectResponse: (id: string, reason: string) =>
     request<ResponseItem>(`/responses/${id}/reject`, {
       json: { reason: reason || undefined },
+    }),
+  keys: (signal?: AbortSignal) => request<KeyList>("/keys", { signal }),
+  createKey: (passphrase: string) =>
+    request<NewKey>("/keys", { json: { passphrase } }),
+  importKey: (keystore: string, passphrase: string) =>
+    request<NewKey>("/keys/import", { json: { keystore, passphrase } }),
+  unlockKey: (address: string, passphrase: string) =>
+    request<{ address: string; unlocked: boolean }>(`/keys/${address}/unlock`, {
+      json: { passphrase },
+    }),
+  lockKey: (address: string) =>
+    request<{ address: string; unlocked: boolean }>(`/keys/${address}/lock`, {
+      method: "POST",
     }),
 };

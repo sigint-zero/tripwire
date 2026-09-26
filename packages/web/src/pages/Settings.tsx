@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { useLogout } from "../components/AccountMenu";
 import { AlertChannels, MessageLinks } from "../components/Channels";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Keys } from "../components/Keys";
 import { PageHeader } from "../components/PageHeader";
 import {
   Button,
@@ -24,18 +25,21 @@ export function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description="Your account, who else can log in, where alerts go, and the AI agents that can reach Tripwire."
+        description="Your account, who else can log in, the AI agents that can reach Tripwire, the keys it signs with, and where alerts go."
       />
       <div className="space-y-14">
         <Account />
         <Accounts />
+        <AgentTokens />
+        <Section title="Keys">
+          <Keys />
+        </Section>
         <Section title="Alert channels">
           <AlertChannels />
         </Section>
         <Section title="Message links">
           <MessageLinks />
         </Section>
-        <AgentTokens />
       </div>
     </div>
   );
