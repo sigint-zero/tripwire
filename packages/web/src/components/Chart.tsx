@@ -1,10 +1,11 @@
-import type {
-  BoolNode,
-  RuleSeries,
-  SavedRule,
-  SeriesWindow,
-  ValueNode,
-  Violation,
+import {
+  formatDuration,
+  type BoolNode,
+  type RuleSeries,
+  type SavedRule,
+  type SeriesWindow,
+  type ValueNode,
+  type Violation,
 } from "@tripwire/shared";
 import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -48,7 +49,7 @@ const FLIP: Record<string, string> = {
   ne: "ne",
 };
 
-interface Sample {
+export interface Sample {
   t: number;
   last: string;
   min: string;
@@ -85,9 +86,48 @@ const sameCall = (node: ValueNode, s: RuleSeries, contract: string) =>
   JSON.stringify(node.args) === JSON.stringify(s.call.args) &&
   (node.returns ?? 0) === (s.call.returns ?? 0);
 
+/** Which side of a boundary trips the rule. */
+type Trips = "above" | "below" | null;
+const TRIPS: Record<string, Trips> = {
+  lt: "below",
+  le: "below",
+  gt: "above",
+  ge: "above",
+  eq: null,
+  ne: null,
+};
+
 interface Threshold {
   seriesId: string;
   value: string;
+  label: string;
+  trips: Trips;
+}
+
+/**
+ * A limit that moves, worked out from a recorded read the way the engine
+ * works it out: another read it is compared with, a band around its
+ * trailing average, the most it may grow or fall within a window, or how
+ * old a timestamp may get.
+ */
+export type Derived =
+  | { kind: "read"; seriesId: string; otherId: string; op: string }
+  | {
+      kind: "band";
+      seriesId: string;
+      window: number;
+      percent: number;
+      sides: "both" | "above" | "below";
+    }
+  | { kind: "growth"; seriesId: string; window: number; fraction: number }
+  | { kind: "drop"; seriesId: string; window: number; percent: number }
+  | { kind: "age"; seriesId: string; seconds: number };
+
+interface Boundary {
+  key: string;
+  /** `partial` where less than a whole window of history lies behind. */
+  points: { t: number; v: number; partial?: boolean }[];
+  trips: Trips;
   label: string;
 }
 
@@ -101,7 +141,67 @@ interface Band {
 function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
   const thresholds: Threshold[] = [];
   const bands: Band[] = [];
+  const derived: Derived[] = [];
   const contract = rule.rule.contract;
+  const readOf = (node: ValueNode) =>
+    series.find((x) => sameCall(node, x, contract));
+
+  const derive = (n: Extract<BoolNode, { node: "compare" }>) => {
+    const { left, right, op } = n;
+    // A read against another read: the other is the limit.
+    const a = readOf(left);
+    const b = readOf(right);
+    if (a && b) {
+      derived.push({ kind: "read", seriesId: a.id, otherId: b.id, op });
+      return;
+    }
+    if (op !== "gt" && op !== "ge") return;
+    if (left.node === "metric" && left.window) {
+      const read = readOf(left.of);
+      if (!read) return;
+      const window = left.window.seconds;
+      if (left.metric === "windowed_drop" && right.node === "literal") {
+        derived.push({
+          kind: "drop",
+          seriesId: read.id,
+          window,
+          percent: Number(right.value),
+        });
+      }
+      // The growth template: the change within the window above value × n.
+      if (
+        left.metric === "windowed_delta" &&
+        right.node === "arithmetic" &&
+        right.op === "mul" &&
+        right.right.node === "literal"
+      ) {
+        derived.push({
+          kind: "growth",
+          seriesId: read.id,
+          window,
+          fraction: Number(right.right.value),
+        });
+      }
+      return;
+    }
+    // The freshness template: now − timestamp above a number of seconds.
+    if (
+      left.node === "arithmetic" &&
+      left.op === "sub" &&
+      left.left.node === "now" &&
+      right.node === "literal"
+    ) {
+      const read = readOf(left.right);
+      if (read) {
+        derived.push({
+          kind: "age",
+          seriesId: read.id,
+          seconds: Number(right.value),
+        });
+      }
+    }
+  };
+
   const visit = (n: BoolNode) => {
     if (n === true) return;
     switch (n.node) {
@@ -118,9 +218,11 @@ function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
               seriesId: s.id,
               value: other.value,
               label: `${OPS[op]} ${showValue(other.value, rule.display)}`,
+              trips: TRIPS[op] ?? null,
             });
           }
         }
+        derive(n);
         return;
       }
       case "deviation_band": {
@@ -138,6 +240,18 @@ function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
             percent: Number(n.tolerance_percent),
             sides: n.sides,
           });
+        } else if (center.window) {
+          // No recorded average: work it out from the read itself.
+          const read = readOf(center.of);
+          if (read) {
+            derived.push({
+              kind: "band",
+              seriesId: read.id,
+              window: center.window.seconds,
+              percent: Number(n.tolerance_percent),
+              sides: n.sides,
+            });
+          }
         }
         return;
       }
@@ -153,7 +267,133 @@ function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
     }
   };
   visit(rule.rule.trip_when);
-  return { thresholds, bands };
+  return { thresholds, bands, derived };
+}
+
+/** The limit a derived boundary sets at each recorded time of its read. */
+export function boundaryOf(
+  d: Derived,
+  samples: Sample[],
+  other: Sample[],
+  otherName: string,
+): Boundary[] {
+  // The last sample at or before t; asked in rising t, so it walks forward.
+  let cursor = 0;
+  const at = (t: number) => {
+    while (cursor + 1 < samples.length && samples[cursor + 1]!.t <= t) {
+      cursor++;
+    }
+    return samples[cursor];
+  };
+  const first = samples[0]?.t ?? 0;
+  // Until a whole window lies behind it, a limit is worked out from the
+  // history there is, as the engine does while it warms up.
+  const partial = (t: number, w: number) => t - w * 1000 < first;
+  /** Each sample's trailing window, averaged and at its highest, in one pass. */
+  const trailing = (w: number) => {
+    const out: { t: number; mean: number; high: number; partial: boolean }[] =
+      [];
+    const highs: number[] = []; // indexes, their highs falling
+    let from = 0;
+    let sum = 0;
+    samples.forEach((s, i) => {
+      sum += Number(s.last);
+      while (
+        highs.length &&
+        Number(samples[highs[highs.length - 1]!]!.max) <= Number(s.max)
+      ) {
+        highs.pop();
+      }
+      highs.push(i);
+      while (samples[from]!.t <= s.t - w * 1000) {
+        sum -= Number(samples[from]!.last);
+        from++;
+      }
+      while (highs[0]! < from) highs.shift();
+      out.push({
+        t: s.t,
+        mean: sum / (i - from + 1),
+        high: Number(samples[highs[0]!]!.max),
+        partial: partial(s.t, w),
+      });
+    });
+    return out;
+  };
+
+  switch (d.kind) {
+    case "read":
+      return [
+        {
+          key: `read:${d.otherId}`,
+          points: other.map((s) => ({ t: s.t, v: Number(s.last) })),
+          trips: TRIPS[d.op] ?? null,
+          label: `${OPS[d.op]} ${otherName}`,
+        },
+      ];
+    case "band": {
+      const f = d.percent / 100;
+      const centre = trailing(d.window).map((p) => ({
+        t: p.t,
+        v: p.mean,
+        partial: p.partial,
+      }));
+      const sign = d.sides === "both" ? "±" : d.sides === "above" ? "+" : "−";
+      const label = `${sign}${d.percent}% of ${formatDuration(d.window)} avg`;
+      const edges: Boundary[] = [];
+      if (d.sides !== "below") {
+        edges.push({
+          key: "band:above",
+          points: centre.map((p) => ({ ...p, v: p.v * (1 + f) })),
+          trips: "above",
+          label,
+        });
+      }
+      if (d.sides !== "above") {
+        edges.push({
+          key: "band:below",
+          points: centre.map((p) => ({ ...p, v: p.v * (1 - f) })),
+          trips: "below",
+          label: d.sides === "both" ? "" : label,
+        });
+      }
+      return edges;
+    }
+    case "growth":
+      return [
+        {
+          key: "growth",
+          points: samples.map((s) => ({
+            t: s.t,
+            v: Number(at(s.t - d.window * 1000)!.last) / (1 - d.fraction),
+            partial: partial(s.t, d.window),
+          })),
+          trips: "above",
+          label: `+${Math.round(d.fraction * 1000) / 10}% in ${formatDuration(d.window)}`,
+        },
+      ];
+    case "drop":
+      return [
+        {
+          key: "drop",
+          points: trailing(d.window).map((p) => ({
+            t: p.t,
+            v: p.high * (1 - d.percent / 100),
+            partial: p.partial,
+          })),
+          trips: "below",
+          label: `−${d.percent}% from ${formatDuration(d.window)} high`,
+        },
+      ];
+    case "age":
+      return [
+        {
+          key: "age",
+          points: samples.map((s) => ({ t: s.t, v: s.t / 1000 - d.seconds })),
+          trips: "below",
+          label: `older than ${formatDuration(d.seconds)}`,
+        },
+      ];
+  }
 }
 
 /** A series' name in the legend: its function, and the metric over it. */
@@ -195,6 +435,10 @@ export function Chart({
   const span = WINDOWS.find((w) => w.key === windowKey)!.ms;
   const to = useMinute();
   const from = to - span;
+  const { thresholds, bands, derived } = useMemo(
+    () => overlaysOf(rule, series),
+    [rule, series],
+  );
   const windows = useQueries({
     queries: series.map((s) => ({
       queryKey: ["series", s.id, windowKey, to],
@@ -211,15 +455,69 @@ export function Chart({
       placeholderData: (previous: SeriesWindow | undefined) => previous,
     })),
   });
+  // A windowed limit needs the window before the first time shown.
+  const reach = (id: string) =>
+    Math.max(
+      0,
+      ...derived
+        .filter((d) => d.seriesId === id && "window" in d)
+        .map((d) => ("window" in d ? d.window * 1000 : 0)),
+    );
+  const history = useQueries({
+    queries: series.map((s) => ({
+      queryKey: ["series", s.id, "history", from - reach(s.id), to],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.seriesWindow(
+          s.id,
+          {
+            from: new Date(from - reach(s.id)).toISOString(),
+            to: new Date(to).toISOString(),
+          },
+          signal,
+        ),
+      enabled: reach(s.id) > 0,
+      refetchInterval: 60_000,
+      placeholderData: (previous: SeriesWindow | undefined) => previous,
+    })),
+  });
   const lines = series.map((s, i) => ({
     series: s,
     colour: COLOURS[i % COLOURS.length]!,
     samples: samplesOf(windows[i]?.data),
   }));
-  const { thresholds, bands } = useMemo(
-    () => overlaysOf(rule, series),
-    [rule, series],
-  );
+  // Worked out once per load, not on every hover.
+  const loaded = windows
+    .map((w) => w.dataUpdatedAt)
+    .concat(history.map((w) => w.dataUpdatedAt))
+    .join();
+  const boundaries = useMemo(() => {
+    const samplesById = (id: string) => {
+      const i = series.findIndex((s) => s.id === id);
+      return samplesOf(history[i]?.data ?? windows[i]?.data);
+    };
+    const shown = derived.flatMap((d) =>
+      boundaryOf(
+        d,
+        samplesById(d.seriesId),
+        d.kind === "read" ? samplesById(d.otherId) : [],
+        d.kind === "read"
+          ? nameOf(series.find((s) => s.id === d.otherId)!)
+          : "",
+      ),
+    );
+    return shown.map((b) => {
+      const points = b.points.filter((p) => p.t >= from);
+      const warming = points.some((p) => p.partial);
+      return {
+        ...b,
+        points,
+        label: b.label && warming ? `${b.label} · warming up` : b.label,
+      };
+    });
+
+    // `loaded` stands in for the windows' data, which changes identity each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, series, loaded]);
 
   const all = lines.flatMap((l) => l.samples);
   // A window longer than the series starts where the series starts.
@@ -229,6 +527,7 @@ export function Chart({
   const values = [
     ...all.flatMap((s) => [Number(s.min), Number(s.max)]),
     ...thresholds.map((t) => Number(t.value)),
+    ...boundaries.flatMap((b) => b.points.map((p) => p.v)),
   ];
   const low = values.length ? Math.min(...values) : 0;
   const high = values.length ? Math.max(...values) : 1;
@@ -361,6 +660,52 @@ export function Chart({
               </g>
             );
           })}
+          {/* Where the rule trips: shaded beyond each limit. */}
+          {thresholds.map(
+            (t) =>
+              t.trips && (
+                <rect
+                  key={`${t.seriesId}:${t.value}:zone`}
+                  x={0}
+                  width={W}
+                  y={t.trips === "above" ? 0 : y(Number(t.value))}
+                  height={
+                    t.trips === "above"
+                      ? y(Number(t.value))
+                      : H - y(Number(t.value))
+                  }
+                  fill="#ef4444"
+                  opacity={0.06}
+                />
+              ),
+          )}
+          {boundaries.map((b) => {
+            if (b.points.length < 2) return null;
+            const line = b.points
+              .map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`)
+              .join("");
+            const last = b.points[b.points.length - 1]!;
+            const edge = b.trips === "above" ? 0 : H;
+            return (
+              <g key={b.key}>
+                {b.trips && (
+                  <path
+                    d={`${line}L${x(last.t)},${edge}L${x(b.points[0]!.t)},${edge}Z`}
+                    fill="#ef4444"
+                    opacity={0.06}
+                  />
+                )}
+                <path
+                  d={line}
+                  fill="none"
+                  stroke="#f87171"
+                  strokeDasharray="6 4"
+                  opacity={0.7}
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            );
+          })}
           {lines.map((l) => (
             <g key={l.series.id}>
               <path d={rangeOf(l.samples)} fill={l.colour} opacity={0.12} />
@@ -424,6 +769,20 @@ export function Chart({
             {t.label}
           </span>
         ))}
+
+        {boundaries.map((b) => {
+          const last = b.points[b.points.length - 1];
+          if (!last || !b.label) return null;
+          return (
+            <span
+              key={`${b.key}:label`}
+              className="absolute right-2 -translate-y-full font-mono text-[10px] text-red-400/80"
+              style={{ top: `${(y(last.v) / H) * 100}%` }}
+            >
+              {b.label}
+            </span>
+          );
+        })}
 
         {/* The highest and lowest recorded values, at their own heights. */}
         {highest !== null && (
