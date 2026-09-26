@@ -8,7 +8,9 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { Sparkline } from "../components/Sparkline";
+import { TrippedNow } from "../components/TrippedNow";
 import { HealthStrip } from "../components/HealthStrip";
+import { SetupChecklist } from "../components/SetupChecklist";
 import { EmptyState } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import { api } from "../lib/api";
@@ -69,6 +71,7 @@ export function OverviewPage() {
       />
 
       <HealthStrip />
+      <SetupChecklist />
 
       <div
         className={`mb-12 grid gap-2 sm:grid-cols-3 ${approvals ? "lg:grid-cols-4" : ""}`}
@@ -97,6 +100,8 @@ export function OverviewPage() {
           </Count>
         )}
       </div>
+
+      <TrippedNow />
 
       <section className="mb-12">
         <h2 className={heading}>Open violations</h2>

@@ -17,7 +17,9 @@ import type {
   RuleChange,
   RuleSeries,
   SeriesWindow,
+  SetupState,
   Sparkline,
+  TripStateItem,
   RuleCheck,
   SavedRule,
   SessionSummary,
@@ -206,6 +208,11 @@ export const api = {
     request<Violation[]>("/violations/acknowledge", { json: { ids, note } }),
   responses: (tab: ResponseTab, signal?: AbortSignal) =>
     request<ResponseItem[]>(`/responses?status=${tab}`, { signal }),
+  tripState: (signal?: AbortSignal) =>
+    request<TripStateItem[]>("/trip-state", { signal }),
+  setup: (signal?: AbortSignal) => request<SetupState>("/setup", { signal }),
+  dismissSetup: () =>
+    request<{ dismissed: true }>("/setup/dismiss", { method: "POST" }),
   responseCounts: (signal?: AbortSignal) =>
     request<ResponseCounts>("/responses/counts", { signal }),
   response: (id: string, signal?: AbortSignal) =>
