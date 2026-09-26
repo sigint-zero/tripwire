@@ -10,7 +10,7 @@ The application is what a user installs and interacts with. It owns
 everything human-facing: installation and setup, the dashboard, the local
 HTTP API, and the command line. The engine, a native binary the
 application installs and supervises, owns detection, response and the
-database. The application never talks to the chain and never holds key
+records they produce. The application never talks to the chain and never holds key
 material; it displays state and carries the user's intent to the engine.
 
 A **rule** is one watchable statement about a contract: a condition that
@@ -26,7 +26,7 @@ One repository, one workspace, six packages:
 
 | Package | Role |
 |-|-|
-| `cli` | the `tripwire` command: guided setup, starting and supervising the engine and server together, and utilities (rule export/import, key and token management) |
+| `cli` | the `tripwire` command: guided setup, starting and supervising the engine and server together, and utilities (rule export/import, key and token management, database status and backup) |
 | `server` | the local HTTP API. Serves the dashboard, exposes `/api/v1` for the dashboard and for user scripts, streams live events, forwards commands to the engine |
 | `web` | the dashboard: a single-page app built to static files, served by the server |
 | `shared` | types and validation schemas used by all packages |
@@ -41,7 +41,9 @@ One repository, one workspace, six packages:
 - **Commands**: anything that changes state (create a rule, approve a
   response, manage a key) is forwarded to the engine over its local
   interface. The engine validates and executes; the application never
-  writes state itself.
+  writes the engine's state. What the application remembers for itself
+  (display preferences, acknowledgements, pinned charts) lives in a
+  schema of its own.
 - **Live updates**: the server relays the engine's event stream to the
   dashboard, so violations, trip state and health appear without refresh.
 
@@ -50,7 +52,7 @@ One repository, one workspace, six packages:
 | Area | Purpose |
 |-|-|
 | Overview | counts, tripped-now, recent violations, pinned charts, system health |
-| Contracts | registered contracts, live state, per-contract rules and history |
+| Contracts | registered contracts, live state, per-contract rules and history; disable a whole contract and enable it again as it was |
 | Rules | all rules with current values and status; a wizard with starting points to create and edit them; per-rule detail with charts and evidence |
 | Violations | filterable history with full evidence per violation |
 | Responses | the approval queue for prepared response transactions, and response history |
@@ -77,6 +79,17 @@ rule is, and how rules are found and constructed, so the agent can:
    enabled by a person in the dashboard.
 
 That is the whole surface for now; `MCP-SERVER.md` specifies it.
+
+## Data
+
+One PostgreSQL database per installation, shared by the engine and the
+application and split by schema: the engine migrates and writes its
+tables and the read views, the application migrates and writes its own
+schema, and the one crossing point is the application reading the
+views. The application provides the database: the owner's own server by
+URL, or a local database it runs itself with no setup.
+`DATABASE.md` specifies both modes, the application's schema and the
+migrations it runs.
 
 ## Access
 

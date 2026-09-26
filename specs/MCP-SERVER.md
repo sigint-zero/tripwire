@@ -231,6 +231,10 @@ No input. Returns every registered contract:
 ]
 ```
 
+`active: false` means a person has disabled the contract: its rules
+were switched off together and come back together when the contract is
+enabled. An agent may still study it and submit rules to it.
+
 ### `get_contract`
 
 Input: `{ "contract": "<id | address | name>", "source": "none" | "list" | "<path>" }`.
@@ -310,7 +314,10 @@ Returns each rule mapped onto the contract with its detection state:
 - `rule` is the canonical document, so the agent sees exactly what the
   engine evaluates and can avoid restating it.
 - `sentence` is the engine's `describe` output.
-- `origin` is `"dashboard"`, `"import"`, or `{ "mcp": "<token label>" }`.
+- `origin` is `"dashboard"` for rules the application created (the
+  wizard or an import), `{ "mcp": "<token label>" }` for agent
+  submissions, with the label read from `app.rule_submissions`, or
+  `"api"` for rules created directly against the engine's interface.
 - `status` is one of `ok`, `violated`, `warming_up`, `eval_error`,
   `disabled`.
 - `current` is the first recorded series of the rule at its last
@@ -348,8 +355,10 @@ The server, in order:
    addresses, normalised signatures and numbers) against the contract's
    existing rules, ignoring `name`, `description` and `severity`; a
    match is reported as `duplicate_of`;
-6. unless `check_only`, stores the rule with `enabled: false`, origin
-   set to the token label, and `display_decimals` when given.
+6. unless `check_only`, stores the rule through the engine with
+   `enabled: false` and origin `mcp`, then records the token id and
+   label in `app.rule_submissions` and `display_decimals`, when given,
+   in `app.rule_prefs` (`DATABASE.md`).
 
 Returns the same shape either way, plus `id` and `stored: true` after a
 real submission:
@@ -383,11 +392,11 @@ is no submission path that skips validation.
 |-|-|
 | response | `on_trip.action` must be `notify`; the person upgrades it |
 | arming | every submission lands `enabled: false` |
-| attribution | origin carries the token label; the dashboard shows it on the "created via MCP" badge |
+| attribution | the engine records the rule's origin as `mcp`; the token id and label are kept in `app.rule_submissions` (`DATABASE.md`), and the dashboard shows the label on the "created via MCP" badge |
 | duplicates | canonical-form match against existing rules on the same contract is refused |
-| volume | 50 stored submissions per token per hour, configurable; `check_only` calls do not count against it |
+| volume | 50 stored submissions per token per hour, counted from `app.rule_submissions`, configurable as `mcp.submissions_per_hour`; `check_only` calls do not count against it |
 | size | document caps are the engine's (depth 32, 256 nodes, 32 calls); source responses cap at 200 KB |
-| scope | no tool reads violations, edits, enables, deletes, registers contracts, or touches settings |
+| scope | no tool reads violations, edits, enables or disables rules or contracts, deletes, registers contracts, or touches settings |
 | network | the server never fetches from the internet for an agent |
 
 ## Data and dependencies
