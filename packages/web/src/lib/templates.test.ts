@@ -6,6 +6,7 @@ import {
   isSuggested,
   NUMBER_PREFIX,
   templates,
+  type Watch,
 } from "./templates";
 
 const vault = "0x83F20F44975D03b1b09e64809B757c47f942BEeA";
@@ -69,7 +70,27 @@ const abi = [
   {
     type: "event",
     name: "OwnershipTransferred",
-    inputs: [{ type: "address" }, { type: "address" }],
+    inputs: [
+      { name: "previousOwner", type: "address", indexed: true },
+      { name: "newOwner", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "Anonymous",
+    inputs: [{ type: "address" }],
+  },
+  {
+    type: "event",
+    name: "Batch",
+    inputs: [{ name: "ids", type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "settle",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "tuple", components: [{ type: "uint256" }] }],
+    outputs: [],
   },
 ];
 
@@ -95,48 +116,122 @@ describe("describeAbi", () => {
     ]);
   });
 
-  it("lists events with their signatures", () => {
+  it("lists events in declaration style, as rules name them", () => {
     expect(surface.events).toEqual([
       {
-        signature: "OwnershipTransferred(address,address)",
+        signature:
+          "OwnershipTransferred(address indexed previousOwner, address indexed newOwner)",
         name: "OwnershipTransferred",
       },
     ]);
   });
+
+  it("leaves out what a rule cannot reference", () => {
+    // Unnamed event parameters, arrays and tuples.
+    expect(surface.events.map((e) => e.name)).not.toContain("Anonymous");
+    expect(surface.events.map((e) => e.name)).not.toContain("Batch");
+    expect(surface.writes.map((w) => w.signature)).toEqual([
+      "transfer(address,uint256)",
+    ]);
+  });
 });
+
+/** A whole rule around what a template builds. */
+const document = (watch: Watch | null) =>
+  watch && {
+    version: 1,
+    name: "test",
+    contract: vault,
+    severity: "warning",
+    ...watch,
+    on_trip: { action: "notify" },
+  };
+
+const byId = (id: string) => templates.find((t) => t.id === id)!;
 
 describe("templates", () => {
   it.each(templates.map((t) => [t.id, t] as const))(
     "%s builds a valid rule from its defaults",
     (_, template) => {
-      const built = template.build(initialValues(template, surface), vault);
+      const built = document(template.build(initialValues(template, surface)));
       expect(built).not.toBeNull();
-      expect(rule.safeParse(built).success).toBe(true);
+      const parsed = rule.safeParse(built);
+      expect(parsed.error?.issues).toBeUndefined();
     },
   );
+
+  it("states the violation: a floor trips when the value falls below it", () => {
+    const watch = byId("floor").build({
+      value: "totalAssets()",
+      floor: "totalSupply()",
+    });
+    expect(watch).toEqual({
+      when: "every_block",
+      trip_when: {
+        node: "compare",
+        op: "lt",
+        left: { node: "view_call", function: "totalAssets()", args: [] },
+        right: { node: "view_call", function: "totalSupply()", args: [] },
+      },
+    });
+  });
+
+  it.each([
+    ["ge", "lt"],
+    ["gt", "le"],
+    ["le", "gt"],
+    ["lt", "ge"],
+    ["eq", "ne"],
+    ["ne", "eq"],
+  ])("trips a custom comparison stated as %s when %s", (op, trips) => {
+    const watch = byId("compare").build({
+      left: "totalAssets()",
+      op,
+      right: `${NUMBER_PREFIX}5`,
+    });
+    expect(watch?.trip_when).toMatchObject({ node: "compare", op: trips });
+  });
+
+  it("limits growth to a share of the value", () => {
+    const watch = byId("growth").build({
+      value: "totalSupply()",
+      percent: "5",
+      window: "86400",
+    });
+    expect(watch?.trip_when).toMatchObject({
+      op: "gt",
+      left: { metric: "windowed_delta", window: { seconds: 86_400 } },
+      right: { op: "mul", right: { node: "literal", value: "0.05" } },
+    });
+  });
+
+  it("fires an event rule on the event alone", () => {
+    const signature = surface.events[0]!.signature;
+    expect(byId("event").build({ event: signature })).toEqual({
+      when: { event: signature },
+      trip_when: true,
+    });
+  });
 
   it("picks sensible defaults over constants like decimals", () => {
     const pick = (id: string, key: string) => {
       const template = templates.find((t) => t.id === id)!;
       return initialValues(template, surface)[key];
     };
-    expect(pick("floor", "value")).toBe("totalAssets()#0");
-    expect(pick("floor", "floor")).toBe("totalSupply()#0");
+    expect(pick("floor", "value")).toBe("totalAssets()");
+    expect(pick("floor", "floor")).toBe("totalSupply()");
     expect(pick("fresh", "timestamp")).toBe("latestRoundData()#3");
-    expect(pick("compare", "left")).not.toBe("decimals()#0");
+    expect(pick("compare", "left")).not.toBe("decimals()");
   });
 
   it("returns nothing until every blank is filled", () => {
-    const floor = templates.find((t) => t.id === "floor")!;
     expect(
-      floor.build({ value: "totalAssets()#0", floor: NUMBER_PREFIX }, vault),
+      byId("floor").build({ value: "totalAssets()", floor: NUMBER_PREFIX }),
     ).toBeNull();
   });
 });
 
 describe("suggestions", () => {
-  const byId = (id: string) => templates.find((t) => t.id === id)!;
-
   it("suggests templates whose signals the contract has", () => {
     const suggested = templates
       .filter((t) => isSuggested(t, surface))
@@ -197,6 +292,17 @@ describe("a Uniswap V2 pair", () => {
       templates.find((t) => t.id === id)!,
       pair,
     )[key];
+
+  it("names the output it reads, even the first", () => {
+    const watch = templates
+      .find((t) => t.id === "floor")!
+      .build({ value: "getReserves()#0", floor: "totalSupply()" });
+    expect(watch?.trip_when).toMatchObject({
+      left: { function: "getReserves()", returns: 0 },
+      right: { function: "totalSupply()" },
+    });
+    expect(watch?.trip_when).not.toHaveProperty("right.returns");
+  });
 
   it("matches output names, not the function they come from", () => {
     expect(pick("floor", "value")).toBe("getReserves()#0");

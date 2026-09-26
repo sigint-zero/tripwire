@@ -1,4 +1,3 @@
-import { chains } from "@tripwire/shared";
 import { shortAddress } from "../../lib/format";
 import { ContractExplorer } from "./ContractExplorer";
 import type { useContract } from "./useContract";
@@ -9,22 +8,21 @@ const label =
   "mb-2 block text-[10px] font-bold tracking-[0.2em] whitespace-nowrap text-gray-500 uppercase";
 
 export function ContractStep({
-  chainId,
+  chain,
   address,
   pasted,
   pasteOpen,
   state,
-  onChainId,
   onAddress,
   onPasted,
   onPasteOpen,
 }: {
-  chainId: number;
+  /** The chain the engine watches; an installation watches one. */
+  chain: string | null;
   address: string;
   pasted: string;
   pasteOpen: boolean;
   state: ReturnType<typeof useContract>;
-  onChainId: (id: number) => void;
   onAddress: (address: string) => void;
   onPasted: (text: string) => void;
   onPasteOpen: (open: boolean) => void;
@@ -32,21 +30,7 @@ export function ContractStep({
   const { contract } = state;
   return (
     <div className="space-y-6">
-      <div className="grid items-end gap-4 sm:grid-cols-[160px_1fr_auto]">
-        <label>
-          <span className={label}>Chain</span>
-          <select
-            className={input}
-            value={chainId}
-            onChange={(e) => onChainId(Number(e.target.value))}
-          >
-            {chains.map((chain) => (
-              <option key={chain.id} value={chain.id}>
-                {chain.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="grid items-end gap-4 sm:grid-cols-[1fr_auto]">
         <label>
           <span className={label}>Contract address</span>
           <input
@@ -101,7 +85,7 @@ export function ContractStep({
         </div>
       )}
 
-      <LookupStatus state={state} address={address} />
+      <LookupStatus state={state} address={address} chain={chain} />
 
       {contract && <ContractExplorer contract={contract} />}
     </div>
@@ -111,15 +95,18 @@ export function ContractStep({
 function LookupStatus({
   state,
   address,
+  chain,
 }: {
   state: ReturnType<typeof useContract>;
   address: string;
+  chain: string | null;
 }) {
+  const on = chain ? ` on ${chain}` : "";
   const { contract, looking, lookupError, valid } = state;
   if (!address) {
     return (
       <p className="text-sm text-gray-500">
-        Paste the address of a verified contract and its ABI is fetched
+        Paste the address of a verified contract{on} and its ABI is fetched
         automatically.
       </p>
     );
@@ -153,6 +140,7 @@ function LookupStatus({
       </span>
       <span className="text-gray-400">
         {contract.source === "verified" ? "verified source" : "pasted ABI"}
+        {on}
       </span>
       {contract.implementation && (
         <span className="text-gray-500">

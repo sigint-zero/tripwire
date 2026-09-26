@@ -1,16 +1,19 @@
 import type {
   ContractAbi,
-  Invariant,
-  InvariantDraft,
+  EngineInfo,
+  Issue,
   Rule,
-  RulePreview,
+  RuleCheck,
+  SavedRule,
+  StoredRuleCheck,
 } from "@tripwire/shared";
 
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly issues: { path: string; message: string }[] = [],
+    readonly code: string | null = null,
+    readonly issues: Issue[] = [],
   ) {
     super(message);
   }
@@ -32,11 +35,12 @@ async function request<T>(
         }),
   });
   const body = (await res.json().catch(() => null)) as
-    (T & { message?: string; issues?: ApiError["issues"] }) | null;
+    (T & { message?: string; code?: string; issues?: Issue[] }) | null;
   if (!res.ok) {
     throw new ApiError(
       body?.message ?? `Request failed (${res.status})`,
       res.status,
+      body?.code,
       body?.issues,
     );
   }
@@ -44,12 +48,12 @@ async function request<T>(
 }
 
 export const api = {
-  abi: (chainId: number, address: string, signal?: AbortSignal) =>
-    request<ContractAbi>(`/contracts/${chainId}/${address}/abi`, { signal }),
-  preview: (rule: Rule, signal?: AbortSignal) =>
-    request<RulePreview>("/invariants/preview", { json: rule, signal }),
-  invariants: (signal?: AbortSignal) =>
-    request<Invariant[]>("/invariants", { signal }),
-  createInvariant: (draft: InvariantDraft) =>
-    request<Invariant>("/invariants", { json: draft }),
+  engine: (signal?: AbortSignal) => request<EngineInfo>("/engine", { signal }),
+  abi: (address: string, signal?: AbortSignal) =>
+    request<ContractAbi>(`/contracts/${address}/abi`, { signal }),
+  rules: (signal?: AbortSignal) => request<SavedRule[]>("/rules", { signal }),
+  checkRule: (rule: Rule, signal?: AbortSignal) =>
+    request<RuleCheck>("/rules", { json: { rule, checkOnly: true }, signal }),
+  createRule: (rule: Rule) =>
+    request<StoredRuleCheck>("/rules", { json: { rule } }),
 };

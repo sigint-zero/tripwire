@@ -2,19 +2,30 @@ import {
   chainName,
   comparedValues,
   describeValue,
+  formatDuration,
+  issuesOf,
   rule as ruleSchema,
-  type ReadNamer,
-  type Response,
+  type CallNamer,
+  type OnTrip,
+  type Rule,
+  type RuleCheck,
+  type Severity,
 } from "@tripwire/shared";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ContractStep } from "../components/wizard/ContractStep";
 import {
+  actions,
   cooldowns,
-  modes,
   ResponseStep,
+  severities,
 } from "../components/wizard/ResponseStep";
 import { RuleSentence, sentenceText } from "../components/wizard/RuleSentence";
 import { Stepper } from "../components/wizard/Stepper";
@@ -31,24 +42,23 @@ import {
   type Values,
 } from "../lib/templates";
 
-// Development only: a contract to start from, so it need not be pasted
-// on every reload. Production builds ignore it.
-const [devChain, devAddress] = import.meta.env.DEV
-  ? (import.meta.env.VITE_DEV_CONTRACT?.split(":") ?? [])
-  : [];
+// Development only: a contract address to start from, so it need not be
+// pasted on every reload. Production builds ignore it.
+const devAddress = import.meta.env.DEV
+  ? (import.meta.env.VITE_DEV_CONTRACT ?? "")
+  : "";
 
 const steps = [
   { title: "Contract", hint: "Which contract should Tripwire watch?" },
-  { title: "Invariant", hint: "What should always be true?" },
-  { title: "Response", hint: "What should happen when it breaks?" },
+  { title: "Rule", hint: "What should always be true?" },
+  { title: "Response", hint: "What should happen when it trips?" },
   { title: "Review", hint: "Name it and switch it on." },
 ];
 
-export function NewInvariantPage() {
+export function NewRulePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [chainId, setChainId] = useState(Number(devChain) || 1);
-  const [address, setAddress] = useState(devAddress ?? "");
+  const [address, setAddress] = useState(devAddress);
   const [pasted, setPasted] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -58,13 +68,21 @@ export function NewInvariantPage() {
     Record<string, Values>
   >({});
   const [name, setName] = useState<string | null>(null);
-  const [response, setResponse] = useState<Response>({
-    mode: "alert",
-    scope: { type: "contract" },
-    cooldownSecs: 300,
+  const [description, setDescription] = useState("");
+  const [severity, setSeverity] = useState<Severity | null>(null);
+  const [onTrip, setOnTrip] = useState<OnTrip>({
+    action: "notify",
+    cooldown_seconds: 300,
   });
 
-  const contractState = useContract(chainId, address, pasted);
+  const { data: engine } = useQuery({
+    queryKey: ["engine"],
+    queryFn: ({ signal }) => api.engine(signal),
+    staleTime: Infinity,
+  });
+  const chain = engine ? chainName(engine.chainId) : null;
+
+  const contractState = useContract(address, pasted);
   const contract = contractState.contract;
   const surface = contract?.surface;
   const ranked = surface ? rankTemplates(surface) : [];
@@ -76,57 +94,77 @@ export function NewInvariantPage() {
   const selectTemplate = (id: string) => {
     setTemplateId(id);
     setName(null);
+    setSeverity(null);
   };
-
-  const built =
-    template && contract ? template.build(values, contract.address) : null;
-  const checked = built ? ruleSchema.safeParse(built) : null;
-  const rule = checked?.success ? checked.data : null;
-  const ruleProblem =
-    checked && !checked.success ? checked.error.issues[0]?.message : null;
-
-  // Both sides of the rule, named the way the sentence names them.
-  const readName: ReadNamer = (method, index) =>
-    surface?.reads.find((r) => r.method === method && r.returnIndex === index)
-      ?.label;
-  const ruleLabels = !rule
-    ? []
-    : rule.kind === "log"
-      ? [rule.event.replace(/\(.*$/, "")]
-      : rule.condition.type === "deviation_band"
-        ? [
-            describeValue(rule.condition.value, readName),
-            `within ${rule.condition.band_percent}% of ${describeValue(rule.condition.center, readName)}`,
-          ]
-        : comparedValues(rule.condition).map((v) => describeValue(v, readName));
 
   const labelOf = (id: string) =>
     surface?.reads.find((r) => r.id === id)?.label ?? id;
-  const invariantName =
+  const ruleName =
     name ?? (template ? template.defaultName(values, labelOf) : "");
+  const ruleSeverity = severity ?? template?.severity ?? "warning";
+
+  // The whole document, as the engine will receive it.
+  const watch = template ? template.build(values) : null;
+  const draft: Rule | null =
+    watch && contract
+      ? {
+          version: 1,
+          name: ruleName,
+          ...(description.trim() ? { description: description.trim() } : {}),
+          contract: contract.address,
+          severity: ruleSeverity,
+          ...watch,
+          on_trip: onTrip,
+        }
+      : null;
+  const checked = draft ? ruleSchema.safeParse(draft) : null;
+  const rule = checked?.success ? checked.data : null;
+  const issues = checked && !checked.success ? issuesOf(checked.error) : [];
+  const issueAt = (...prefixes: string[]) =>
+    issues.find((i) => prefixes.some((p) => i.path.startsWith(p)));
+  const watchProblem = issueAt("/when", "/trip_when")?.message;
+
+  // Both sides of the condition, named the way the sentence names them.
+  const readName: CallNamer = (call) =>
+    call.address
+      ? undefined
+      : surface?.reads.find(
+          (r) => r.method === call.function && r.returns === call.returns,
+        )?.label;
+  const trip = draft?.trip_when;
+  const ruleLabels =
+    !trip || trip === true
+      ? [values.event?.replace(/\(.*$/, "") ?? ""]
+      : trip.node === "deviation_band"
+        ? [
+            describeValue(trip.value, readName),
+            `within ${trip.tolerance_percent}% of ${describeValue(trip.center, readName)}`,
+          ]
+        : comparedValues(trip).map((v) => describeValue(v, readName));
 
   const create = useMutation({
-    mutationFn: () =>
-      api.createInvariant({
-        name: invariantName,
-        chainId,
-        contract: address,
-        rule: rule!,
-        response,
-      }),
+    mutationFn: () => api.createRule(rule!),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ["invariants"] });
-      await navigate({ to: "/invariants", search: { created: created.id } });
+      await queryClient.invalidateQueries({ queryKey: ["rules"] });
+      await navigate({ to: "/rules", search: { created: created.id } });
     },
   });
 
   // Sections open one after another as the user continues, and stay open
   // so any of them can be revisited by scrolling.
   const [revealed, setRevealed] = useState(0);
-  // The invariant section opens as soon as the contract loads.
+  // The rule section opens as soon as the contract loads.
   const open = Math.max(revealed, contract ? 1 : 0);
   const [active, setActive] = useState(0);
   const sections = useRef<(HTMLElement | null)[]>([]);
+
+  // The engine's own reading of the rule, once there is something to review.
+  const check = useQuery({
+    queryKey: ["rule-check", rule],
+    queryFn: ({ signal }) => api.checkRule(rule!, signal),
+    enabled: !!rule && open >= 3,
+    placeholderData: keepPreviousData,
+  });
 
   // Highlight the section in the upper part of the viewport.
   useEffect(() => {
@@ -156,16 +194,16 @@ export function NewInvariantPage() {
     setTemplateId(null);
     setValuesByTemplate({});
     setName(null);
+    setSeverity(null);
     setRevealed(0);
   };
 
   const ready = [
     !!contract,
-    !!rule,
-    response.mode === "alert" ||
-      response.scope.type === "contract" ||
-      !!response.scope.selector,
-    !!rule && invariantName.trim() !== "",
+    !!watch && !watchProblem,
+    !!watch && !issueAt("/on_trip"),
+    // An identical rule would be refused, so there is nothing to create.
+    !!rule && !check.data?.duplicateOf,
   ];
 
   const continueFrom = (index: number) => {
@@ -182,7 +220,7 @@ export function NewInvariantPage() {
         }}
         data-section={index}
         aria-labelledby={`section-${index}`}
-        className="animate-reveal scroll-mt-28 py-12 motion-reduce:animate-none first:pt-4"
+        className="animate-reveal scroll-mt-28 py-12 first:pt-4 motion-reduce:animate-none"
       >
         <h2
           id={`section-${index}`}
@@ -204,11 +242,13 @@ export function NewInvariantPage() {
       </section>
     );
 
+  const contractName = contract?.name ?? shortAddress(address);
+
   return (
     <div className="pb-[40vh]">
       <header className="mb-6">
         <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
-          Create an invariant
+          Create a rule
         </h1>
       </header>
 
@@ -226,15 +266,11 @@ export function NewInvariantPage() {
         {section(
           0,
           <ContractStep
-            chainId={chainId}
+            chain={chain}
             address={address}
             pasted={pasted}
             pasteOpen={pasteOpen}
             state={contractState}
-            onChainId={(id) => {
-              setChainId(id);
-              resetFromContract();
-            }}
             onAddress={(a) => {
               setAddress(a);
               resetFromContract();
@@ -263,8 +299,8 @@ export function NewInvariantPage() {
                 onSelect={selectTemplate}
               />
               {template && (
-                <div className="bg-[radial-gradient(ellipse_at_top_left,--theme(--color-emerald-500/14%),transparent_70%)] space-y-5 bg-emerald-500/4 px-6 py-8 md:px-10 md:py-10">
-                  <Eyebrow>Your invariant</Eyebrow>
+                <div className="space-y-5 bg-emerald-500/4 bg-[radial-gradient(ellipse_at_top_left,--theme(--color-emerald-500/14%),transparent_70%)] px-6 py-8 md:px-10 md:py-10">
+                  <Eyebrow>Your rule</Eyebrow>
                   <RuleSentence
                     template={template}
                     values={values}
@@ -276,9 +312,9 @@ export function NewInvariantPage() {
                       }))
                     }
                   />
-                  {ruleProblem && (
+                  {watchProblem && (
                     <p className="text-xs text-amber-400">
-                      Not valid yet: {ruleProblem}
+                      Not valid yet: {watchProblem}
                     </p>
                   )}
                 </div>
@@ -291,16 +327,19 @@ export function NewInvariantPage() {
             2,
             <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
               <ResponseStep
-                value={response}
+                severity={ruleSeverity}
+                onSeverity={setSeverity}
+                value={onTrip}
+                onChange={setOnTrip}
                 writes={surface.writes}
-                onChange={setResponse}
+                responseMode={engine?.responseMode}
               />
-              {rule && template && (
+              {draft && template && ready[1] && engine && (
                 <TripSimulation
-                  rule={rule}
+                  rule={draft}
                   sentence={sentenceText(template, values, surface)}
-                  response={response}
-                  contractName={contract?.name ?? shortAddress(address)}
+                  responseMode={engine.responseMode}
+                  contractName={contractName}
                   valueLabel={ruleLabels[0] ?? ""}
                   limitLabel={ruleLabels[1] ?? ""}
                 />
@@ -310,26 +349,29 @@ export function NewInvariantPage() {
 
         {section(
           3,
-          template && surface && rule ? (
+          template && surface && draft ? (
             <>
               <Review
-                name={invariantName}
+                name={ruleName}
                 onName={setName}
+                nameProblem={issueAt("/name")?.message}
+                description={description}
+                onDescription={setDescription}
                 summary={[
                   [
                     "Watches",
-                    `${contract?.name ?? shortAddress(address)} on ${chainName(chainId)}`,
+                    `${contractName} (${shortAddress(address)})${chain ? ` on ${chain}` : ""}`,
                   ],
-                  ["Invariant", sentenceText(template, values, surface)],
-                  ["Response", describeResponse(response)],
+                  ["Rule", sentenceText(template, values, surface)],
+                  [
+                    "Severity",
+                    severities.find((s) => s.severity === ruleSeverity)
+                      ?.title ?? ruleSeverity,
+                  ],
+                  ["Response", describeOnTrip(onTrip)],
                 ]}
-                json={{
-                  name: invariantName,
-                  chainId,
-                  contract: address,
-                  rule,
-                  response,
-                }}
+                check={rule ? check.data : undefined}
+                json={draft}
                 error={create.error}
               />
               <div className="mt-10 flex justify-end">
@@ -337,13 +379,13 @@ export function NewInvariantPage() {
                   disabled={!ready[3] || create.isPending}
                   onClick={() => create.mutate()}
                 >
-                  {create.isPending ? "Creating…" : "Create invariant"}
+                  {create.isPending ? "Creating…" : "Create rule"}
                 </Button>
               </div>
             </>
           ) : (
             <p className="text-sm text-gray-500">
-              Complete the invariant above to review it.
+              Complete the rule above to review it.
             </p>
           ),
         )}
@@ -352,45 +394,71 @@ export function NewInvariantPage() {
   );
 }
 
-function describeResponse(response: Response): string {
-  const mode =
-    modes.find((m) => m.mode === response.mode)?.title ?? response.mode;
-  const target =
-    response.mode === "alert"
-      ? ""
-      : response.scope.type === "contract"
-        ? ", pausing the whole contract"
-        : `, pausing ${response.scope.signature}`;
-  const quiet = cooldowns.find(
-    (c) => c.seconds === response.cooldownSecs,
-  )?.label;
-  return `${mode}${target}. Quiet period: ${quiet ?? `${response.cooldownSecs}s`}.`;
+function describeOnTrip(onTrip: OnTrip): string {
+  const action =
+    onTrip.action === "trip_function"
+      ? `Pause ${onTrip.function}`
+      : (actions.find((a) => a.action === onTrip.action)?.title ??
+        onTrip.action);
+  const seconds = onTrip.cooldown_seconds ?? 0;
+  const quiet =
+    cooldowns.find((c) => c.seconds === seconds)?.label ??
+    formatDuration(seconds);
+  return `${action}. Quiet period: ${quiet}.`;
 }
+
+const label =
+  "mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+const field =
+  "w-full bg-white/4 px-3 py-2.5 text-sm text-white transition-colors hover:bg-white/6 focus:bg-white/6";
 
 function Review({
   name,
   onName,
+  nameProblem,
+  description,
+  onDescription,
   summary,
+  check,
   json,
   error,
 }: {
   name: string;
   onName: (name: string) => void;
+  nameProblem: string | undefined;
+  description: string;
+  onDescription: (description: string) => void;
   summary: [string, string][];
+  check: RuleCheck | undefined;
   json: unknown;
   error: Error | null;
 }) {
+  const evaluation = check?.evaluation;
   return (
     <div className="space-y-6">
       <label className="block">
-        <span className="mb-2 block text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
-          Name
-        </span>
+        <span className={label}>Name</span>
         <input
-          className="w-full bg-white/4 px-3 py-2.5 text-sm text-white transition-colors hover:bg-white/6 focus:bg-white/6"
+          className={field}
           value={name}
-          maxLength={80}
+          maxLength={120}
           onChange={(e) => onName(e.target.value)}
+        />
+        {nameProblem && (
+          <span className="mt-2 block text-xs text-amber-400">
+            Name {nameProblem}
+          </span>
+        )}
+      </label>
+      <label className="block">
+        <span className={label}>
+          Description <span className="text-gray-600">· optional</span>
+        </span>
+        <textarea
+          className={`${field} h-20 resize-y`}
+          value={description}
+          placeholder="Why this rule exists, and what a trip would mean."
+          onChange={(e) => onDescription(e.target.value)}
         />
       </label>
       <dl className="space-y-3">
@@ -402,7 +470,41 @@ function Review({
             <dd className="text-sm text-gray-300">{detail}</dd>
           </div>
         ))}
+        <div className="grid gap-1 sm:grid-cols-[120px_1fr]">
+          <dt className="text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase">
+            Engine reads
+          </dt>
+          <dd className="font-mono text-xs leading-relaxed text-emerald-300">
+            {check?.sentence ?? "Checking…"}
+          </dd>
+        </div>
       </dl>
+      {check && (
+        <ul className="space-y-1 text-xs">
+          {evaluation?.wouldTripNow && (
+            <li className="text-amber-400">
+              It would trip right now, at block{" "}
+              {evaluation.block.toLocaleString()}.
+            </li>
+          )}
+          {check.warmupSeconds > 0 && (
+            <li className="text-gray-400">
+              It warms up for {formatDuration(check.warmupSeconds)} before it
+              can trip, while its window fills.
+            </li>
+          )}
+          {check.duplicateOf && (
+            <li className="text-red-400">
+              An identical rule already watches this contract.
+            </li>
+          )}
+          {check.simulated && (
+            <li className="text-gray-600">
+              Checked against simulated values until the engine is connected.
+            </li>
+          )}
+        </ul>
+      )}
       <details className="group">
         <summary className="cursor-pointer text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase hover:text-emerald-400">
           View as JSON

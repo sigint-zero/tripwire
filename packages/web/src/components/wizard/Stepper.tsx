@@ -1,4 +1,4 @@
-/** Section markers for the invariant page: where you are, what is done. */
+/** Section markers for the rule wizard: where you are, what is done. */
 export function Stepper({
   steps,
   active,

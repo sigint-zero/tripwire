@@ -1,19 +1,28 @@
 import {
-  describeValue,
-  type Condition,
-  type Invariant,
-  type InvariantDraft,
+  describeRule,
+  type BoolNode,
+  type EngineInfo,
   type Rule,
-  type RulePreview,
-  type ValueExpr,
+  type RuleCheck,
+  type SavedRule,
+  type ValueNode,
 } from "@tripwire/shared";
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
-// Development stand-in for the engine: keeps invariants in memory and
-// previews rules against simulated values that drift slowly over time, so
-// the dashboard can be built and demonstrated before the engine exists.
+// Development stand-in for the engine: keeps rules in memory and checks them
+// against simulated values that drift slowly over time, so the dashboard can
+// be built and demonstrated before the engine exists.
+
+/** The engine's setup as the stand-in pretends it: Ethereum, trips held for approval. */
+export const STAND_IN: EngineInfo = {
+  chainId: 1,
+  responseMode: "prepare",
+  simulated: true,
+};
 
 const WAD = 10n ** 18n;
+/** Values are exact decimals, held as integers scaled by 10^18. */
+const SCALE = 10n ** 18n;
 
 /** A stable number in [0, 1) derived from a string. */
 function unit(seed: string): number {
@@ -31,170 +40,241 @@ function nowSeconds(clock: number): bigint {
   return BigInt(Math.floor(clock / 1000));
 }
 
-function read(call: Extract<ValueExpr, { type: "view_call" }>, clock: number) {
-  const seed = `${call.contract.toLowerCase()}:${call.method}:${call.return_index ?? 0}`;
+/** A simulated contract read, as the raw integer the chain would return. */
+function simulatedRead(
+  contract: string,
+  fn: string,
+  returns: number,
+  clock: number,
+): bigint {
+  const seed = `${contract.toLowerCase()}:${fn}:${returns}`;
   // Timestamps look like a feed that updated within the last half hour.
-  if (/updated|timestamp|time|latestRound/i.test(call.method)) {
+  if (/updated|timestamp|time|latestRound/i.test(fn)) {
     return nowSeconds(clock) - BigInt(Math.floor(unit(seed) * 1_800));
   }
-  if (/^decimals\(/.test(call.method)) return 18n;
-  if (/chainid/i.test(call.method)) return 1n;
+  if (/^decimals\(/.test(fn)) return 18n;
+  if (/chainid/i.test(fn)) return 1n;
   // Everything else: a token-sized amount. Reads from one contract sit
   // within a few percent of each other and wobble by up to ±0.5%.
-  const size = unit(call.contract.toLowerCase());
+  const size = unit(contract.toLowerCase());
   const base = BigInt(Math.floor(1_000 + size * 9_000_000)) * WAD;
   const offset = (unit(seed) - 0.5) * 0.06;
   const wobble = Math.sin(clock / 6_000 + unit(seed) * 6.28) * 0.005;
   return times(base, 1 + offset + wobble);
 }
 
-export function evaluate(value: ValueExpr, clock: number): bigint {
-  switch (value.type) {
-    case "view_call":
-      return read(value, clock);
-    case "literal":
-      return BigInt(value.value);
-    case "now":
-      return nowSeconds(clock);
-    case "sum":
-      return value.operands.reduce(
-        (total, v) => total + evaluate(v, clock),
-        0n,
-      );
-    case "scale":
-      return (
-        (evaluate(value.value, clock) * BigInt(value.numerator)) /
-        BigInt(value.denominator)
-      );
-    case "arithmetic": {
-      const left = evaluate(value.left, clock);
-      const right = evaluate(value.right, clock);
-      if (value.op === "add") return left + right;
-      if (value.op === "sub") return left > right ? left - right : 0n;
-      if (value.op === "mul") return left * right;
-      return right === 0n ? 0n : left / right;
+function fromDecimal(text: string): bigint {
+  const negative = text.startsWith("-");
+  const [whole = "0", fraction = ""] = text.replace(/^-/, "").split(".");
+  const value =
+    BigInt(whole) * SCALE + BigInt(fraction.padEnd(18, "0").slice(0, 18));
+  return negative ? -value : value;
+}
+
+interface Evaluation {
+  contract: string;
+  clock: number;
+  reads: Map<string, { call: string; value: string }>;
+  warmupSeconds: number;
+}
+
+/** A value, or null while it cannot be known (a metric still warming up). */
+function evaluate(node: ValueNode, ev: Evaluation): bigint | null {
+  const both = (l: ValueNode, r: ValueNode) => {
+    const left = evaluate(l, ev);
+    const right = evaluate(r, ev);
+    return left === null || right === null ? null : ([left, right] as const);
+  };
+  switch (node.node) {
+    case "view_call": {
+      const contract = node.address ?? ev.contract;
+      const returns = node.returns ?? 0;
+      const raw = simulatedRead(contract, node.function, returns, ev.clock);
+      const call =
+        node.returns === undefined
+          ? node.function
+          : `${node.function}[${node.returns}]`;
+      const label = node.address ? `${call} of ${node.address}` : call;
+      ev.reads.set(label, { call: label, value: raw.toString() });
+      return raw * SCALE;
     }
-    case "historical": {
-      const source = evaluate(value.source, clock);
-      switch (value.metric.type) {
-        case "ath":
-          return times(source, 1.02);
-        case "prev_block":
-          return times(source, 0.9995);
-        case "moving_avg":
-        case "twap":
-          return times(source, 1 - Math.sin(clock / 6_000) * 0.004);
-        case "windowed_delta":
-          return times(source, 0.012);
-        case "windowed_drop":
-          return times(source, 0.006);
-      }
+    case "simulate":
+      return (
+        simulatedRead(
+          node.call.address ?? ev.contract,
+          node.call.function,
+          node.returns ?? 0,
+          ev.clock,
+        ) * SCALE
+      );
+    case "literal":
+      return fromDecimal(node.value);
+    case "now":
+      return nowSeconds(ev.clock) * SCALE;
+    case "event_arg":
+      return null;
+    case "metric":
+      // A new rule has no history yet, so every metric is warming.
+      evaluate(node.of, ev);
+      ev.warmupSeconds = Math.max(ev.warmupSeconds, node.window?.seconds ?? 0);
+      return null;
+    case "scale": {
+      const value = evaluate(node.expr, ev);
+      if (value === null) return null;
+      const factor = 10n ** BigInt(Math.abs(node.decimals));
+      return node.decimals >= 0 ? value * factor : value / factor;
+    }
+    case "sum": {
+      const terms = node.terms.map((t) => evaluate(t, ev));
+      return terms.includes(null)
+        ? null
+        : (terms as bigint[]).reduce((a, b) => a + b, 0n);
+    }
+    case "arithmetic": {
+      const pair = both(node.left, node.right);
+      if (!pair) return null;
+      const [l, r] = pair;
+      if (node.op === "add") return l + r;
+      if (node.op === "sub") return l - r;
+      if (node.op === "mul") return (l * r) / SCALE;
+      return r === 0n ? null : (l * SCALE) / r;
     }
   }
 }
 
-function holds(condition: Condition, clock: number): boolean {
-  switch (condition.type) {
+/**
+ * Whether the condition holds, or null when part of it cannot be known.
+ * Unknown never trips: any condition over a warming metric is false.
+ */
+function evaluateBool(node: BoolNode, ev: Evaluation): boolean | null {
+  if (node === true) return true;
+  switch (node.node) {
     case "compare": {
-      const l = evaluate(condition.left, clock);
-      const r = evaluate(condition.right, clock);
+      const l = evaluate(node.left, ev);
+      const r = evaluate(node.right, ev);
+      if (l === null || r === null) return null;
       const ops = {
         eq: l === r,
-        neq: l !== r,
-        gt: l > r,
-        gte: l >= r,
+        ne: l !== r,
         lt: l < r,
-        lte: l <= r,
+        le: l <= r,
+        gt: l > r,
+        ge: l >= r,
       };
-      return ops[condition.op];
+      return ops[node.op];
     }
     case "deviation_band": {
-      const v = evaluate(condition.value, clock);
-      const c = evaluate(condition.center, clock);
-      if (condition.downward_only && v >= c) return true;
-      if (condition.upward_only && v <= c) return true;
-      const diff = v > c ? v - c : c - v;
-      return diff * 100n <= c * BigInt(condition.band_percent);
+      const v = evaluate(node.value, ev);
+      const c = evaluate(node.center, ev);
+      if (v === null || c === null) return null;
+      const limit =
+        ((c < 0n ? -c : c) * fromDecimal(node.tolerance_percent)) /
+        (100n * SCALE);
+      if (node.sides === "above") return v - c > limit;
+      if (node.sides === "below") return c - v > limit;
+      return (v > c ? v - c : c - v) > limit;
     }
+    case "simulate":
+      return false;
     case "and":
-      return condition.conditions.every((c) => holds(c, clock));
-    case "or":
-      return condition.conditions.some((c) => holds(c, clock));
-    case "not":
-      return !holds(condition.condition, clock);
+    case "or": {
+      const terms = node.terms.map((t) => evaluateBool(t, ev));
+      if (terms.includes(null)) return null;
+      return node.node === "and" ? terms.every(Boolean) : terms.some(Boolean);
+    }
+    case "not": {
+      const inner = evaluateBool(node.expr, ev);
+      return inner === null ? null : !inner;
+    }
   }
 }
 
-/** Percentage of `of` that `part` represents, to one decimal place. */
-function percent(part: bigint, of: bigint): string {
-  if (of === 0n) return "0";
-  return (Number((part * 10_000n) / of) / 100).toFixed(1);
+/** The block the stand-in pretends the chain is at: one every 12 seconds. */
+function blockAt(clock: number): number {
+  return 21_000_000 + Math.floor((clock - Date.UTC(2026, 0, 1)) / 12_000);
 }
 
-export function preview(rule: Rule, clock = Date.now()): RulePreview {
-  if (rule.kind === "log") {
-    return {
-      holds: rule.condition === "must_not_appear",
-      terms: [],
-      detail:
-        rule.condition === "must_not_appear"
-          ? "Not emitted in the last 1,000 blocks"
-          : "Waiting for the event",
-      simulated: true,
-    };
+/** A document in a form where equal rules compare equal: sorted keys, lowercase addresses. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value)) {
+    return value.toLowerCase();
   }
-  const condition = rule.condition;
-  const ok = holds(condition, clock);
-  if (condition.type === "compare") {
-    const l = evaluate(condition.left, clock);
-    const r = evaluate(condition.right, clock);
-    const gap = l > r ? l - r : r - l;
-    return {
-      holds: ok,
-      terms: [
-        { label: describeValue(condition.left), value: l.toString() },
-        { label: describeValue(condition.right), value: r.toString() },
-      ],
-      detail: ok
-        ? `${percent(gap, r > 0n ? r : l)}% margin`
-        : `${percent(gap, r > 0n ? r : l)}% past the limit`,
-      simulated: true,
-    };
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [
+          key,
+          canonical((value as Record<string, unknown>)[key]),
+        ]),
+    );
   }
-  if (condition.type === "deviation_band") {
-    const v = evaluate(condition.value, clock);
-    const c = evaluate(condition.center, clock);
-    const deviation = percent(v > c ? v - c : c - v, c);
-    return {
-      holds: ok,
-      terms: [
-        { label: describeValue(condition.value), value: v.toString() },
-        { label: describeValue(condition.center), value: c.toString() },
-      ],
-      detail: `${deviation}% from center, limit ${condition.band_percent}%`,
-      simulated: true,
-    };
-  }
-  return { holds: ok, terms: [], detail: "", simulated: true };
+  return value;
+}
+
+/** What makes two rules the same watch; name, description and severity do not. */
+function watchKey(rule: Rule): string {
+  const { contract, when, trip_when, on_trip } = rule;
+  return JSON.stringify(canonical({ contract, when, trip_when, on_trip }));
 }
 
 export class MockEngine {
-  #invariants = new Map<string, Invariant>();
+  readonly info = STAND_IN;
+  #rules = new Map<string, SavedRule>();
 
-  list(): Invariant[] {
-    return [...this.#invariants.values()].sort((a, b) =>
+  list(): SavedRule[] {
+    return [...this.#rules.values()].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
     );
   }
 
-  create(draft: InvariantDraft): Invariant {
-    const invariant: Invariant = {
-      ...draft,
-      id: randomUUID(),
+  /** Evaluates the rule once at the current block, as a check before storing. */
+  check(rule: Rule, clock = Date.now()): RuleCheck {
+    const ev: Evaluation = {
+      contract: rule.contract,
+      clock,
+      reads: new Map(),
+      warmupSeconds: 0,
+    };
+    const holds = evaluateBool(rule.trip_when, ev);
+    const key = watchKey(rule);
+    const duplicate = this.list().find((saved) => watchKey(saved.rule) === key);
+    return {
+      valid: true,
+      issues: [],
+      sentence: describeRule(rule),
+      evaluation: {
+        block: blockAt(clock),
+        // An event rule trips on a matching log; none is at the head.
+        wouldTripNow: rule.when === "every_block" && holds === true,
+        reads: [...ev.reads.values()],
+      },
+      warmupSeconds: ev.warmupSeconds,
+      duplicateOf: duplicate?.id ?? null,
+      simulated: true,
+    };
+  }
+
+  /** Names are unique per contract. */
+  nameTaken(rule: Rule): boolean {
+    return this.list().some(
+      (saved) =>
+        saved.rule.contract.toLowerCase() === rule.contract.toLowerCase() &&
+        saved.rule.name === rule.name,
+    );
+  }
+
+  create(rule: Rule): SavedRule {
+    const saved: SavedRule = {
+      id: `r_${randomBytes(3).toString("hex")}`,
+      rule,
+      sentence: describeRule(rule),
       enabled: true,
+      origin: "dashboard",
       createdAt: new Date().toISOString(),
     };
-    this.#invariants.set(invariant.id, invariant);
-    return invariant;
+    this.#rules.set(saved.id, saved);
+    return saved;
   }
 }

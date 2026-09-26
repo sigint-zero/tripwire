@@ -1,17 +1,17 @@
-import { formatDuration, type Response, type Rule } from "@tripwire/shared";
+import { formatDuration, type EngineInfo, type Rule } from "@tripwire/shared";
 import { CornerBrackets } from "../ui";
 import { cooldowns } from "./ResponseStep";
 
 type Scenario = "falls" | "rises" | "band" | "event";
 
 function scenarioFor(rule: Rule): Scenario {
-  if (rule.kind === "log") return "event";
-  const condition = rule.condition;
-  if (condition.type === "deviation_band") return "band";
-  if (condition.type === "compare" && ["lte", "lt"].includes(condition.op)) {
-    return "rises";
+  const trip = rule.trip_when;
+  if (rule.when !== "every_block" || trip === true) return "event";
+  if (trip.node === "deviation_band") return "band";
+  if (trip.node === "compare" && (trip.op === "lt" || trip.op === "le")) {
+    return "falls";
   }
-  return "falls";
+  return "rises";
 }
 
 // Chart coordinates: a 300 × 100 box. The breach happens at BREACH; the
@@ -51,17 +51,19 @@ interface Step {
 }
 
 function stepsFor(
-  response: Response,
+  rule: Rule,
+  responseMode: EngineInfo["responseMode"],
   sentence: string,
   contractName: string,
 ): Step[] {
+  const onTrip = rule.on_trip;
   const target =
-    response.scope.type === "function"
-      ? response.scope.signature
+    onTrip.action === "trip_function"
+      ? onTrip.function
       : `${contractName} (whole contract)`;
   const steps: Step[] = [
     {
-      title: "Invariant breaks",
+      title: "Rule trips",
       detail: `“${sentence}” is no longer true.`,
       tone: "red",
     },
@@ -76,7 +78,8 @@ function stepsFor(
       tone: "gray",
     },
   ];
-  if (response.mode === "approval") {
+  if (onTrip.action === "notify") return steps;
+  if (responseMode === "prepare") {
     steps.push(
       {
         title: "Pause prepared",
@@ -89,8 +92,7 @@ function stepsFor(
         tone: "amber",
       },
     );
-  }
-  if (response.mode === "autonomous") {
+  } else if (responseMode === "send") {
     steps.push(
       {
         title: "Pause sent",
@@ -99,6 +101,12 @@ function stepsFor(
       },
       { title: "Paused", detail: `${target} is paused.`, tone: "red" },
     );
+  } else {
+    steps.push({
+      title: "Pause skipped",
+      detail: "On-chain response is off for this installation.",
+      tone: "gray",
+    });
   }
   return steps;
 }
@@ -114,30 +122,28 @@ const titleTone = {
   gray: "text-gray-300",
 };
 
-/** What happens when the invariant trips, for the chosen response. */
+/** What happens when the rule trips, for the chosen action. */
 export function TripSimulation({
   rule,
   sentence,
-  response,
+  responseMode,
   contractName,
   valueLabel,
   limitLabel,
 }: {
   rule: Rule;
   sentence: string;
-  response: Response;
+  responseMode: EngineInfo["responseMode"];
   contractName: string;
   valueLabel: string;
   limitLabel: string;
 }) {
-  const steps = stepsFor(response, sentence, contractName);
+  const steps = stepsFor(rule, responseMode, sentence, contractName);
+  const cooldown = rule.on_trip.cooldown_seconds ?? 0;
   const quietLabel =
-    cooldowns.find((c) => c.seconds === response.cooldownSecs)?.label ??
-    `${response.cooldownSecs}s`;
+    cooldowns.find((c) => c.seconds === cooldown)?.label ?? `${cooldown}s`;
   const quietFrom =
-    response.cooldownSecs > 0
-      ? BREACH + (steps.length - 1) * PIN + PIN / 2
-      : null;
+    cooldown > 0 ? BREACH + (steps.length - 1) * PIN + PIN / 2 : null;
 
   return (
     <aside className="relative bg-white/2 p-5">
@@ -159,10 +165,7 @@ export function TripSimulation({
         limitLabel={limitLabel}
         quietFrom={quietFrom}
       />
-      <Axis
-        quietFrom={quietFrom}
-        quietEnd={`+${formatDuration(response.cooldownSecs)}`}
-      />
+      <Axis quietFrom={quietFrom} quietEnd={`+${formatDuration(cooldown)}`} />
 
       <ol className="mt-6 space-y-3">
         {steps.map((step, i) => (
@@ -188,7 +191,8 @@ export function TripSimulation({
                 Quiet period
               </span>
               <span className="block text-xs leading-relaxed text-gray-500">
-                It will not act again for {quietLabel}.
+                It will not act again for {quietLabel}; violations are still
+                recorded.
               </span>
             </span>
           </li>

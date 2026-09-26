@@ -1,8 +1,15 @@
-import type { CompareOp, Rule, ValueExpr } from "@tripwire/shared";
+import type {
+  CompareOp,
+  Rule,
+  Severity,
+  ValueNode,
+  ViewCall,
+} from "@tripwire/shared";
 import { parseReadableId, type ContractSurface } from "./abi";
 
-// Invariant templates: each is a sentence with blanks, and knows how to turn
-// the filled-in blanks into a rule.
+// Starting points for rules. Each is a sentence with blanks that says what
+// must stay true, and turns the filled-in blanks into the rule's trigger and
+// its trip condition, which states the violation.
 
 export type FieldKind =
   "read" | "readOrNumber" | "percent" | "duration" | "event" | "op";
@@ -21,14 +28,19 @@ export interface Field {
 export type Part = string | { field: string };
 export type Values = Record<string, string>;
 
+/** The parts of a rule a template fills in. */
+export type Watch = Pick<Rule, "when" | "trip_when">;
+
 export interface Template {
   id: string;
   title: string;
   blurb: string;
   needs: "reads" | "events";
+  /** How serious a trip usually is for this kind of rule. */
+  severity: Severity;
   fields: Field[];
   sentence: Part[];
-  build: (values: Values, contract: string) => Rule | null;
+  build: (values: Values) => Watch | null;
   defaultName: (values: Values, labelOf: (id: string) => string) => string;
 }
 
@@ -45,32 +57,44 @@ export const durations = [
   { seconds: 604_800, label: "7 days" },
 ];
 
-export const compareOps: { op: CompareOp; label: string }[] = [
-  { op: "gte", label: "is at least" },
-  { op: "gt", label: "is above" },
-  { op: "lte", label: "is at most" },
-  { op: "lt", label: "is below" },
-  { op: "eq", label: "equals" },
-  { op: "neq", label: "never equals" },
-];
+/** Comparisons as the sentence states them, and the one that trips the rule. */
+export const compareOps: { op: CompareOp; label: string; trips: CompareOp }[] =
+  [
+    { op: "ge", label: "is at least", trips: "lt" },
+    { op: "gt", label: "is above", trips: "le" },
+    { op: "le", label: "is at most", trips: "gt" },
+    { op: "lt", label: "is below", trips: "ge" },
+    { op: "eq", label: "equals", trips: "ne" },
+    { op: "ne", label: "never equals", trips: "eq" },
+  ];
 
-function read(id: string | undefined, contract: string): ValueExpr | null {
-  if (!id) return null;
-  if (id.startsWith(NUMBER_PREFIX)) {
-    const value = id.slice(NUMBER_PREFIX.length);
-    return value ? { type: "literal", value } : null;
-  }
-  const { method, returnIndex } = parseReadableId(id);
+function call(id: string | undefined): ViewCall | null {
+  if (!id || id.startsWith(NUMBER_PREFIX)) return null;
+  const { method, returns } = parseReadableId(id);
   return {
-    type: "view_call",
-    contract,
-    method,
-    ...(returnIndex ? { return_index: returnIndex } : {}),
+    node: "view_call",
+    function: method,
+    args: [],
+    ...(returns === undefined ? {} : { returns }),
   };
+}
+
+function read(id: string | undefined): ValueNode | null {
+  if (id?.startsWith(NUMBER_PREFIX)) {
+    const value = id.slice(NUMBER_PREFIX.length);
+    return value ? { node: "literal", value } : null;
+  }
+  return call(id);
 }
 
 function whole(value: string | undefined): number | null {
   return value && /^\d+$/.test(value) ? Number(value) : null;
+}
+
+/** A whole percentage as a fraction: 5 → "0.05". */
+function fraction(percent: number): string {
+  const digits = String(percent).padStart(3, "0");
+  return `${digits.slice(0, -2)}.${digits.slice(-2)}`.replace(/\.?0+$/, "");
 }
 
 const SUPPLY = [/^totalSupply$/i, /supply/i];
@@ -88,6 +112,7 @@ export const templates: Template[] = [
     title: "Never drops below",
     blurb: "A value always stays at or above another value, or a fixed floor.",
     needs: "reads",
+    severity: "critical",
     fields: [
       {
         key: "value",
@@ -105,13 +130,13 @@ export const templates: Template[] = [
       },
     ],
     sentence: [{ field: "value" }, " never drops below ", { field: "floor" }],
-    build(v, contract) {
-      const left = read(v.value, contract);
-      const right = read(v.floor, contract);
+    build(v) {
+      const left = read(v.value);
+      const right = read(v.floor);
       if (!left || !right) return null;
       return {
-        kind: "expression",
-        condition: { type: "compare", op: "gte", left, right },
+        when: "every_block",
+        trip_when: { node: "compare", op: "lt", left, right },
       };
     },
     defaultName: (v, label) => `${label(v.value ?? "")} floor`,
@@ -122,6 +147,7 @@ export const templates: Template[] = [
     blurb:
       "Catches sudden jumps: a price or rate never strays far from its recent average.",
     needs: "reads",
+    severity: "warning",
     fields: [
       {
         key: "value",
@@ -141,23 +167,24 @@ export const templates: Template[] = [
       { field: "window" },
       " average",
     ],
-    build(v, contract) {
-      const value = read(v.value, contract);
+    build(v) {
+      const value = call(v.value);
       const band = whole(v.percent);
       const window = whole(v.window);
       if (!value || band === null || !window) return null;
       return {
-        kind: "expression",
-        condition: {
-          type: "deviation_band",
+        when: "every_block",
+        trip_when: {
+          node: "deviation_band",
           value,
           center: {
-            type: "historical",
-            key: `${v.value}:twap:${window}`,
-            source: value,
-            metric: { type: "twap", window_secs: window },
+            node: "metric",
+            metric: "twap",
+            of: value,
+            window: { seconds: window },
           },
-          band_percent: band,
+          tolerance_percent: String(band),
+          sides: "both",
         },
       };
     },
@@ -168,6 +195,7 @@ export const templates: Template[] = [
     title: "Growth limit",
     blurb: "Limits how fast a value can rise, like new supply minted in a day.",
     needs: "reads",
+    severity: "warning",
     fields: [
       {
         key: "value",
@@ -186,23 +214,28 @@ export const templates: Template[] = [
       "% in ",
       { field: "window" },
     ],
-    build(v, contract) {
-      const value = read(v.value, contract);
+    build(v) {
+      const value = call(v.value);
       const limit = whole(v.percent);
       const window = whole(v.window);
       if (!value || limit === null || !window) return null;
       return {
-        kind: "expression",
-        condition: {
-          type: "compare",
-          op: "lte",
+        when: "every_block",
+        trip_when: {
+          node: "compare",
+          op: "gt",
           left: {
-            type: "historical",
-            key: `${v.value}:delta:${window}`,
-            source: value,
-            metric: { type: "windowed_delta", window_secs: window },
+            node: "metric",
+            metric: "windowed_delta",
+            of: value,
+            window: { seconds: window },
           },
-          right: { type: "scale", value, numerator: limit, denominator: 100 },
+          right: {
+            node: "arithmetic",
+            op: "mul",
+            left: value,
+            right: { node: "literal", value: fraction(limit) },
+          },
         },
       };
     },
@@ -213,6 +246,7 @@ export const templates: Template[] = [
     title: "Outflow limit",
     blurb: "Spots a drain in progress: a balance never falls too far too fast.",
     needs: "reads",
+    severity: "critical",
     fields: [
       {
         key: "value",
@@ -231,23 +265,24 @@ export const templates: Template[] = [
       "% in ",
       { field: "window" },
     ],
-    build(v, contract) {
-      const value = read(v.value, contract);
+    build(v) {
+      const value = call(v.value);
       const limit = whole(v.percent);
       const window = whole(v.window);
       if (!value || limit === null || !window) return null;
+      // windowed_drop is already a percentage: the fall from the window's high.
       return {
-        kind: "expression",
-        condition: {
-          type: "compare",
-          op: "lte",
+        when: "every_block",
+        trip_when: {
+          node: "compare",
+          op: "gt",
           left: {
-            type: "historical",
-            key: `${v.value}:drop:${window}`,
-            source: value,
-            metric: { type: "windowed_drop", window_secs: window },
+            node: "metric",
+            metric: "windowed_drop",
+            of: value,
+            window: { seconds: window },
           },
-          right: { type: "scale", value, numerator: limit, denominator: 100 },
+          right: { node: "literal", value: String(limit) },
         },
       };
     },
@@ -258,6 +293,7 @@ export const templates: Template[] = [
     title: "Stays fresh",
     blurb: "An oracle or feed keeps updating: its timestamp is never too old.",
     needs: "reads",
+    severity: "warning",
     fields: [
       {
         key: "timestamp",
@@ -274,22 +310,22 @@ export const templates: Template[] = [
       { field: "window" },
       " old",
     ],
-    build(v, contract) {
-      const timestamp = read(v.timestamp, contract);
+    build(v) {
+      const timestamp = call(v.timestamp);
       const window = whole(v.window);
       if (!timestamp || !window) return null;
       return {
-        kind: "expression",
-        condition: {
-          type: "compare",
-          op: "lte",
+        when: "every_block",
+        trip_when: {
+          node: "compare",
+          op: "gt",
           left: {
-            type: "arithmetic",
+            node: "arithmetic",
             op: "sub",
-            left: { type: "now" },
+            left: { node: "now" },
             right: timestamp,
           },
-          right: { type: "literal", value: String(window) },
+          right: { node: "literal", value: String(window) },
         },
       };
     },
@@ -301,6 +337,7 @@ export const templates: Template[] = [
     blurb:
       "Alerts the moment a dangerous event is emitted, like an ownership change.",
     needs: "events",
+    severity: "critical",
     fields: [
       {
         key: "event",
@@ -313,7 +350,7 @@ export const templates: Template[] = [
     sentence: [{ field: "event" }, " is never emitted"],
     build(v) {
       if (!v.event) return null;
-      return { kind: "log", event: v.event, condition: "must_not_appear" };
+      return { when: { event: v.event }, trip_when: true };
     },
     defaultName: (v) => `No ${(v.event ?? "event").replace(/\(.*$/, "")}`,
   },
@@ -322,9 +359,10 @@ export const templates: Template[] = [
     title: "Custom comparison",
     blurb: "Compare any value to another value or a number.",
     needs: "reads",
+    severity: "warning",
     fields: [
       { key: "left", kind: "read", label: "value" },
-      { key: "op", kind: "op", label: "comparison", initial: "gte" },
+      { key: "op", kind: "op", label: "comparison", initial: "ge" },
       { key: "right", kind: "readOrNumber", label: "target" },
     ],
     sentence: [
@@ -334,14 +372,14 @@ export const templates: Template[] = [
       " ",
       { field: "right" },
     ],
-    build(v, contract) {
-      const left = read(v.left, contract);
-      const right = read(v.right, contract);
-      const op = compareOps.find((o) => o.op === v.op)?.op;
+    build(v) {
+      const left = read(v.left);
+      const right = read(v.right);
+      const op = compareOps.find((o) => o.op === v.op);
       if (!left || !right || !op) return null;
       return {
-        kind: "expression",
-        condition: { type: "compare", op, left, right },
+        when: "every_block",
+        trip_when: { node: "compare", op: op.trips, left, right },
       };
     },
     defaultName: (v, label) => `${label(v.left ?? "")} check`,

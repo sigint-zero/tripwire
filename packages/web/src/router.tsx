@@ -9,12 +9,12 @@ import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
 import { ContractsPage } from "./pages/Contracts";
 import { FirstRunPage } from "./pages/FirstRun";
-import { InvariantsPage } from "./pages/Invariants";
-import { NewInvariantPage } from "./pages/NewInvariant";
+import { NewRulePage } from "./pages/NewRule";
 import { NotFoundPage } from "./pages/NotFound";
 import { NotificationsPage } from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
 import { ResponsesPage } from "./pages/Responses";
+import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
 import { ViolationsPage } from "./pages/Violations";
 
@@ -47,21 +47,21 @@ const contractsRoute = createRoute({
   component: ContractsPage,
 });
 
-const invariantsRoute = createRoute({
+const rulesRoute = createRoute({
   getParentRoute: () => shellRoute,
-  path: "/invariants",
+  path: "/rules",
   validateSearch: (search): { created?: string } =>
     typeof search.created === "string" ? { created: search.created } : {},
-  component: function Invariants() {
-    const { created } = invariantsRoute.useSearch();
-    return <InvariantsPage created={created} />;
+  component: function Rules() {
+    const { created } = rulesRoute.useSearch();
+    return <RulesPage created={created} />;
   },
 });
 
-const newInvariantRoute = createRoute({
+const newRuleRoute = createRoute({
   getParentRoute: () => shellRoute,
-  path: "/invariants/new",
-  component: NewInvariantPage,
+  path: "/rules/new",
+  component: NewRulePage,
 });
 
 const violationsRoute = createRoute({
@@ -104,8 +104,8 @@ const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
     overviewRoute,
     contractsRoute,
-    invariantsRoute,
-    newInvariantRoute,
+    rulesRoute,
+    newRuleRoute,
     violationsRoute,
     responsesRoute,
     activityRoute,

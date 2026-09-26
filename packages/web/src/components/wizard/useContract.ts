@@ -6,7 +6,6 @@ import { describeAbi, parseAbiText, type ContractSurface } from "../../lib/abi";
 import { api } from "../../lib/api";
 
 export interface LoadedContract {
-  chainId: number;
   address: string;
   name: string | null;
   implementation: ContractAbi["implementation"];
@@ -15,13 +14,13 @@ export interface LoadedContract {
 }
 
 /** Resolves a contract's ABI: looked up by address, or pasted by the user. */
-export function useContract(chainId: number, address: string, pasted: string) {
+export function useContract(address: string, pasted: string) {
   const valid = isAddress(address, { strict: false });
   const usePasted = pasted.trim() !== "";
 
   const lookup = useQuery({
-    queryKey: ["abi", chainId, address.toLowerCase()],
-    queryFn: ({ signal }) => api.abi(chainId, address, signal),
+    queryKey: ["abi", address.toLowerCase()],
+    queryFn: ({ signal }) => api.abi(address, signal),
     enabled: valid && !usePasted,
     retry: false,
     staleTime: Infinity,
@@ -47,7 +46,6 @@ export function useContract(chainId: number, address: string, pasted: string) {
   let contract: LoadedContract | null = null;
   if (valid && pastedAbi?.surface) {
     contract = {
-      chainId,
       address,
       name: null,
       implementation: null,
@@ -56,7 +54,6 @@ export function useContract(chainId: number, address: string, pasted: string) {
     };
   } else if (valid && !usePasted && lookup.data && verifiedSurface) {
     contract = {
-      chainId,
       address,
       name: lookup.data.name,
       implementation: lookup.data.implementation,

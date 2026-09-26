@@ -72,23 +72,27 @@ export async function lookupAbi(
   };
 }
 
-export const abiRoutes: FastifyPluginCallback = (app, _options, done) => {
+export const abiRoutes: FastifyPluginCallback<{ chainId: number }> = (
+  app,
+  { chainId },
+  done,
+) => {
   const cache = new Map<string, ContractAbi>();
 
-  app.get<{ Params: { chainId: string; address: string } }>(
-    "/contracts/:chainId/:address/abi",
+  // Looks up on the chain the engine watches; an installation watches one.
+  app.get<{ Params: { address: string } }>(
+    "/contracts/:address/abi",
     async (request, reply) => {
-      const chainId = Number(request.params.chainId);
       const contract = address.safeParse(request.params.address);
-      if (!Number.isInteger(chainId) || chainId <= 0 || !contract.success) {
+      if (!contract.success) {
         return reply.code(400).send({
           statusCode: 400,
           error: "Bad Request",
           code: "invalid_contract",
-          message: "Invalid chain or address.",
+          message: "Invalid address.",
         });
       }
-      const key = `${chainId}:${contract.data.toLowerCase()}`;
+      const key = contract.data.toLowerCase();
       const cached = cache.get(key);
       if (cached) return cached;
       try {

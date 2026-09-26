@@ -5,7 +5,7 @@ import { ServerStatus } from "./ServerStatus";
 const areas = [
   { to: "/", label: "Overview" },
   { to: "/contracts", label: "Contracts" },
-  { to: "/invariants", label: "Invariants" },
+  { to: "/rules", label: "Rules" },
   { to: "/violations", label: "Violations" },
   { to: "/responses", label: "Responses" },
   { to: "/activity", label: "Activity" },
