@@ -19,3 +19,4 @@ The ways rules raise false alarms or miss incidents. Each has its symptom and it
 | `simulate` in the wrong form | a revert is an evaluation error instead of a trip | `yields: "reverted"` trips on a revert; `yields: "value"` expects the call to succeed and fails loudly when it does not |
 | A long window on a new rule | nothing happens for days | warm-up equals the window; prefer the shortest window that covers the rhythm |
 | A rule that would trip now | it fires the moment it is enabled | a check with `would_trip_now: true` means the condition or threshold is wrong, unless the contract is already in violation |
+| A rule the engine cannot evaluate | it never fires | a check with an `error` names the node that failed and why (a read that reverts, a division by zero); treat it as invalid and fix that node. `warming: true` is different: a metric cannot be judged yet |

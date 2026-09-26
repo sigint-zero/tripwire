@@ -22,8 +22,6 @@ import {
   type ContractRow,
   type EngineCommands,
   type EngineReads,
-  type RuleRow,
-  type ViolationRow,
 } from "./engine/types";
 import type { RuleService } from "./rule-service";
 import type { AppStore } from "./store";
@@ -38,7 +36,6 @@ const UNSUPPORTED =
 const MAX_STATE_READS = 64;
 /** The most source returned in one response. */
 const MAX_SOURCE_BYTES = 200_000;
-const DAY_MS = 86_400_000;
 
 interface AbiEntry {
   type?: string;
@@ -120,21 +117,6 @@ function describe(abi: unknown[]): ContractView["abi"] {
   return { views, mutators, events };
 }
 
-/** A rule's state from its latest violation and the block it last evaluated. */
-function statusOf(
-  rule: RuleRow,
-  latest: ViolationRow | undefined,
-): RuleListing["status"] {
-  if (!rule.enabled) return "disabled";
-  if (rule.warming) return "warming_up";
-  const current =
-    latest &&
-    rule.last_evaluated_block !== null &&
-    latest.block_number >= rule.last_evaluated_block;
-  if (!current) return "ok";
-  return latest.kind === "evaluation_error" ? "eval_error" : "violated";
-}
-
 function toResult(check: RuleCheck): SubmitResult {
   return {
     valid: check.valid,
@@ -143,6 +125,8 @@ function toResult(check: RuleCheck): SubmitResult {
     evaluation: check.evaluation && {
       block: check.evaluation.block,
       would_trip_now: check.evaluation.wouldTripNow,
+      warming: check.evaluation.warming,
+      error: check.evaluation.error,
       reads: check.evaluation.reads,
     },
     warmup_seconds: check.warmupSeconds,
@@ -192,33 +176,15 @@ export class AgentServices implements McpServices {
     return found;
   }
 
-  /** Each rule's latest violation, and its violations in the last day. */
-  async #history(): Promise<{
-    latest: Map<string, ViolationRow>;
-    lastDay: Map<string, number>;
-  }> {
-    const rows = await this.#reads.violations({ limit: 1000 });
-    const since = this.#clock() - DAY_MS;
-    const latest = new Map<string, ViolationRow>();
-    const lastDay = new Map<string, number>();
-    for (const v of rows) {
-      if (!latest.has(v.rule_id)) latest.set(v.rule_id, v);
-      if (Date.parse(v.block_time) >= since) {
-        lastDay.set(v.rule_id, (lastDay.get(v.rule_id) ?? 0) + 1);
-      }
-    }
-    return { latest, lastDay };
-  }
-
   listContracts(): Promise<ContractListing[]> {
     return engine(async () => {
-      const [rows, rules, disables, sources, { latest }] = await Promise.all([
+      const [rows, rules, disables, sources] = await Promise.all([
         this.#reads.contracts(),
         this.#reads.rules(),
         this.#store.disables(),
         this.#store.sources(),
-        this.#history(),
       ]);
+      const saved = await this.#rules.saved(rules);
       return rows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -227,9 +193,7 @@ export class AgentServices implements McpServices {
         active: !disables.has(row.id),
         rule_count: row.rule_count,
         tripped: rules.some(
-          (r) =>
-            r.contract_id === row.id &&
-            statusOf(r, latest.get(r.id)) === "violated",
+          (r, i) => r.contract_id === row.id && saved[i]!.status === "tripped",
         ),
         has_source: sources.has(row.address),
       }));
@@ -350,10 +314,7 @@ export class AgentServices implements McpServices {
       const rows = await this.#reads.rules(
         contract ? { contractId: contract.id } : {},
       );
-      const [saved, { latest, lastDay }] = await Promise.all([
-        this.#rules.saved(rows),
-        this.#history(),
-      ]);
+      const saved = await this.#rules.saved(rows);
       const now = this.#clock();
       return rows.map((row, i) => {
         const rule = saved[i]!;
@@ -364,7 +325,7 @@ export class AgentServices implements McpServices {
           sentence: row.description,
           enabled: row.enabled,
           origin: rule.origin,
-          status: statusOf(row, latest.get(row.id)),
+          status: rule.status,
           current: null,
           warmup_remaining_seconds: row.warming
             ? Math.max(
@@ -372,7 +333,7 @@ export class AgentServices implements McpServices {
                 Math.ceil((Date.parse(row.created_at) + warmup - now) / 1000),
               )
             : 0,
-          violations_24h: lastDay.get(row.id) ?? 0,
+          open_violations: rule.openViolations,
           created_at: row.created_at,
         };
       });

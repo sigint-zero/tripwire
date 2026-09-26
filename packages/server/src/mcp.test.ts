@@ -327,7 +327,8 @@ describe("submitting", () => {
         id,
         enabled: false,
         origin: { mcp: "laptop agent" },
-        status: "disabled",
+        status: "off",
+        open_violations: 0,
       },
     ]);
   });

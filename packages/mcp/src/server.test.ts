@@ -33,7 +33,13 @@ const services: McpServices = {
       valid: true,
       issues: [],
       sentence: "On every block, notify when x() falls below 1 (warning).",
-      evaluation: { block: 1, would_trip_now: false, reads: [] },
+      evaluation: {
+        block: 1,
+        would_trip_now: false,
+        warming: false,
+        error: null,
+        reads: [],
+      },
       warmup_seconds: 0,
       duplicate_of: null,
     });

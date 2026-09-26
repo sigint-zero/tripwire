@@ -72,10 +72,12 @@ export interface RuleListing {
   sentence: string;
   enabled: boolean;
   origin: "dashboard" | "api" | { mcp: string };
-  status: "ok" | "violated" | "warming_up" | "eval_error" | "disabled";
+  /** As every other surface shows it. */
+  status: "off" | "tripped" | "error" | "warming" | "holding";
   current: { series: string; value: string; block: number } | null;
   warmup_remaining_seconds: number;
-  violations_24h: number;
+  /** Violations nobody has acknowledged. */
+  open_violations: number;
   created_at: string;
 }
 
@@ -86,6 +88,10 @@ export interface SubmitResult {
   evaluation: {
     block: number;
     would_trip_now: boolean;
+    /** A metric cannot be judged yet: not the same as would not trip. */
+    warming: boolean;
+    /** The node the engine could not evaluate, and why; such a rule never fires. */
+    error: { path: string; message: string } | null;
     reads: { call: string; value: string }[];
   } | null;
   warmup_seconds: number;

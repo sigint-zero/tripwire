@@ -122,6 +122,10 @@ export interface RuleCheck {
   evaluation: {
     block: number;
     wouldTripNow: boolean;
+    /** A metric cannot be judged yet: not the same as would not trip. */
+    warming: boolean;
+    /** The node the engine could not evaluate, and why; a rule that cannot be evaluated never fires. */
+    error: EvaluationError | null;
     /** Every contract read the rule makes, as decimal strings. */
     reads: { call: string; value: string }[];
   } | null;
@@ -226,13 +230,21 @@ export interface Sparkline {
   buckets: SeriesBucket[];
 }
 
+/** Where the engine could not evaluate a rule, and what happened. */
+export interface EvaluationError {
+  /** The failing node's JSON pointer in the document. */
+  path: string;
+  message: string;
+}
+
 /** One evaluation of a stored rule at the current block; nothing is recorded. */
 export interface CheckNow {
-  /** The head it was evaluated at; null before the engine has seen a block. */
+  /** The engine's last evaluated block; null before it has seen one. */
   block: number | null;
   wouldTripNow: boolean;
   warming: boolean;
   warmupSecondsLeft: number;
+  evaluationError: EvaluationError | null;
   evidence: unknown;
 }
 

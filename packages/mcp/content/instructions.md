@@ -1,4 +1,4 @@
-Tripwire watches smart contracts on every block. It evaluates rules, records every violation with the values it saw, alerts people, and can pause a contract through its on-chain circuit breaker.
+Tripwire watches smart contracts on every block. It evaluates rules, records every violation with the values it saw, alerts people, and can act on-chain: by calling the contract's own pause or admin function from a key a person granted that permission, or, for a contract registered with the optional TripwireController, by pausing it there.
 
 A rule is one watchable statement about a contract: a trigger (`when`), the bad condition (`trip_when`, which states the violation, not the invariant), and a consequence (`on_trip`). Most rules encode invariants, properties that must always hold; some watch occurrences, such as an ownership transfer. A metric that is still warming up never trips, and a value that cannot be known means do not trip.
 

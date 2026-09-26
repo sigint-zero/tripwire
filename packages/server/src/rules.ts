@@ -9,7 +9,11 @@ import type { FastifyPluginCallback, FastifyReply } from "fastify";
 import { z } from "zod";
 import { headOf, type EngineCommands, type EngineReads } from "./engine/types";
 import { refuse } from "./refuse";
-import type { Checked, RuleService } from "./rule-service";
+import {
+  evaluationError,
+  type Checked,
+  type RuleService,
+} from "./rule-service";
 import { seriesOfRule } from "./rule-series";
 import type { AppStore } from "./store";
 
@@ -155,6 +159,7 @@ export const ruleRoutes: FastifyPluginCallback<{
         wouldTripNow: dry.evaluation.would_trip,
         warming: dry.evaluation.warming,
         warmupSecondsLeft: left,
+        evaluationError: evaluationError(dry),
         evidence: dry.evaluation.evidence,
       };
     },

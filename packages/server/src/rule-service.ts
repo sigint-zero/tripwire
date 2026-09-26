@@ -4,6 +4,7 @@ import {
   shortSignature,
   type Issue,
   type Rule,
+  type EvaluationError,
   type RuleCheck,
   type RuleStatus,
   type SavedRule,
@@ -79,6 +80,14 @@ function readsOf(
   return [...found].map(([call, value]) => ({ call, value }));
 }
 
+/** The node the engine could not evaluate, when it could not. */
+export function evaluationError(dry: DryRun): EvaluationError | null {
+  const error = dry.evaluation.error;
+  return error
+    ? { path: error.path ?? "", message: error.message ?? "" }
+    : null;
+}
+
 function toCheck(
   dry: DryRun,
   block: number,
@@ -92,6 +101,8 @@ function toCheck(
     evaluation: {
       block,
       wouldTripNow: dry.evaluation.would_trip,
+      warming: dry.evaluation.warming,
+      error: evaluationError(dry),
       reads: readsOf(dry.evaluation.evidence, dry.document.contract),
     },
     warmupSeconds: dry.needs.warmup_seconds,
