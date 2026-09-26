@@ -30,9 +30,21 @@ export function OverviewPage() {
     queryKey: ["pinned"],
     queryFn: ({ signal }) => api.pinnedRules(signal),
   });
+  const { data: engine } = useQuery({
+    queryKey: ["engine"],
+    queryFn: ({ signal }) => api.engine(signal),
+    staleTime: Infinity,
+  });
+  const { data: responses } = useQuery({
+    queryKey: ["responses", "counts"],
+    queryFn: ({ signal }) => api.responseCounts(signal),
+  });
 
   const watching = contracts?.filter((c) => c.active).length;
   const on = rules?.filter((r) => r.enabled).length;
+  // A queue does not vanish because the mode changed under it.
+  const approvals =
+    engine?.responseMode === "prepare" || (responses?.waiting ?? 0) > 0;
   const pinnedRules = (pinned ?? [])
     .map((id) => rules?.find((r) => r.id === id))
     .filter((r): r is SavedRule => r !== undefined);
@@ -44,7 +56,9 @@ export function OverviewPage() {
         description="What needs attention, and what you pinned."
       />
 
-      <div className="mb-12 grid gap-2 sm:grid-cols-3">
+      <div
+        className={`mb-12 grid gap-2 sm:grid-cols-3 ${approvals ? "lg:grid-cols-4" : ""}`}
+      >
         <Count label="Contracts watched" to="/contracts">
           {contracts && `${watching} / ${contracts.length}`}
         </Count>
@@ -59,6 +73,15 @@ export function OverviewPage() {
           {open &&
             (open.length === OPEN_LIMIT ? `${OPEN_LIMIT}+` : open.length)}
         </Count>
+        {approvals && (
+          <Count
+            label="Waiting for approval"
+            to="/responses"
+            alert={(responses?.waiting ?? 0) > 0}
+          >
+            {responses?.waiting}
+          </Count>
+        )}
       </div>
 
       <section className="mb-12">
@@ -120,7 +143,7 @@ function Count({
   children,
 }: {
   label: string;
-  to: "/contracts" | "/rules" | "/violations";
+  to: "/contracts" | "/rules" | "/violations" | "/responses";
   alert?: boolean;
   children: ReactNode;
 }) {

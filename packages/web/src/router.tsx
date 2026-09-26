@@ -20,7 +20,7 @@ import { NewRulePage } from "./pages/NewRule";
 import { NotFoundPage } from "./pages/NotFound";
 import { NotificationsPage } from "./pages/Notifications";
 import { OverviewPage } from "./pages/Overview";
-import { ResponsesPage } from "./pages/Responses";
+import { readResponsesSearch, ResponsesPage } from "./pages/Responses";
 import { RulePage } from "./pages/Rule";
 import { RulesPage } from "./pages/Rules";
 import { SettingsPage } from "./pages/Settings";
@@ -153,7 +153,17 @@ const violationsRoute = createRoute({
 const responsesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/responses",
-  component: ResponsesPage,
+  validateSearch: readResponsesSearch,
+  component: function Responses() {
+    const search = responsesRoute.useSearch();
+    const navigate = responsesRoute.useNavigate();
+    return (
+      <ResponsesPage
+        search={search}
+        onSearch={(next) => void navigate({ search: next, replace: true })}
+      />
+    );
+  },
 });
 
 const activityRoute = createRoute({

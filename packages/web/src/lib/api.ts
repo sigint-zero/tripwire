@@ -8,6 +8,9 @@ import type {
   EngineInfo,
   Issue,
   McpTokenSummary,
+  ResponseCounts,
+  ResponseItem,
+  ResponseTab,
   Rule,
   RuleChange,
   RuleCheck,
@@ -174,4 +177,16 @@ export const api = {
     request<Violation>(`/violations/${id}`, { signal }),
   acknowledge: (ids: string[], note?: string) =>
     request<Violation[]>("/violations/acknowledge", { json: { ids, note } }),
+  responses: (tab: ResponseTab, signal?: AbortSignal) =>
+    request<ResponseItem[]>(`/responses?status=${tab}`, { signal }),
+  responseCounts: (signal?: AbortSignal) =>
+    request<ResponseCounts>("/responses/counts", { signal }),
+  response: (id: string, signal?: AbortSignal) =>
+    request<ResponseItem>(`/responses/${id}`, { signal }),
+  approveResponse: (id: string) =>
+    request<ResponseItem>(`/responses/${id}/approve`, { method: "POST" }),
+  rejectResponse: (id: string, reason: string) =>
+    request<ResponseItem>(`/responses/${id}/reject`, {
+      json: { reason: reason || undefined },
+    }),
 };

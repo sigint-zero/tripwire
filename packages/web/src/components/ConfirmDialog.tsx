@@ -3,13 +3,15 @@ import { Button } from "./ui";
 
 /**
  * Asks before something that cannot be undone. Escape, the backdrop and
- * Cancel all close it.
+ * Cancel all close it. `tone` is "go" for an act that is not a loss,
+ * such as sending an approved response.
  */
 export function ConfirmDialog({
   open,
   title,
   children,
   confirm,
+  tone = "danger",
   pending = false,
   error,
   onConfirm,
@@ -20,6 +22,7 @@ export function ConfirmDialog({
   children: ReactNode;
   /** The confirming button's label, naming the act. */
   confirm: string;
+  tone?: "danger" | "go";
   pending?: boolean;
   error?: string;
   onConfirm: () => void;
@@ -69,7 +72,11 @@ export function ConfirmDialog({
           <Button variant="quiet" disabled={pending} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destroy" disabled={pending} onClick={onConfirm}>
+          <Button
+            variant={tone === "go" ? "primary" : "destroy"}
+            disabled={pending}
+            onClick={onConfirm}
+          >
             {confirm}
           </Button>
         </div>
