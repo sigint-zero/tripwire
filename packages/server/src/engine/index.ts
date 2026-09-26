@@ -11,14 +11,24 @@ export interface EngineBackend {
   commands: EngineCommands;
   reads: EngineReads;
   info: EngineInfo;
+  /** Stops whatever the backend runs on its own. */
+  close(): Promise<void>;
 }
 
-/** The development stand-in, kept in the shared database beside `app`. */
-export async function stubBackend(pool: pg.Pool): Promise<EngineBackend> {
+/**
+ * The development stand-in, kept in the shared database beside `app`.
+ * With `ticking`, it evaluates its rules on every simulated block.
+ */
+export async function stubBackend(
+  pool: pg.Pool,
+  { ticking = false } = {},
+): Promise<EngineBackend> {
+  const stub = await StubEngine.open(pool);
   return {
-    commands: await StubEngine.open(pool),
+    commands: stub,
     reads: new ViewReads(pool, STUB_VIEWS),
     info: { chainId: 1, responseMode: "prepare", simulated: true },
+    close: ticking ? stub.ticking() : () => Promise.resolve(),
   };
 }
 
@@ -40,6 +50,7 @@ export function engineBackend(
       responseMode: options.responseMode,
       simulated: false,
     },
+    close: () => Promise.resolve(),
   };
 }
 
@@ -53,7 +64,7 @@ export async function connectEngine(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<EngineBackend> {
   const url = env.TRIPWIRE_ENGINE_URL;
-  if (!url) return stubBackend(pool);
+  if (!url) return stubBackend(pool, { ticking: true });
   const secretFile = env.TRIPWIRE_ENGINE_SECRET_FILE;
   if (!secretFile) {
     throw new Error(

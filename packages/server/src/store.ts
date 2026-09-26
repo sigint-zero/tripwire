@@ -4,6 +4,16 @@ import type pg from "pg";
 // schema. Each is one short statement; engine objects are named by id or
 // address, and a row that outlives what it names is swept.
 
+/** Who acted, until accounts exist to name them. */
+export const DASHBOARD = "dashboard";
+
+const PINNED = "dashboard.pinned_rules";
+
+export interface Display {
+  decimals: number | null;
+  unit: string | null;
+}
+
 export interface ContractSource {
   address: string;
   verified: boolean;
@@ -44,6 +54,15 @@ export class AppStore {
       `INSERT INTO app.contract_disables (contract_id, rule_ids, disabled_by)
        VALUES ($1, $2::bigint[], $3)`,
       [contractId, ruleIds, by],
+    );
+  }
+
+  /** A rule switched off by hand stays off when its contract is enabled. */
+  async keepOff(contractId: string, ruleId: string) {
+    await this.#pool.query(
+      `UPDATE app.contract_disables SET rule_ids = array_remove(rule_ids, $2::bigint)
+        WHERE contract_id = $1`,
+      [contractId, ruleId],
     );
   }
 
@@ -99,5 +118,109 @@ export class AppStore {
       [ruleIds],
     );
     return new Map(rows.map((r) => [r.rule_id, r.token_label]));
+  }
+
+  /** How each rule's values are shown, for the rules that have a preference. */
+  async displays(ruleIds: string[]): Promise<Map<string, Display>> {
+    if (ruleIds.length === 0) return new Map();
+    const { rows } = await this.#pool.query<{
+      rule_id: string;
+      display_decimals: number | null;
+      display_unit: string | null;
+    }>(
+      "SELECT rule_id::text, display_decimals, display_unit FROM app.rule_prefs WHERE rule_id = ANY($1::bigint[])",
+      [ruleIds],
+    );
+    return new Map(
+      rows.map((r) => [
+        r.rule_id,
+        { decimals: r.display_decimals, unit: r.display_unit },
+      ]),
+    );
+  }
+
+  async setDisplay(ruleId: string, display: Display) {
+    if (display.decimals === null && display.unit === null) {
+      await this.#pool.query("DELETE FROM app.rule_prefs WHERE rule_id = $1", [
+        ruleId,
+      ]);
+      return;
+    }
+    await this.#pool.query(
+      `INSERT INTO app.rule_prefs (rule_id, display_decimals, display_unit)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (rule_id) DO UPDATE SET
+         display_decimals = excluded.display_decimals,
+         display_unit = excluded.display_unit, updated_at = now()`,
+      [ruleId, display.decimals, display.unit],
+    );
+  }
+
+  /** The rules charted on the Overview, in order. */
+  async pinned(): Promise<string[]> {
+    const { rows } = await this.#pool.query<{ value: unknown }>(
+      "SELECT value FROM app.settings WHERE key = $1",
+      [PINNED],
+    );
+    const value = rows[0]?.value;
+    return Array.isArray(value) ? value.map(String) : [];
+  }
+
+  async setPinned(ruleIds: string[]) {
+    await this.#pool.query(
+      `INSERT INTO app.settings (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()`,
+      [PINNED, JSON.stringify(ruleIds)],
+    );
+  }
+
+  /** Records an acknowledgement; false when the violation already has one. */
+  async acknowledge(
+    violationId: string,
+    by: string,
+    note: string | null,
+  ): Promise<boolean> {
+    const { rowCount } = await this.#pool.query(
+      `INSERT INTO app.violation_acks (violation_id, acknowledged_by, note)
+       VALUES ($1, $2, $3) ON CONFLICT (violation_id) DO NOTHING`,
+      [violationId, by, note],
+    );
+    return rowCount === 1;
+  }
+
+  /**
+   * Forgets what the application kept about deleted rules, in one
+   * statement. Anything missed here is swept later.
+   */
+  async forgetRules(ruleIds: string[]) {
+    if (ruleIds.length === 0) return;
+    await this.#pool.query(
+      `WITH prefs AS (
+         DELETE FROM app.rule_prefs WHERE rule_id = ANY($1::bigint[])
+       ), disables AS (
+         UPDATE app.contract_disables
+            SET rule_ids = ARRAY(SELECT unnest(rule_ids) EXCEPT SELECT unnest($1::bigint[]))
+          WHERE rule_ids && $1::bigint[]
+       )
+       UPDATE app.settings
+          SET value = COALESCE(
+                (SELECT jsonb_agg(id) FROM jsonb_array_elements(value) AS id
+                  WHERE NOT (id #>> '{}') = ANY(($1::bigint[])::text[])),
+                '[]'::jsonb),
+              updated_at = now()
+        WHERE key = $2`,
+      [ruleIds, PINNED],
+    );
+  }
+
+  /** Forgets a deleted contract: its disable and its source. */
+  async forgetContract(contractId: string, address: string) {
+    await this.#pool.query(
+      `WITH disables AS (
+         DELETE FROM app.contract_disables WHERE contract_id = $1
+       )
+       DELETE FROM app.contract_sources WHERE address = $2`,
+      [contractId, address.toLowerCase()],
+    );
   }
 }

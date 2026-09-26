@@ -7,6 +7,7 @@ import { EngineError, EngineNotReady } from "./engine/types";
 import { refuse } from "./refuse";
 import { ruleRoutes } from "./rules";
 import { AppStore } from "./store";
+import { violationRoutes } from "./violations";
 
 /** What the API serves from: the shared database and the engine. */
 export interface Backend {
@@ -25,6 +26,7 @@ export const api: FastifyPluginCallback<{ backend?: Backend }> = (
   const { commands, reads, info } = backend.engine;
   const store = new AppStore(backend.pool);
   const lookup = new AbiLookup(info.chainId);
+  app.addHook("onClose", () => backend.engine.close());
 
   // The engine's refusals keep their status and code; until the engine has
   // created its views, reads answer that it is still starting.
@@ -49,6 +51,7 @@ export const api: FastifyPluginCallback<{ backend?: Backend }> = (
     store,
     simulated: info.simulated,
   });
+  app.register(violationRoutes, { reads, store });
 
   done();
 };

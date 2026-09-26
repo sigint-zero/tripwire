@@ -165,7 +165,88 @@ describe("disabling a contract", () => {
     });
   });
 
+  it("refuses to switch a rule on while its contract is disabled", async () => {
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/contracts/${token}/disable`,
+    });
+    const [rule] = await get<SavedRule[]>(`/rules?contract=${token}`);
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/rules/${rule!.id}`,
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "contract_disabled" });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/contracts/${token}/enable`,
+    });
+  });
+
+  it("keeps a rule switched off by hand off when the contract is enabled", async () => {
+    const floor = (await get<SavedRule[]>(`/rules?contract=${token}`)).find(
+      (r) => r.rule.name === "Supply floor",
+    )!;
+    expect(floor.enabled).toBe(true);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/contracts/${token}/disable`,
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/rules/${floor.id}`,
+      payload: { enabled: false },
+    });
+    const enabled = await app.inject({
+      method: "POST",
+      url: `/api/v1/contracts/${token}/enable`,
+    });
+    expect(enabled.json<Contract>()).toMatchObject({
+      active: true,
+      enabledCount: 0,
+    });
+  });
+
   it("lists only the contract's rules when asked", async () => {
     expect(await get<SavedRule[]>(`/rules?contract=${vault}`)).toEqual([]);
+  });
+});
+
+describe("changing a contract", () => {
+  it("renames it", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/contracts/${vault}`,
+      payload: { name: "Main vault" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ContractDetail>()).toMatchObject({
+      name: "Main vault",
+      abi,
+    });
+    const blank = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/contracts/${vault}`,
+      payload: { name: "" },
+    });
+    expect(blank.statusCode).toBe(400);
+  });
+
+  it("deletes it with its rules", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/contracts/${token}`,
+    });
+    expect(res.statusCode).toBe(204);
+    expect(
+      (await app.inject({ url: `/api/v1/contracts/${token}` })).statusCode,
+    ).toBe(404);
+    expect(await get<SavedRule[]>("/rules")).toEqual([]);
+    const again = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/contracts/${token}`,
+    });
+    expect(again.statusCode).toBe(404);
   });
 });

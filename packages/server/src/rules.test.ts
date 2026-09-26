@@ -1,4 +1,4 @@
-import type { RuleCheck, SavedRule } from "@tripwire/shared";
+import type { RuleCheck, SavedRule, StoredRuleCheck } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { testServer } from "./testing";
@@ -194,6 +194,177 @@ describe("storing a rule", () => {
       payload: { checkOnly: "yes" },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("changing a stored rule", () => {
+  const stored = async () =>
+    (await app.inject({ url: "/api/v1/rules" }))
+      .json<SavedRule[]>()
+      .find((r) => r.rule.name === floor.name)!;
+  const put = (id: string, rule: object, checkOnly?: boolean) =>
+    app.inject({
+      method: "PUT",
+      url: `/api/v1/rules/${id}`,
+      payload: { rule, checkOnly },
+    });
+  const patch = (id: string, payload: object) =>
+    app.inject({ method: "PATCH", url: `/api/v1/rules/${id}`, payload });
+
+  it("returns one rule with how its values are shown", async () => {
+    const { id } = await stored();
+    const res = await app.inject({ url: `/api/v1/rules/${id}` });
+    expect(res.json<SavedRule>()).toMatchObject({
+      id,
+      rule: floor,
+      warming: false,
+      display: { decimals: null, unit: null },
+    });
+    const missing = await app.inject({ url: "/api/v1/rules/999999" });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("checks a replacement without mistaking the rule for its own duplicate", async () => {
+    const { id } = await stored();
+    const check = (await put(id, floor, true)).json<RuleCheck>();
+    expect(check).toMatchObject({ valid: true, duplicateOf: null });
+  });
+
+  it("replaces the document and keeps the rule's identity", async () => {
+    const { id } = await stored();
+    const raised = {
+      ...floor,
+      trip_when: {
+        ...floor.trip_when,
+        right: { node: "literal", value: "2" },
+      },
+    };
+    const res = await put(id, raised);
+    expect(res.statusCode).toBe(200);
+    expect(res.json<StoredRuleCheck>()).toMatchObject({
+      id,
+      stored: true,
+      enabled: true,
+      sentence:
+        "On every block, notify when totalAssets() falls below 2 (critical).",
+    });
+    expect((await stored()).rule).toEqual(raised);
+  });
+
+  it("refuses a replacement that moves the rule to another contract", async () => {
+    const { id } = await stored();
+    const res = await put(id, {
+      ...floor,
+      contract: "0x4444444444444444444444444444444444444444",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "contract_changed" });
+  });
+
+  it("refuses a replacement identical to another rule", async () => {
+    const { id } = await stored();
+    const other = (await app.inject({ url: "/api/v1/rules" }))
+      .json<SavedRule[]>()
+      .find((r) => r.id !== id)!;
+    const res = await put(id, { ...other.rule, name: floor.name });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "duplicate",
+      duplicateOf: other.id,
+    });
+  });
+
+  it("switches a rule and sets how its values are shown", async () => {
+    const { id } = await stored();
+    const res = await patch(id, {
+      enabled: false,
+      display: { decimals: 18, unit: "USDC" },
+    });
+    expect(res.json<SavedRule>()).toMatchObject({
+      enabled: false,
+      display: { decimals: 18, unit: "USDC" },
+    });
+    const cleared = await patch(id, {
+      enabled: true,
+      display: { decimals: null, unit: "" },
+    });
+    expect(cleared.json<SavedRule>()).toMatchObject({
+      enabled: true,
+      display: { decimals: null, unit: null },
+    });
+  });
+
+  it("refuses a change it does not understand", async () => {
+    const { id } = await stored();
+    for (const payload of [
+      { enabled: "yes" },
+      { display: { decimals: -1, unit: null } },
+      { name: "Renamed" },
+    ]) {
+      expect((await patch(id, payload)).statusCode).toBe(400);
+    }
+  });
+});
+
+describe("pinned rules", () => {
+  const pin = (ruleIds: string[]) =>
+    app.inject({
+      method: "PUT",
+      url: "/api/v1/pinned-rules",
+      payload: { ruleIds },
+    });
+
+  it("keeps them in order, once each", async () => {
+    const ids = (await app.inject({ url: "/api/v1/rules" }))
+      .json<SavedRule[]>()
+      .map((r) => r.id);
+    const order = [...ids].reverse();
+    expect((await pin([...order, order[0]!])).json()).toEqual(order);
+    expect((await app.inject({ url: "/api/v1/pinned-rules" })).json()).toEqual(
+      order,
+    );
+  });
+
+  it("refuses a rule that does not exist", async () => {
+    const res = await pin(["999999"]);
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "unknown_rule" });
+  });
+});
+
+describe("deleting a rule", () => {
+  it("removes it and drops its pin", async () => {
+    const rules = (await app.inject({ url: "/api/v1/rules" })).json<
+      SavedRule[]
+    >();
+    const [gone, kept] = rules;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/rules/${gone!.id}`,
+      payload: { display: { decimals: 6, unit: null } },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/api/v1/pinned-rules",
+      payload: { ruleIds: [gone!.id, kept!.id] },
+    });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/rules/${gone!.id}`,
+    });
+    expect(res.statusCode).toBe(204);
+    expect(
+      (await app.inject({ url: `/api/v1/rules/${gone!.id}` })).statusCode,
+    ).toBe(404);
+    expect((await app.inject({ url: "/api/v1/pinned-rules" })).json()).toEqual([
+      kept!.id,
+    ]);
+    const again = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/rules/${gone!.id}`,
+    });
+    expect(again.statusCode).toBe(404);
   });
 });
 

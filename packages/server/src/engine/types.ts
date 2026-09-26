@@ -33,6 +33,27 @@ export interface RuleRow {
   updated_at: string;
 }
 
+/**
+ * A row of `api_v1.violations`, with the application's acknowledgement of
+ * it when a person has given one.
+ */
+export interface ViolationRow {
+  id: string;
+  rule_id: string;
+  rule_name: string;
+  severity: Severity;
+  contract_address: string;
+  kind: "tripped" | "evaluation_error" | "pending";
+  block_number: number;
+  block_time: string;
+  tx_hash: string | null;
+  evidence: unknown;
+  created_at: string;
+  acknowledged_by: string | null;
+  note: string | null;
+  acknowledged_at: string | null;
+}
+
 /** `GET /v1/health`: the running process speaking for itself. */
 export interface EngineHealth {
   status: "starting" | "ready" | "degraded";
@@ -142,4 +163,13 @@ export interface EngineReads {
   contract(address: string): Promise<ContractRow | null>;
   rules(filter?: { contractId?: string }): Promise<RuleRow[]>;
   rule(id: string): Promise<RuleRow | null>;
+  /** Newest first; `before` pages by id, `open` leaves out acknowledged ones. */
+  violations(filter?: {
+    ruleId?: string;
+    contractId?: string;
+    open?: boolean;
+    before?: string;
+    limit?: number;
+  }): Promise<ViolationRow[]>;
+  violation(id: string): Promise<ViolationRow | null>;
 }

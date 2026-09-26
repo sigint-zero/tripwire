@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS stub.rules (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (contract_id, name)
 );
+ALTER TABLE stub.rules ADD COLUMN IF NOT EXISTS last_evaluated_block bigint;
+CREATE TABLE IF NOT EXISTS stub.violations (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  rule_id bigint NOT NULL REFERENCES stub.rules (id) ON DELETE CASCADE,
+  kind text NOT NULL,
+  block_number bigint NOT NULL,
+  block_time timestamptz NOT NULL,
+  tx_hash text,
+  evidence jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE SCHEMA IF NOT EXISTS ${STUB_VIEWS};
 CREATE OR REPLACE VIEW ${STUB_VIEWS}.contracts AS
   SELECT c.id, c.address, c.name, c.abi, c.created_at,
@@ -65,9 +76,16 @@ CREATE OR REPLACE VIEW ${STUB_VIEWS}.rules AS
   SELECT r.id, r.contract_id, c.address AS contract_address, r.name, r.document,
          r.description, r.severity, r.enabled, r.origin,
          r.enabled AND r.created_at + make_interval(secs => r.warmup_seconds) > now() AS warming,
-         NULL::bigint AS last_evaluated_block,
+         r.last_evaluated_block,
          r.created_at, r.updated_at
     FROM stub.rules r JOIN stub.contracts c ON c.id = r.contract_id;
+CREATE OR REPLACE VIEW ${STUB_VIEWS}.violations AS
+  SELECT v.id, v.rule_id, r.name AS rule_name, r.severity,
+         c.address AS contract_address, v.kind, v.block_number, v.block_time,
+         v.tx_hash, v.evidence, v.created_at
+    FROM stub.violations v
+    JOIN stub.rules r ON r.id = v.rule_id
+    JOIN stub.contracts c ON c.id = r.contract_id;
 `;
 
 const CONTRACT_COLUMNS = "id::text, address, name, abi, created_at";
@@ -293,6 +311,77 @@ export class StubEngine implements EngineCommands {
         document.when === "every_block"
           ? evaluation
           : { ...evaluation, would_trip: false },
+    };
+  }
+
+  /**
+   * Evaluates every enabled block rule once at the current simulated
+   * block, recording a violation for each that trips, as the engine does
+   * on every block while a condition holds. Returns how many it recorded.
+   */
+  async tick(): Promise<number> {
+    const clock = this.#clock();
+    const block = blockAt(clock);
+    const { rows } = await this.#pool.query<{
+      id: string;
+      address: string;
+      document: Rule;
+    }>(
+      `SELECT r.id::text, c.address, r.document
+         FROM stub.rules r JOIN stub.contracts c ON c.id = r.contract_id
+        WHERE r.enabled AND r.document->>'when' = 'every_block'
+          AND (r.last_evaluated_block IS NULL OR r.last_evaluated_block < $1)
+        ORDER BY r.id LIMIT 1000`,
+      [block],
+    );
+    let recorded = 0;
+    for (const row of rows) {
+      let kind: "tripped" | "evaluation_error" | null = null;
+      let evidence: unknown;
+      try {
+        const evaluation = evaluateTrip(
+          row.document.trip_when,
+          row.address,
+          clock,
+        );
+        if (evaluation.would_trip) {
+          kind = "tripped";
+          evidence = evaluation.evidence;
+        }
+      } catch (error) {
+        kind = "evaluation_error";
+        evidence = { error: String(error) };
+      }
+      // Recording the violation and moving the rule's block commit together.
+      await this.#pool.query(
+        `WITH moved AS (
+           UPDATE stub.rules SET last_evaluated_block = $2 WHERE id = $1 RETURNING id
+         )
+         INSERT INTO stub.violations (rule_id, kind, block_number, block_time, evidence)
+         SELECT id, $3, $2, $4, $5 FROM moved WHERE $3::text IS NOT NULL`,
+        [
+          row.id,
+          block,
+          kind,
+          new Date(clock).toISOString(),
+          JSON.stringify(evidence ?? null),
+        ],
+      );
+      if (kind) recorded++;
+    }
+    return recorded;
+  }
+
+  /** Ticks once per simulated block until the returned stop is called. */
+  ticking(): () => Promise<void> {
+    let running: Promise<unknown> = Promise.resolve();
+    const timer = setInterval(() => {
+      running = running.then(() => this.tick()).catch(() => {});
+    }, 12_000);
+    timer.unref();
+    return async () => {
+      clearInterval(timer);
+      await running;
     };
   }
 

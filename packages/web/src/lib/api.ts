@@ -6,9 +6,11 @@ import type {
   EngineInfo,
   Issue,
   Rule,
+  RuleChange,
   RuleCheck,
   SavedRule,
   StoredRuleCheck,
+  Violation,
 } from "@tripwire/shared";
 
 export class ApiError extends Error {
@@ -71,6 +73,57 @@ export const api = {
     }),
   checkRule: (rule: Rule, signal?: AbortSignal) =>
     request<RuleCheck>("/rules", { json: { rule, checkOnly: true }, signal }),
+  renameContract: (address: string, name: string) =>
+    request<ContractDetail>(`/contracts/${address}`, {
+      method: "PATCH",
+      json: { name },
+    }),
+  deleteContract: (address: string) =>
+    request<null>(`/contracts/${address}`, { method: "DELETE" }),
   createRule: (rule: Rule) =>
     request<StoredRuleCheck>("/rules", { json: { rule } }),
+  rule: (id: string, signal?: AbortSignal) =>
+    request<SavedRule>(`/rules/${id}`, { signal }),
+  checkReplacement: (id: string, rule: Rule, signal?: AbortSignal) =>
+    request<RuleCheck>(`/rules/${id}`, {
+      method: "PUT",
+      json: { rule, checkOnly: true },
+      signal,
+    }),
+  replaceRule: (id: string, rule: Rule) =>
+    request<StoredRuleCheck>(`/rules/${id}`, {
+      method: "PUT",
+      json: { rule },
+    }),
+  changeRule: (id: string, change: RuleChange) =>
+    request<SavedRule>(`/rules/${id}`, { method: "PATCH", json: change }),
+  deleteRule: (id: string) =>
+    request<null>(`/rules/${id}`, { method: "DELETE" }),
+  pinnedRules: (signal?: AbortSignal) =>
+    request<string[]>("/pinned-rules", { signal }),
+  pinRules: (ruleIds: string[]) =>
+    request<string[]>("/pinned-rules", { method: "PUT", json: { ruleIds } }),
+  violations: (
+    filter: {
+      rule?: string;
+      contract?: string;
+      open?: boolean;
+      before?: string;
+      limit?: number;
+    } = {},
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams(
+      Object.entries(filter)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)]),
+    ).toString();
+    return request<Violation[]>(`/violations${query ? `?${query}` : ""}`, {
+      signal,
+    });
+  },
+  violation: (id: string, signal?: AbortSignal) =>
+    request<Violation>(`/violations/${id}`, { signal }),
+  acknowledge: (id: string, note?: string) =>
+    request<Violation>(`/violations/${id}/acknowledge`, { json: { note } }),
 };

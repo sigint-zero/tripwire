@@ -9,18 +9,17 @@ import { z } from "zod";
 import { lookupFailed, type AbiLookup } from "./abi";
 import type { EngineCommands, EngineReads, ContractRow } from "./engine/types";
 import { refuse } from "./refuse";
-import type { AppStore } from "./store";
+import { DASHBOARD, type AppStore } from "./store";
 
+const name = z.string().trim().min(1, "is required").max(80);
 const registration = z.object({
   address,
-  name: z.string().trim().min(1, "is required").max(80),
+  name,
   abi: z.array(z.unknown()).optional(),
 });
+const change = z.object({ name });
 
 type ByAddress = { Params: { address: string } };
-
-/** Who switched a contract off, until accounts exist to name them. */
-const DASHBOARD = "dashboard";
 
 /**
  * The engine's contract row, with what the application keeps about it:
@@ -130,6 +129,35 @@ export const contractRoutes: FastifyPluginCallback<{
       })
       .catch((error: unknown) => request.log.warn(error));
     return reply.code(201).send(await detail(row));
+  });
+
+  app.patch<ByAddress>("/contracts/:address", async (request, reply) => {
+    const body = change.safeParse(request.body);
+    if (!body.success) {
+      return refuse(reply, 400, "invalid_contract", "Invalid contract.", {
+        issues: issuesOf(body.error),
+      });
+    }
+    if (!(await reads.contract(request.params.address))) {
+      return notFound(reply);
+    }
+    return detail(
+      await commands.updateContract(request.params.address, body.data),
+    );
+  });
+
+  // The engine deletes the contract with its rules and their history; what
+  // the application kept about them goes after, or is swept later.
+  app.delete<ByAddress>("/contracts/:address", async (request, reply) => {
+    const row = await reads.contract(request.params.address);
+    if (!row) return notFound(reply);
+    const rules = (await reads.rules({ contractId: row.id })).map((r) => r.id);
+    await commands.deleteContract(row.address);
+    await Promise.all([
+      store.forgetContract(row.id, row.address),
+      store.forgetRules(rules),
+    ]).catch((error: unknown) => request.log.warn(error));
+    return reply.code(204).send();
   });
 
   // One batch call to the engine switches the rules, then the record of

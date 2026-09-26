@@ -1,6 +1,6 @@
 // Shapes the local API returns, shared by the server and the dashboard.
 
-import type { Issue, Rule } from "./rule";
+import type { Issue, Rule, Severity } from "./rule";
 
 /** A verified contract's ABI. For a proxy, the implementation's ABI is merged in. */
 export interface ContractAbi {
@@ -71,7 +71,10 @@ export interface RuleCheck {
   simulated: boolean;
 }
 
-/** What the dashboard posts to /rules: a document, checked or stored. */
+/**
+ * What the dashboard posts to /rules, or puts to /rules/:id to replace a
+ * rule's document: checked only, or checked and stored.
+ */
 export interface RuleSubmission {
   rule: unknown;
   checkOnly?: boolean;
@@ -84,6 +87,12 @@ export interface StoredRuleCheck extends RuleCheck {
   enabled: boolean;
 }
 
+/** How a rule's values are shown: divided by 10^decimals, then the unit. */
+export interface RuleDisplay {
+  decimals: number | null;
+  unit: string | null;
+}
+
 /** A rule as the engine keeps it. */
 export interface SavedRule {
   id: string;
@@ -91,5 +100,33 @@ export interface SavedRule {
   sentence: string;
   enabled: boolean;
   origin: "dashboard" | "api" | { mcp: string };
+  /** True while a metric the rule reads is still gathering its window. */
+  warming: boolean;
+  lastEvaluatedBlock: number | null;
+  display: RuleDisplay;
   createdAt: string;
+  updatedAt: string;
+}
+
+/** Changing a stored rule: switching it, or how it is shown. */
+export interface RuleChange {
+  enabled?: boolean;
+  display?: RuleDisplay;
+}
+
+/** A rule tripping, or failing to evaluate, at one block. */
+export interface Violation {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  severity: Severity;
+  contractAddress: string;
+  kind: "tripped" | "evaluation_error" | "pending";
+  blockNumber: number;
+  blockTime: string;
+  txHash: string | null;
+  /** The condition with every value the evaluation saw, or the error. */
+  evidence: unknown;
+  createdAt: string;
+  acknowledged: { by: string; note: string | null; at: string } | null;
 }
