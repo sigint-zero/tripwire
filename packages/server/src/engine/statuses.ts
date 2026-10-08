@@ -2,7 +2,8 @@
 // the pinned engine documents for it and what the application does with
 // that status. A status the engine starts
 // documenting fails the parity test until it is added here with its
-// meaning; one it stops documenting fails it too.
+// meaning. Statuses the engine returns without documenting them, which a
+// route handles on purpose, are listed as well.
 //
 // Refusals keep their status and code on the way to the dashboard
 // (api.ts, the error handler), unless a route says otherwise.
@@ -35,8 +36,13 @@ export const ENGINE_OPERATIONS: Record<string, Record<string, string>> = {
   "POST /v1/read": { "200": "live values for the wizard" },
   "POST /v1/responses/{id}/approve": {
     "200": "submitted",
+    "409":
+      "busy: stays waiting (409 busy); else no longer waiting (409 not_waiting)",
   },
-  "POST /v1/responses/{id}/reject": { "200": "abandoned" },
+  "POST /v1/responses/{id}/reject": {
+    "200": "abandoned",
+    "409": "no longer waiting (409 not_waiting)",
+  },
   "POST /v1/responses/dry-run": { "200": "the action built and simulated" },
   "GET /v1/keys": { "200": "the keys" },
   "POST /v1/keys": { "201": "created" },
