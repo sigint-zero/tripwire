@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { NotificationStore } from "../notifications/store";
 import { testDatabase } from "../testing";
 import {
   CONTRACT_FIXTURES,
@@ -107,6 +108,7 @@ describe("the rule mirror", () => {
 describe("the view reads", () => {
   let database: Awaited<ReturnType<typeof testDatabase>>;
   let reads: ViewReads;
+  let notices: NotificationStore;
   const SCHEMA = "contract_api_v1";
 
   beforeAll(async () => {
@@ -123,6 +125,7 @@ describe("the view reads", () => {
       );
     }
     reads = new ViewReads(database.pool, SCHEMA);
+    notices = new NotificationStore(database.pool, SCHEMA);
   });
 
   afterAll(() => database.close());
@@ -176,6 +179,19 @@ describe("the view reads", () => {
       ["countPoints", () => reads.countPoints("1", day, now)],
       ["points", () => reads.points("1", day, now, 10)],
       ["buckets", () => reads.buckets(["1"], day, now, 10)],
+      // The alert feed reads the views too (notifications/store.ts).
+      ["feed", () => notices.feed({ limit: 5, unread: true })],
+      [
+        "feed before",
+        () =>
+          notices.feed({
+            limit: 5,
+            before: { micros: "1", source: "engine", id: "1" },
+          }),
+      ],
+      ["unreadCount", () => notices.unreadCount()],
+      ["undispatched", () => notices.undispatched(5)],
+      ["notices", () => notices.notices([{ source: "engine", id: "1" }])],
     ];
     const failed: string[] = [];
     for (const [name, read] of reads_) {
