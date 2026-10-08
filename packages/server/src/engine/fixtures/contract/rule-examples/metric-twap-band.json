@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "spot runs above its TWAP",
+  "description": "Spot versus time-weighted average price, counted on one side only. Demonstrates the twap metric and deviation_band sides.",
+  "contract": "0x1000000000000000000000000000000000000001",
+  "severity": "warning",
+  "when": "every_block",
+  "trip_when": {
+    "node": "deviation_band",
+    "value": {
+      "node": "view_call",
+      "function": "spot() returns (uint256)",
+      "args": []
+    },
+    "center": {
+      "node": "metric",
+      "metric": "twap",
+      "of": {
+        "node": "view_call",
+        "function": "spot() returns (uint256)",
+        "args": []
+      },
+      "window": {
+        "seconds": 3600
+      }
+    },
+    "tolerance_percent": "2",
+    "sides": "above"
+  },
+  "on_trip": {
+    "action": "notify"
+  }
+}

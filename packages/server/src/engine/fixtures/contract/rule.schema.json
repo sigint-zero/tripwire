@@ -1,0 +1,850 @@
+{
+  "$defs": {
+    "address": {
+      "description": "0x followed by 40 hex characters; normalised to lowercase",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "title": "Address",
+      "type": "string"
+    },
+    "args": {
+      "description": "Literal arguments, one string per parameter, each validated against the parameter's type",
+      "items": {
+        "type": "string"
+      },
+      "title": "Arguments",
+      "type": "array"
+    },
+    "bool_and": {
+      "additionalProperties": false,
+      "description": "Short-circuit conjunction",
+      "properties": {
+        "node": {
+          "const": "and"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/bool_node"
+          },
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "node",
+        "terms"
+      ],
+      "title": "And",
+      "type": "object"
+    },
+    "bool_compare": {
+      "additionalProperties": false,
+      "description": "Exact comparison of two value nodes. Ordering operators take numbers; eq/ne compare same-typed operands",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/value_node"
+        },
+        "node": {
+          "const": "compare"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge"
+          ]
+        },
+        "right": {
+          "$ref": "#/$defs/value_node"
+        }
+      },
+      "required": [
+        "node",
+        "op",
+        "left",
+        "right"
+      ],
+      "title": "Comparison",
+      "type": "object"
+    },
+    "bool_deviation_band": {
+      "additionalProperties": false,
+      "description": "True when value lies outside center ± tolerance_percent on the counted side(s)",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/value_node"
+        },
+        "node": {
+          "const": "deviation_band"
+        },
+        "sides": {
+          "enum": [
+            "both",
+            "above",
+            "below"
+          ]
+        },
+        "tolerance_percent": {
+          "description": "A positive percentage as a decimal string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/value_node"
+        }
+      },
+      "required": [
+        "node",
+        "value",
+        "center",
+        "tolerance_percent",
+        "sides"
+      ],
+      "title": "Deviation band",
+      "type": "object"
+    },
+    "bool_node": {
+      "description": "An expression that evaluates to true or false. The JSON literal true is the always-true node, used with an event trigger to fire on presence alone",
+      "oneOf": [
+        {
+          "const": true,
+          "title": "Always true"
+        },
+        {
+          "$ref": "#/$defs/bool_compare"
+        },
+        {
+          "$ref": "#/$defs/bool_deviation_band"
+        },
+        {
+          "$ref": "#/$defs/bool_simulate"
+        },
+        {
+          "$ref": "#/$defs/bool_and"
+        },
+        {
+          "$ref": "#/$defs/bool_or"
+        },
+        {
+          "$ref": "#/$defs/bool_not"
+        }
+      ],
+      "title": "Boolean node"
+    },
+    "bool_not": {
+      "additionalProperties": false,
+      "description": "Negation",
+      "properties": {
+        "expr": {
+          "$ref": "#/$defs/bool_node"
+        },
+        "node": {
+          "const": "not"
+        }
+      },
+      "required": [
+        "node",
+        "expr"
+      ],
+      "title": "Not",
+      "type": "object"
+    },
+    "bool_or": {
+      "additionalProperties": false,
+      "description": "Short-circuit disjunction",
+      "properties": {
+        "node": {
+          "const": "or"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/bool_node"
+          },
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "node",
+        "terms"
+      ],
+      "title": "Or",
+      "type": "object"
+    },
+    "bool_simulate": {
+      "additionalProperties": false,
+      "description": "Execute the call on the local fork; true exactly when it reverts or runs out of gas",
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/sim_call"
+        },
+        "node": {
+          "const": "simulate"
+        },
+        "yields": {
+          "const": "reverted"
+        }
+      },
+      "required": [
+        "node",
+        "call",
+        "yields"
+      ],
+      "title": "Simulate (reverted)",
+      "type": "object"
+    },
+    "component_index": {
+      "description": "Selects a component of the return declaration when the function returns a tuple; 0-based",
+      "minimum": 0,
+      "title": "Return component",
+      "type": "integer"
+    },
+    "decimal": {
+      "description": "An exact decimal, optionally with a fractional part and a leading minus: \"5000000\", \"1.5\", \"-0.03\". Never a JSON number: those lose precision past 2^53",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "title": "Decimal string",
+      "type": "string"
+    },
+    "filter": {
+      "additionalProperties": false,
+      "description": "Equality on one decoded event argument",
+      "properties": {
+        "arg": {
+          "description": "A parameter name from the event signature",
+          "type": "string"
+        },
+        "eq": {
+          "description": "A literal, validated against the parameter's type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arg",
+        "eq"
+      ],
+      "title": "Filter",
+      "type": "object"
+    },
+    "on_trip": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "function": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "action": {
+                "const": "trip_function"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "function": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "function"
+            ]
+          }
+        },
+        {
+          "else": {
+            "properties": {
+              "call": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "action": {
+                "const": "call"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "call": {
+                "$ref": "#/$defs/on_trip_call"
+              }
+            },
+            "required": [
+              "call"
+            ]
+          }
+        }
+      ],
+      "description": "What happens when the rule trips. \"function\" is present exactly when the action is trip_function, \"call\" exactly when it is call",
+      "properties": {
+        "action": {
+          "enum": [
+            "notify",
+            "trip_function",
+            "trip_global",
+            "call"
+          ]
+        },
+        "call": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/on_trip_call"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cooldown_seconds": {
+          "anyOf": [
+            {
+              "description": "Suppresses repeat firings inside the window; the violation is still recorded. Default 0",
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "function": {
+          "anyOf": [
+            {
+              "description": "The guarded function's bare signature (trip_function only)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "Consequence",
+      "type": "object"
+    },
+    "on_trip_call": {
+      "additionalProperties": false,
+      "description": "A call the target contract already exposes, sent by the engine's operator key; address defaults to the rule's contract",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/address"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "args": {
+          "$ref": "#/$defs/args"
+        },
+        "function": {
+          "description": "A bare signature; only execution matters, so no return declaration",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verify": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/bool_node",
+              "description": "A boolean node stating the call's effect is in place; contains no event_arg and no metric, so it is readable at any block"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "function",
+        "args"
+      ],
+      "title": "on_trip call",
+      "type": "object"
+    },
+    "sim_call": {
+      "additionalProperties": false,
+      "description": "Executed on the local fork, never against the real chain. from defaults to the zero address, address to the rule's contract, value to \"0\"",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/address"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "args": {
+          "$ref": "#/$defs/args"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/address"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "function": {
+          "description": "With a return declaration when the simulate yields a value; bare when only execution matters",
+          "title": "Function signature",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "function",
+        "args"
+      ],
+      "title": "Simulated call",
+      "type": "object"
+    },
+    "trigger": {
+      "description": "What wakes the rule up: \"every_block\", or an event object matched against each block's logs",
+      "oneOf": [
+        {
+          "const": "every_block",
+          "title": "Every block"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Evaluate trip_when once per matching log; address defaults to the rule's contract",
+          "properties": {
+            "address": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/address"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "event": {
+              "description": "Declaration style with indexed markers and parameter names: \"Transfer(address indexed from, address indexed to, uint256 value)\"",
+              "title": "Event signature",
+              "type": "string"
+            },
+            "filters": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/filter"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "event"
+          ],
+          "title": "Event trigger",
+          "type": "object"
+        }
+      ],
+      "title": "Trigger"
+    },
+    "value_arithmetic": {
+      "additionalProperties": false,
+      "description": "Exact decimal arithmetic; division extends to 18 fractional digits and truncates toward zero, division by zero is an evaluation error",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/value_node"
+        },
+        "node": {
+          "const": "arithmetic"
+        },
+        "op": {
+          "enum": [
+            "add",
+            "sub",
+            "mul",
+            "div"
+          ]
+        },
+        "right": {
+          "$ref": "#/$defs/value_node"
+        }
+      },
+      "required": [
+        "node",
+        "op",
+        "left",
+        "right"
+      ],
+      "title": "Arithmetic",
+      "type": "object"
+    },
+    "value_event_arg": {
+      "additionalProperties": false,
+      "description": "A decoded argument of the triggering event; only valid under an event trigger",
+      "properties": {
+        "arg": {
+          "type": "string"
+        },
+        "node": {
+          "const": "event_arg"
+        }
+      },
+      "required": [
+        "node",
+        "arg"
+      ],
+      "title": "Event argument",
+      "type": "object"
+    },
+    "value_literal": {
+      "additionalProperties": false,
+      "description": "A constant. Usually a decimal string; a literal takes the type its position expects, so against an address, bool or bytes operand it holds that type's literal form",
+      "properties": {
+        "node": {
+          "const": "literal"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "value"
+      ],
+      "title": "Literal",
+      "type": "object"
+    },
+    "value_metric": {
+      "additionalProperties": false,
+      "description": "A metric over the series produced by the view_call in \"of\". Until the metric has data covering its full window it is warming, and any boolean node containing a warming metric evaluates false: warm-up never trips",
+      "properties": {
+        "metric": {
+          "description": "ath and prev_block take no window; the others require one",
+          "enum": [
+            "ath",
+            "prev_block",
+            "moving_avg",
+            "twap",
+            "windowed_delta",
+            "windowed_drop"
+          ]
+        },
+        "node": {
+          "const": "metric"
+        },
+        "of": {
+          "$ref": "#/$defs/value_view_call"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/window"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "node",
+        "metric",
+        "of"
+      ],
+      "title": "Historical metric",
+      "type": "object"
+    },
+    "value_node": {
+      "description": "An expression that evaluates to a value",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/value_view_call"
+        },
+        {
+          "$ref": "#/$defs/value_literal"
+        },
+        {
+          "$ref": "#/$defs/value_event_arg"
+        },
+        {
+          "$ref": "#/$defs/value_arithmetic"
+        },
+        {
+          "$ref": "#/$defs/value_sum"
+        },
+        {
+          "$ref": "#/$defs/value_scale"
+        },
+        {
+          "$ref": "#/$defs/value_now"
+        },
+        {
+          "$ref": "#/$defs/value_metric"
+        },
+        {
+          "$ref": "#/$defs/value_simulate"
+        }
+      ],
+      "title": "Value node"
+    },
+    "value_now": {
+      "additionalProperties": false,
+      "description": "The current block timestamp, in seconds",
+      "properties": {
+        "node": {
+          "const": "now"
+        }
+      },
+      "required": [
+        "node"
+      ],
+      "title": "Now",
+      "type": "object"
+    },
+    "value_scale": {
+      "additionalProperties": false,
+      "description": "Multiply by 10^decimals; normalises token decimals",
+      "properties": {
+        "decimals": {
+          "maximum": 77,
+          "minimum": -77,
+          "type": "integer"
+        },
+        "expr": {
+          "$ref": "#/$defs/value_node"
+        },
+        "node": {
+          "const": "scale"
+        }
+      },
+      "required": [
+        "node",
+        "expr",
+        "decimals"
+      ],
+      "title": "Scale",
+      "type": "object"
+    },
+    "value_simulate": {
+      "additionalProperties": false,
+      "description": "Execute the call on the local fork and yield its return value; reverting is an evaluation error in this form",
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/sim_call"
+        },
+        "node": {
+          "const": "simulate"
+        },
+        "returns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/component_index"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "yields": {
+          "const": "value"
+        }
+      },
+      "required": [
+        "node",
+        "call",
+        "yields"
+      ],
+      "title": "Simulate (value)",
+      "type": "object"
+    },
+    "value_sum": {
+      "additionalProperties": false,
+      "description": "The sum of all terms",
+      "properties": {
+        "node": {
+          "const": "sum"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/value_node"
+          },
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "node",
+        "terms"
+      ],
+      "title": "Sum",
+      "type": "object"
+    },
+    "value_view_call": {
+      "additionalProperties": false,
+      "description": "Read a view at the current block on the local fork; address defaults to the rule's contract",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/address"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "args": {
+          "$ref": "#/$defs/args"
+        },
+        "function": {
+          "description": "Positional parameters plus the return declaration, like \"totalSupply() returns (uint256)\" or \"getReserves() returns (uint112,uint112,uint32)\"",
+          "title": "Function signature",
+          "type": "string"
+        },
+        "node": {
+          "const": "view_call"
+        },
+        "returns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/component_index"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "node",
+        "function",
+        "args"
+      ],
+      "title": "View call",
+      "type": "object"
+    },
+    "window": {
+      "additionalProperties": false,
+      "description": "A trailing window, sampled per block",
+      "properties": {
+        "seconds": {
+          "maximum": 2592000,
+          "minimum": 60,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seconds"
+      ],
+      "title": "Window",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One watchable statement about a protocol: a condition that should never occur (trip_when always states the bad condition) and what to do when it does",
+  "properties": {
+    "contract": {
+      "$ref": "#/$defs/address"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "description": "Free text for humans",
+          "title": "Description",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "name": {
+      "description": "Unique per contract",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "on_trip": {
+      "$ref": "#/$defs/on_trip"
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "trip_when": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/bool_node"
+        }
+      ],
+      "description": "The rule fires when this is true. State the bad condition: whenever a condition cannot yet be known, it evaluates false and nothing fires",
+      "title": "The violation condition"
+    },
+    "version": {
+      "const": 1,
+      "description": "The rule-language version; must be 1",
+      "title": "Language version"
+    },
+    "when": {
+      "$ref": "#/$defs/trigger"
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "contract",
+    "severity",
+    "when",
+    "trip_when",
+    "on_trip"
+  ],
+  "title": "Tripwire rule",
+  "type": "object",
+  "x-rule-language-version": 1
+}

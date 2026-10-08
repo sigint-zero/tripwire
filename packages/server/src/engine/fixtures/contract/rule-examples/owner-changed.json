@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "owner is no longer the expected address",
+  "description": "A literal takes the type its position expects: compared against an address-returning view, the constant is an address. Demonstrates eq/ne on addresses.",
+  "contract": "0x1000000000000000000000000000000000000001",
+  "severity": "critical",
+  "when": "every_block",
+  "trip_when": {
+    "node": "compare",
+    "op": "ne",
+    "left": {
+      "node": "view_call",
+      "function": "owner() returns (address)",
+      "args": []
+    },
+    "right": {
+      "node": "literal",
+      "value": "0x3000000000000000000000000000000000000003"
+    }
+  },
+  "on_trip": {
+    "action": "notify"
+  }
+}

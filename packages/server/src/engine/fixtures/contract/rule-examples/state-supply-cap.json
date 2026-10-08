@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "total supply exceeds the cap",
+  "description": "The simplest state rule: on every block, read one view and compare it with a constant. Demonstrates view_call, literal and an ordering comparison.",
+  "contract": "0x1000000000000000000000000000000000000001",
+  "severity": "critical",
+  "when": "every_block",
+  "trip_when": {
+    "node": "compare",
+    "op": "gt",
+    "left": {
+      "node": "view_call",
+      "function": "totalSupply() returns (uint256)",
+      "args": []
+    },
+    "right": {
+      "node": "literal",
+      "value": "1000000000000000000000000000"
+    }
+  },
+  "on_trip": {
+    "action": "notify"
+  }
+}

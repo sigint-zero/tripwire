@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "tracked balances exceed total supply",
+  "description": "An accounting identity over several holders: the sum of three balances must never exceed the supply. Demonstrates sum and view_call arguments.",
+  "contract": "0x1000000000000000000000000000000000000001",
+  "severity": "critical",
+  "when": "every_block",
+  "trip_when": {
+    "node": "compare",
+    "op": "lt",
+    "left": {
+      "node": "view_call",
+      "function": "totalSupply() returns (uint256)",
+      "args": []
+    },
+    "right": {
+      "node": "sum",
+      "terms": [
+        {
+          "node": "view_call",
+          "function": "balanceOf(address) returns (uint256)",
+          "args": [
+            "0x2000000000000000000000000000000000000002"
+          ]
+        },
+        {
+          "node": "view_call",
+          "function": "balanceOf(address) returns (uint256)",
+          "args": [
+            "0x3000000000000000000000000000000000000003"
+          ]
+        },
+        {
+          "node": "view_call",
+          "function": "balanceOf(address) returns (uint256)",
+          "args": [
+            "0x4000000000000000000000000000000000000004"
+          ]
+        }
+      ]
+    }
+  },
+  "on_trip": {
+    "action": "notify"
+  }
+}

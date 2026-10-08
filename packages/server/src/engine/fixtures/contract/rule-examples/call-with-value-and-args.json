@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "health check fails; sweep to treasury",
+  "description": "A call action with arguments and attached wei: when the health check reverts, call rescue on the contract, funding the call with one wei. Demonstrates call args and value.",
+  "contract": "0x1000000000000000000000000000000000000001",
+  "severity": "critical",
+  "when": "every_block",
+  "trip_when": {
+    "node": "simulate",
+    "call": {
+      "function": "healthCheck()",
+      "args": []
+    },
+    "yields": "reverted"
+  },
+  "on_trip": {
+    "action": "call",
+    "call": {
+      "function": "rescue(address,uint256)",
+      "args": [
+        "0x3000000000000000000000000000000000000003",
+        "1000000000000000000"
+      ],
+      "value": "1"
+    },
+    "cooldown_seconds": 3600
+  }
+}
