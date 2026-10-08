@@ -193,21 +193,21 @@ export const WINDOWED_METRICS: readonly MetricName[] = [
 export interface ViewCall {
   node: "view_call";
   /** Defaults to the rule's contract. */
-  address?: string;
+  address?: string | null;
   /** Declares what it returns: "totalSupply() returns (uint256)". */
   function: string;
   args: string[];
   /** Selects one output of a function that returns several. */
-  returns?: number;
+  returns?: number | null;
 }
 
 /** A simulated call; its function declares its returns when the value is read. */
 export interface SimulatedCall {
-  from?: string;
-  address?: string;
+  from?: string | null;
+  address?: string | null;
   function: string;
   args: string[];
-  value?: string;
+  value?: string | null;
 }
 
 export type ArithmeticOp = "add" | "sub" | "mul" | "div";
@@ -225,12 +225,17 @@ export type ValueNode =
   | { node: "sum"; terms: ValueNode[] }
   | { node: "scale"; expr: ValueNode; decimals: number }
   | { node: "now" }
-  | { node: "metric"; metric: MetricName; of: ViewCall; window?: Window }
+  | {
+      node: "metric";
+      metric: MetricName;
+      of: ViewCall;
+      window?: Window | null;
+    }
   | {
       node: "simulate";
       call: SimulatedCall;
       yields: "value";
-      returns?: number;
+      returns?: number | null;
     };
 
 export type CompareOp = "eq" | "ne" | "lt" | "le" | "gt" | "ge";
@@ -254,19 +259,19 @@ const returns = z.number().int().nonnegative();
 
 export const viewCall = z.strictObject({
   node: z.literal("view_call"),
-  address: address.optional(),
+  address: address.nullish(),
   function: readSignature,
   args: z.array(z.string()),
-  returns: returns.optional(),
+  returns: returns.nullish(),
 });
 
 const simulatedCall = (fn: typeof functionSignature) =>
   z.strictObject({
-    from: address.optional(),
-    address: address.optional(),
+    from: address.nullish(),
+    address: address.nullish(),
     function: fn,
     args: z.array(z.string()),
-    value: decimal.optional(),
+    value: decimal.nullish(),
   });
 
 const metric = z
@@ -281,7 +286,7 @@ const metric = z
       "windowed_drop",
     ]),
     of: viewCall,
-    window: window.optional(),
+    window: window.nullish(),
   })
   .superRefine((m, ctx) => {
     const windowed = WINDOWED_METRICS.includes(m.metric);
@@ -317,7 +322,7 @@ export const valueNode: z.ZodType<ValueNode> = z.lazy(() =>
           'must be a decimal string, like "1.5", or an address, bool or bytes value',
         ),
     }),
-    z.strictObject({ node: z.literal("event_arg"), arg: z.string().min(1) }),
+    z.strictObject({ node: z.literal("event_arg"), arg: z.string() }),
     z.strictObject({
       node: z.literal("arithmetic"),
       op: z.enum(["add", "sub", "mul", "div"]),
@@ -343,7 +348,7 @@ export const valueNode: z.ZodType<ValueNode> = z.lazy(() =>
       node: z.literal("simulate"),
       call: simulatedCall(readSignature),
       yields: z.literal("value"),
-      returns: returns.optional(),
+      returns: returns.nullish(),
     }),
   ]),
 );
@@ -392,42 +397,55 @@ export const trigger = z.union([
   z.literal("every_block"),
   z.strictObject({
     event: eventSignature,
-    address: address.nullable().optional(),
+    address: address.nullish(),
     filters: z
-      .array(z.strictObject({ arg: z.string().min(1), eq: z.string() }))
-      .optional(),
+      .array(z.strictObject({ arg: z.string(), eq: z.string() }))
+      .nullish(),
   }),
 ]);
 export type Trigger = z.infer<typeof trigger>;
 
-const cooldown = z.number().int().nonnegative().optional();
+const cooldown = z.number().int().nonnegative().nullish();
+
+// The engine reads a null optional field as absent, so
+// an action may carry another action's field as null.
+const unused = z.null().optional();
 
 /** What the engine does when the rule trips. */
 export const onTrip = z.discriminatedUnion("action", [
-  z.strictObject({ action: z.literal("notify"), cooldown_seconds: cooldown }),
+  z.strictObject({
+    action: z.literal("notify"),
+    function: unused,
+    call: unused,
+    cooldown_seconds: cooldown,
+  }),
   z.strictObject({
     action: z.literal("trip_global"),
+    function: unused,
+    call: unused,
     cooldown_seconds: cooldown,
   }),
   z.strictObject({
     action: z.literal("trip_function"),
     function: functionSignature,
+    call: unused,
     cooldown_seconds: cooldown,
   }),
   z.strictObject({
     action: z.literal("call"),
+    function: unused,
     call: z.strictObject({
       /** Defaults to the rule's contract. */
-      address: address.nullable().optional(),
+      address: address.nullish(),
       function: functionSignature,
       args: z.array(z.string()),
       /** Wei sent along; defaults to "0". */
       value: z
         .string()
         .regex(/^\d+$/, "must be a whole number of wei")
-        .optional(),
+        .nullish(),
       /** States that the call's effect is in place, such as paused() reading true. */
-      verify: boolNode.optional(),
+      verify: boolNode.nullish(),
     }),
     cooldown_seconds: cooldown,
   }),
@@ -536,7 +554,7 @@ function checkArgs(fn: string, args: string[], path: Path, issue: Report) {
 /** The value a read selects from what its signature declares it returns. */
 function readType(
   fn: string,
-  index: number | undefined,
+  index: number | null | undefined,
   path: Path,
   issue: Report,
 ): ValueType | "any" {
@@ -677,7 +695,7 @@ export const rule = z
   .strictObject({
     version: z.literal(1),
     name: z.string().trim().min(1, "is required").max(120),
-    description: z.string().optional(),
+    description: z.string().nullish(),
     contract: address,
     severity,
     when: trigger,
@@ -732,7 +750,7 @@ export const rule = z
     if (r.on_trip.action === "call") {
       const call = r.on_trip.call;
       checkArgs(call.function, call.args, ["on_trip", "call"], issue);
-      if (call.verify !== undefined) {
+      if (call.verify !== undefined && call.verify !== null) {
         checkBool(call.verify, ["on_trip", "call", "verify"], {
           issue,
           events: null,

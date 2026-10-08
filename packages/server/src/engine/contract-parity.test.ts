@@ -5,6 +5,7 @@ import { z } from "zod";
 import { testDatabase } from "../testing";
 import { loadEngineContract, type EngineContract } from "./contract-files";
 import { ViewReads } from "./reads";
+import { differences, shapeOf } from "./schema-shape";
 import { ENGINE_OPERATIONS } from "./statuses";
 
 // The application against the engine it pins: the rule mirror against the engine's schema and examples, every
@@ -46,21 +47,35 @@ describe("the rule mirror", () => {
     expect(refused).toEqual([]);
   });
 
-  it("has the engine schema's top-level fields", () => {
-    const mirror = z.toJSONSchema(rule, { unrepresentable: "any" });
-    expect(fieldsOf(mirror)).toEqual(fieldsOf(contract.ruleSchema));
+  it("states the engine's rule language: types, null, enums and bounds", () => {
+    const mirror = z.toJSONSchema(rule, {
+      unrepresentable: "any",
+      io: "input",
+    });
+    expect(
+      differences(shapeOf(mirror as Json), shapeOf(contract.ruleSchema)),
+    ).toEqual([]);
   });
 
-  it("has the engine schema's nodes, field for field", () => {
-    const mirror = z.toJSONSchema(rule, { unrepresentable: "any" });
-    expect(variantsOf(mirror, "node")).toEqual(
-      variantsOf(contract.ruleSchema, "node"),
-    );
-  });
-
-  it("has the engine schema's actions and their fields", () => {
-    const mirror = z.toJSONSchema(rule, { unrepresentable: "any" });
-    expect(actionsOf(mirror)).toEqual(actionsOf(contract.ruleSchema));
+  it("reads null as absent wherever the engine does", () => {
+    // The engine reads a null optional field as absent and a null
+    // required one as missing; the mirror must agree on every field of
+    // every example.
+    const mismatched: string[] = [];
+    for (const [name, document] of contract.examples) {
+      for (const path of fieldPaths(document)) {
+        const nulled = withField(document, path, null);
+        const removed = withField(document, path, undefined);
+        const a = rule.safeParse(nulled).success;
+        const b = rule.safeParse(removed).success;
+        if (a !== b) {
+          mismatched.push(
+            `${name} ${path.join("/")}: null ${a ? "accepted" : "refused"}, absent ${b ? "accepted" : "refused"}`,
+          );
+        }
+      }
+    }
+    expect(mismatched).toEqual([]);
   });
 });
 
@@ -215,90 +230,34 @@ function normalise(operation: string): string {
   return operation.replace(/\{[^}]*\}/g, "{}");
 }
 
-type Node = Record<string, unknown>;
+type Json = Record<string, unknown>;
 
-/** The top-level fields of the rule object. */
-function fieldsOf(schema: Node): string[] {
-  const root = resolveRoot(schema);
-  return Object.keys((root.properties as Node | undefined) ?? {}).sort();
-}
-
-function resolveRoot(schema: Node): Node {
-  if (schema.properties) return schema;
-  const ref = schema.$ref as string | undefined;
-  if (ref) return resolve(schema, ref);
-  throw new Error("no root object in the schema");
-}
-
-function resolve(root: Node, ref: string): Node {
-  let node: unknown = root;
-  for (const part of ref.replace(/^#\//, "").split("/")) {
-    node = (node as Node)[part];
+/** Every object field of a document, as paths. */
+function fieldPaths(
+  value: unknown,
+  path: (string | number)[] = [],
+): (string | number)[][] {
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => fieldPaths(v, [...path, i]));
   }
-  return node as Node;
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, v]) => [
+    [...path, key],
+    ...fieldPaths(v, [...path, key]),
+  ]);
 }
 
-/** Every object in a schema, skipping `if` conditions (not shapes). */
-function objectsOf(schema: Node): Node[] {
-  const out: Node[] = [];
-  const seen = new Set<unknown>();
-  const visit = (value: unknown) => {
-    if (!value || typeof value !== "object" || seen.has(value)) return;
-    seen.add(value);
-    if (Array.isArray(value)) {
-      value.forEach(visit);
-      return;
-    }
-    const node = value as Node;
-    if (node.properties) out.push(node);
-    for (const [key, child] of Object.entries(node)) {
-      if (key !== "if") visit(child);
-    }
-  };
-  visit(schema);
-  return out;
-}
-
-/** Every object told apart by a constant `tag`, as `view_call` → its fields. */
-function variantsOf(schema: Node, tag: string): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const node of objectsOf(schema)) {
-    const properties = node.properties as Node;
-    const constant = constOf(properties[tag]);
-    if (constant !== undefined) out[constant] = Object.keys(properties).sort();
-  }
-  return out;
-}
-
-/**
- * The actions and every field any action takes. The engine states them as
- * one object with conditions, the mirror as one object per action.
- */
-function actionsOf(schema: Node): { actions: string[]; fields: string[] } {
-  const actions = new Set<string>();
-  const fields = new Set<string>();
-  for (const node of objectsOf(schema)) {
-    const properties = node.properties as Node;
-    const action = properties.action as Node | undefined;
-    if (!action) continue;
-    const values =
-      constOf(action) !== undefined
-        ? [constOf(action)!]
-        : ((action.enum as string[] | undefined) ?? []);
-    if (!values.length) continue;
-    values.forEach((v) => actions.add(v));
-    Object.keys(properties).forEach((f) => fields.add(f));
-  }
-  return { actions: [...actions].sort(), fields: [...fields].sort() };
-}
-
-function constOf(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const node = value as Node;
-  if (typeof node.const === "string") return node.const;
-  const options = node.enum as unknown[] | undefined;
-  if (options?.length === 1 && typeof options[0] === "string") {
-    return options[0];
-  }
-  return undefined;
+/** A copy of `document` with the field at `path` set, or removed when undefined. */
+function withField(
+  document: unknown,
+  path: (string | number)[],
+  value: unknown,
+): unknown {
+  const copy = structuredClone(document) as Json;
+  let node: Json = copy;
+  for (const step of path.slice(0, -1)) node = node[step as string] as Json;
+  const last = path[path.length - 1] as string;
+  if (value === undefined) delete node[last];
+  else node[last] = value;
+  return copy;
 }

@@ -414,7 +414,7 @@ function pickedRead(
   ) {
     return "custom";
   }
-  const id = readableId(verify.left.function, verify.left.returns);
+  const id = readableId(verify.left.function, verify.left.returns ?? undefined);
   const read = [...surface.flags, ...surface.reads].find((r) => r.id === id);
   return read ? { read, op: verify.op, value: verify.right.value } : "custom";
 }
@@ -433,7 +433,7 @@ function Confirmation({
   surface: ContractSurface;
   onChange: (onTrip: OnTrip) => void;
 }) {
-  const picked = pickedRead(value.call.verify, surface);
+  const picked = pickedRead(value.call.verify ?? undefined, surface);
   const current = picked === "custom" || picked === null ? null : picked;
   const isFlag = !!current && surface.flags.includes(current.read);
   const set = (verify: BoolNode | null) => {

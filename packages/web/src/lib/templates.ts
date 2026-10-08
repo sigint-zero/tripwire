@@ -141,7 +141,7 @@ function callId(node: unknown): string | null {
   if (n?.node !== "view_call" || n.address || n.args?.length || !n.function) {
     return null;
   }
-  return readableId(n.function, n.returns);
+  return readableId(n.function, n.returns ?? undefined);
 }
 
 /** A read, or a typed number, as its blank. */
