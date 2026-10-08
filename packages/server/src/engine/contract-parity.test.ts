@@ -1,9 +1,17 @@
 import { rule } from "@tripwire/shared";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testDatabase } from "../testing";
-import { loadEngineContract, type EngineContract } from "./contract-files";
+import {
+  CONTRACT_FIXTURES,
+  loadEngineContract,
+  readPin,
+  verifyContractFiles,
+  type EngineContract,
+} from "./contract-files";
 import { ViewReads } from "./reads";
 import { differences, shapeOf } from "./schema-shape";
 import { ENGINE_OPERATIONS } from "./statuses";
@@ -19,15 +27,32 @@ beforeAll(async () => {
 });
 
 describe("the pinned engine's contract files", () => {
-  it("are the pinned release's", async () => {
-    if (contract.version === "checkout") return;
-    const pin = JSON.parse(
-      await readFile(
-        new URL("../../../cli/engine.json", import.meta.url),
-        "utf8",
-      ),
-    ) as { version: string };
-    expect(contract.version).toBe(pin.version);
+  it("are the pinned release's, signed and unaltered", async () => {
+    await verifyContractFiles(CONTRACT_FIXTURES, await readPin());
+  });
+
+  it("are refused when altered, or when they are another release's", async () => {
+    const pin = await readPin();
+    const copy = async () => {
+      const dir = await mkdtemp(join(tmpdir(), "tripwire-contract-"));
+      await cp(CONTRACT_FIXTURES, dir, { recursive: true });
+      return dir;
+    };
+    const altered = await copy();
+    await writeFile(join(altered, "views.json"), "{}");
+    await expect(verifyContractFiles(altered, pin)).rejects.toThrow(
+      "views.json",
+    );
+    const resigned = await copy();
+    const sums = await readFile(join(resigned, "SHA256SUMS"), "utf8");
+    await writeFile(join(resigned, "SHA256SUMS"), `${sums}\n`);
+    await expect(verifyContractFiles(resigned, pin)).rejects.toThrow();
+    await expect(
+      verifyContractFiles(await copy(), { ...pin, version: "9.9.9" }),
+    ).rejects.toThrow("not engine 9.9.9's");
+    for (const dir of [altered, resigned]) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
