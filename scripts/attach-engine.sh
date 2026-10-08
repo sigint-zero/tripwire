@@ -14,34 +14,59 @@ set -euo pipefail
 
 engine=${1:?usage: attach-engine.sh <engine-binary> [engine-checkout]}
 checkout=${2:-}
-admin=${TRIPWIRE_ATTACH_ADMIN_URL:?set TRIPWIRE_ATTACH_ADMIN_URL}
+: "${TRIPWIRE_ATTACH_ADMIN_URL:?set TRIPWIRE_ATTACH_ADMIN_URL}"
 root=$(cd "$(dirname "$0")/.." && pwd)
+umask 077 # the engine's config holds the database password
 work=$(mktemp -d)
-name="tripwire_attach_$$"
+# Random, so runs sharing one PostgreSQL (CI containers all have PID 1)
+# never meet; dropped only once this run has created it.
+name="tripwire_attach_$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+created=0
 pids=()
 
+stop() {
+  local pid=$1
+  kill "$pid" 2>/dev/null || return 0
+  for _ in $(seq 50); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  kill -9 "$pid" 2>/dev/null || true
+}
+
 cleanup() {
-  for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+  for pid in "${pids[@]}"; do stop "$pid"; done
   [ -z "${TRIPWIRE_ATTACH_LOG:-}" ] || cp "$work/engine.log" "$TRIPWIRE_ATTACH_LOG" 2>/dev/null || true
-  wait 2>/dev/null || true
-  sql "drop database if exists $name with (force)" || true
+  if [ "$created" -eq 1 ]; then
+    timeout 30 bash -c "$(declare -f sql); root='$root'; sql 'drop database if exists $name with (force)'" ||
+      echo "attach suite: could not drop $name" >&2
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM
 
+# SQL against the admin URL, passed through the environment so the
+# password never shows in the process list.
 sql() {
-  (cd "$root/packages/server" && node -e '
+  (cd "$root/packages/server" && TRIPWIRE_ATTACH_SQL="$1" node -e '
     const pg = require("pg");
-    const c = new pg.Client({ connectionString: process.argv[1] });
-    c.connect().then(() => c.query(process.argv[2])).then(() => c.end(),
+    const c = new pg.Client({ connectionString: process.env.TRIPWIRE_ATTACH_ADMIN_URL });
+    c.connect().then(() => c.query(process.env.TRIPWIRE_ATTACH_SQL)).then(() => c.end(),
       (e) => { console.error(e.message); process.exit(1); });
-  ' "$admin" "$1")
+  ')
 }
 
 port() { node -e 'const s=require("net").createServer().listen(0,()=>{console.log(s.address().port);s.close()})'; }
 
 sql "create database $name"
-database="${admin%/*}/$name"
+created=1
+# The admin URL with its database swapped, query (sslmode) kept.
+database=$(TRIPWIRE_ATTACH_NAME="$name" node -e '
+  const u = new URL(process.env.TRIPWIRE_ATTACH_ADMIN_URL);
+  u.pathname = "/" + process.env.TRIPWIRE_ATTACH_NAME;
+  console.log(u.toString());
+')
 
 rpc_port=$(port)
 anvil --port "$rpc_port" --silent &
@@ -84,14 +109,16 @@ done
 status=0
 (
   cd "$root/packages/server"
-  env TRIPWIRE_ENGINE_URL="http://127.0.0.1:$bind_port" \
-  TRIPWIRE_ENGINE_SECRET_FILE="$work/data/interface-secret" \
-  TRIPWIRE_DATABASE_URL="$database" \
-  TRIPWIRE_ATTACH_RPC="$rpc" \
-  TRIPWIRE_CHAIN_ID=31337 \
-  TRIPWIRE_RESPONSE_MODE=prepare \
-  TRIPWIRE_ATTACH_ENGINE_VERSION="$("$engine" --version)" \
-  ${checkout:+TRIPWIRE_ENGINE_CONTRACT="$checkout"} \
+  # Exported, never on a command line, so no URL shows in the process list.
+  export TRIPWIRE_ENGINE_URL="http://127.0.0.1:$bind_port"
+  export TRIPWIRE_ENGINE_SECRET_FILE="$work/data/interface-secret"
+  export TRIPWIRE_DATABASE_URL="$database"
+  export TRIPWIRE_ATTACH_RPC="$rpc"
+  export TRIPWIRE_CHAIN_ID=31337
+  export TRIPWIRE_RESPONSE_MODE=prepare
+  TRIPWIRE_ATTACH_ENGINE_VERSION="$("$engine" --version)"
+  export TRIPWIRE_ATTACH_ENGINE_VERSION
+  if [ -n "$checkout" ]; then export TRIPWIRE_ENGINE_CONTRACT="$checkout"; fi
   npx vitest run src/engine/attach.test.ts 2>&1 | tee "$work/suite.log"
   exit "${PIPESTATUS[0]}"
 ) || status=$?
