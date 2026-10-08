@@ -90,8 +90,15 @@ status=0
   TRIPWIRE_ATTACH_RPC="$rpc" \
   TRIPWIRE_CHAIN_ID=31337 \
   TRIPWIRE_RESPONSE_MODE=prepare \
+  TRIPWIRE_ATTACH_ENGINE_VERSION="$("$engine" --version)" \
   ${checkout:+TRIPWIRE_ENGINE_CONTRACT="$checkout"} \
-  npx vitest run src/engine/attach.test.ts
+  npx vitest run src/engine/attach.test.ts 2>&1 | tee "$work/suite.log"
+  exit "${PIPESTATUS[0]}"
 ) || status=$?
+# Every check runs; a skipped one fails the suite.
+if [ "$status" -eq 0 ] && grep -qiE '[0-9]+ (skipped|todo)' "$work/suite.log"; then
+  echo "attach suite: a check was skipped" >&2
+  status=1
+fi
 [ "$status" -eq 0 ] || { echo "--- engine log (tail)"; tail -40 "$work/engine.log"; }
 exit "$status"

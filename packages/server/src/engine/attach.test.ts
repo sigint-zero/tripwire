@@ -26,6 +26,11 @@ import { connectEngine } from "./index";
 const env = process.env;
 const attached = Boolean(env.TRIPWIRE_ATTACH_RPC && env.TRIPWIRE_ENGINE_URL);
 
+// The rule language of the engine under test: its checkout's contract
+// when given, else the pinned release's, which only an engine of the
+// pinned version speaks (checked below).
+const contract = attached ? await loadEngineContract(env) : null;
+
 // anvil's first development account.
 const DEV_KEY: Hex =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -157,6 +162,18 @@ describe.skipIf(!attached)("attached to a real engine", () => {
         body.runner === "attached" && ["ready", "degraded"].includes(body.state)
       );
     });
+    const { version } = (await api("GET", "/engine")).json<{
+      version: string | null;
+    }>();
+    expect(version, "the engine under test reports its own version").toBe(
+      env.TRIPWIRE_ATTACH_ENGINE_VERSION,
+    );
+    if (contract?.version !== "checkout") {
+      expect(
+        contract?.version,
+        "without its checkout, only the pinned release's contract describes the engine",
+      ).toBe(version);
+    }
   });
 
   it("registers the contract and stores a rule through the engine", async () => {
@@ -255,16 +272,15 @@ describe.skipIf(!attached)("attached to a real engine", () => {
     expect((await api("GET", `/rules/${id}`)).statusCode).toBe(200);
   }, 60_000);
 
-  it("stores a rule that watches a dependency, when the engine has watch", async () => {
-    const contract = await loadEngineContract(env);
-    const properties = contract.ruleSchema.properties as object;
-    if (!("watch" in properties)) return;
+  it("takes `watch` exactly when the engine's rule language has it", async () => {
+    const properties = contract!.ruleSchema.properties as object;
+    const engineHasWatch = "watch" in properties;
     const stored = await api("POST", "/rules", {
       rule: ruleDoc("watching a feed", {
         watch: ["0x00000000000000000000000000000000000000f1"],
       }),
       checkOnly: false,
     });
-    expect(stored.statusCode, stored.body).toBe(201);
+    expect(stored.statusCode, stored.body).toBe(engineHasWatch ? 201 : 400);
   });
 });
