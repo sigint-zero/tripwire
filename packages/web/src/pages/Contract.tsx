@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ContractExplorer } from "../components/contracts/ContractExplorer";
 import {
-  ContractName,
+  EditContract,
   RemoveContract,
 } from "../components/contracts/ManageContract";
 import { PausePanel } from "../components/contracts/PausePanel";
@@ -74,7 +74,9 @@ export function ContractPage({ address }: { address: string }) {
       <header className="mt-4 mb-10 flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <ContractName contract={contract} />
+            <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
+              {contract.name}
+            </h1>
             <Switch
               on={contract.active}
               onChange={(active) => toggle.mutate(active)}
@@ -103,7 +105,11 @@ export function ContractPage({ address }: { address: string }) {
             )}
           </p>
         </div>
-        {hasRules && <div className="shrink-0">{newRule("New rule")}</div>}
+        <div className="flex shrink-0 items-center gap-2">
+          <EditContract contract={contract} />
+          <RemoveContract contract={contract} rules={rules} />
+          {hasRules && newRule("New rule")}
+        </div>
       </header>
 
       {!contract.active && (
@@ -146,14 +152,9 @@ export function ContractPage({ address }: { address: string }) {
         </section>
       )}
 
-      <section className="mb-12">
+      <section>
         <h2 className={heading}>What it exposes</h2>
         <ContractExplorer surface={contract.surface} />
-      </section>
-
-      <section>
-        <h2 className={heading}>Remove</h2>
-        <RemoveContract contract={contract} rules={rules} />
       </section>
     </div>
   );

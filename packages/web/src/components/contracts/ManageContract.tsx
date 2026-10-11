@@ -1,32 +1,34 @@
 import type { SavedRule } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../lib/api";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { Button, fieldClass } from "../ui";
+import { Button, fieldClass, labelClass } from "../ui";
 import type { LoadedContract } from "./useRegisteredContract";
 
 const NAME_MAX = 80;
 
 /**
- * The contract's name, and a way to change it in place. Enter saves,
- * Escape puts the old name back.
+ * Edit, in the contract's header: its name, in a dialog. Only the name
+ * changes; the address and ABI are what its rules were checked against.
  */
-export function ContractName({ contract }: { contract: LoadedContract }) {
+export function EditContract({ contract }: { contract: LoadedContract }) {
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState(contract.name);
   const field = useRef<HTMLInputElement>(null);
-  // Opened by a click on Rename: the field takes the keyboard, name selected.
+  // Once the dialog is showing, the field takes the keyboard, name selected.
   useEffect(() => {
-    if (editing) field.current?.select();
-  }, [editing]);
+    if (!open) return;
+    const timer = setTimeout(() => field.current?.select());
+    return () => clearTimeout(timer);
+  }, [open]);
   const rename = useMutation({
     mutationFn: (next: string) => api.renameContract(contract.address, next),
     onSuccess: async (updated) => {
       queryClient.setQueryData(["contract", contract.address], updated);
-      setEditing(false);
+      setOpen(false);
       // Lists, rule pages and filters all show the name.
       await queryClient.invalidateQueries({ queryKey: ["contracts"] });
       await queryClient.invalidateQueries({ queryKey: ["trip-state"] });
@@ -44,81 +46,73 @@ export function ContractName({ contract }: { contract: LoadedContract }) {
   const start = () => {
     setName(contract.name);
     rename.reset();
-    setEditing(true);
+    setOpen(true);
   };
-  const cancel = () => {
-    setEditing(false);
-    rename.reset();
-  };
-  const save = (e: FormEvent) => {
-    e.preventDefault();
-    if (problem) return;
-    if (unchanged) return cancel();
+  const save = () => {
+    if (problem || rename.isPending) return;
+    if (unchanged) return setOpen(false);
     rename.mutate(trimmed);
   };
 
-  if (!editing) {
-    return (
-      <span className="flex items-center gap-3">
-        <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
-          {contract.name}
-        </h1>
-        <button
-          type="button"
-          onClick={start}
-          title="Rename this contract"
-          aria-label="Rename this contract"
-          className="cursor-pointer p-1 text-gray-600 transition-colors hover:text-emerald-400"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-            className="size-4"
-          >
-            <path d="M10.5 2.5l3 3L6 13H3v-3z" />
-          </svg>
-        </button>
-      </span>
-    );
-  }
-
   return (
-    <form onSubmit={save} className="flex w-full max-w-xl flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          ref={field}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            // While saving, the answer must be seen, so the form stays.
-            if (e.key === "Escape" && !rename.isPending) cancel();
-          }}
-          aria-label="Contract name"
-          aria-invalid={!!problem}
-          maxLength={NAME_MAX + 20}
-          className={`${fieldClass} min-w-0 flex-1 font-display text-xl font-bold`}
-        />
-        <Button type="submit" disabled={!!problem || rename.isPending}>
-          {rename.isPending ? "Saving…" : "Save"}
-        </Button>
-        <Button variant="quiet" onClick={cancel} disabled={rename.isPending}>
-          Cancel
-        </Button>
-      </div>
-      <p className="text-xs text-gray-500">
-        {problem ??
-          rename.error?.message ??
-          "The name lists, alerts and filters show. The address and ABI stay as they are."}
-      </p>
-    </form>
+    <>
+      <Button variant="ghost" onClick={start} title="Edit this contract">
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+          className="size-3.5 shrink-0"
+        >
+          <path d="M10.5 2.5l3 3L6 13H3v-3z" />
+        </svg>
+        Edit
+      </Button>
+      <ConfirmDialog
+        open={open}
+        title="Edit the contract"
+        confirm={rename.isPending ? "Saving…" : "Save"}
+        tone="go"
+        pending={rename.isPending}
+        blocked={!!problem}
+        error={rename.error?.message}
+        onConfirm={save}
+        onClose={() => setOpen(false)}
+      >
+        <label className="block">
+          <span className={labelClass}>Name</span>
+          <input
+            ref={field}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                save();
+              }
+            }}
+            aria-label="Contract name"
+            aria-invalid={!!problem}
+            maxLength={NAME_MAX + 20}
+            autoComplete="off"
+            className={fieldClass}
+          />
+        </label>
+        <p className="mt-2 text-xs text-gray-500">
+          {problem ?? "What lists, alerts and filters call it."}
+        </p>
+        <p className="mt-4 text-xs text-gray-500">
+          The address and ABI stay as they are: its rules were checked against
+          them. For a different ABI, remove the contract and register it again.
+        </p>
+      </ConfirmDialog>
+    </>
   );
 }
 
 /**
- * Removing a contract: what goes with it, said before anything goes. The
+ * Remove, in the contract's header: what goes with it, said before anything goes. The
  * name must be typed to confirm, because rules and their whole history
  * cannot be brought back.
  */
@@ -198,20 +192,24 @@ export function RemoveContract({
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-6 border border-red-500/20 px-6 py-5">
-        <div className="max-w-xl">
-          <p className="text-sm font-bold text-white">Remove this contract</p>
-          <p className="mt-1 text-sm text-gray-500">
-            {ruleCount === 0
-              ? "Tripwire stops watching it. It has no rules yet."
-              : `Tripwire stops watching it and deletes its ${ruleCount === 1 ? "rule" : `${ruleCount} rules`} with their violations and settled responses.`}{" "}
-            To stop for a while instead, switch it off at the top of the page.
-          </p>
-        </div>
-        <Button variant="danger" onClick={() => setOpen(true)}>
-          Remove
-        </Button>
-      </div>
+      <Button
+        variant="danger"
+        onClick={() => setOpen(true)}
+        title="Remove this contract"
+        aria-label="Remove this contract"
+        className="px-3"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+          className="size-3.5 shrink-0"
+        >
+          <path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.75 9.5h6.5L12 4M6.75 6.5v4.5M9.25 6.5v4.5" />
+        </svg>
+      </Button>
 
       <ConfirmDialog
         open={open}

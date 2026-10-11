@@ -76,13 +76,15 @@ At `/contracts/:address`:
 
 - the name, the full address, the chain, where the ABI came from and,
   for a proxy, its implementation;
-- **Rename**: the pencil beside the name turns it into a field. Enter
-  or Save keeps the new name (1 to 80 characters, trimmed), Escape or
-  Cancel puts the old one back. Only the name changes: the address and
-  ABI are what rules were checked against, so a different ABI means
-  removing the contract and registering it again;
-- **Disable** or **Enable**, and **New rule**, which opens the rule
-  wizard with this contract chosen;
+- in the header, top right, the contract's actions together: **Edit**,
+  **Remove** (a bin icon) and **New rule**, which opens the rule wizard
+  with this contract chosen;
+- **Edit** opens a dialog with the name selected. Enter or Save keeps
+  the new name (1 to 80 characters, trimmed), Escape or Cancel leaves
+  it. Only the name changes: the address and ABI are what rules were
+  checked against, so a different ABI means removing the contract and
+  registering it again;
+- **Disable** or **Enable** beside the name;
 - its rules, each with the engine's sentence, severity, action, and
   whether it is off;
 - what it exposes: the values rules can read, its events and its
@@ -94,8 +96,7 @@ At `/contracts/:address`:
 - the pause panel: what is paused on it now, whether by a rule's
   confirmed call or by the controller (`ACTIVITY.md`, Trip state), with
   **Pause** and **Unpause** by hand (`RESPONSES.md`, Pausing and
-  unpausing by hand);
-- **Remove**, last on the page, apart from everything else.
+  unpausing by hand).
 
 ## Removing
 
