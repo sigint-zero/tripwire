@@ -91,6 +91,12 @@ export interface RuleActivity {
   open_count: number;
 }
 
+export interface LastTripped {
+  rule_id: string;
+  block_number: number;
+  block_time: string;
+}
+
 export interface PointRow {
   series_id: string;
   block_number: number;
@@ -424,6 +430,8 @@ export interface EngineReads {
   registrations(): Promise<RegistrationRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
+  /** Each rule's newest tripped violation, for the rules that have one. */
+  lastTripped(ruleIds: string[]): Promise<LastTripped[]>;
   /** The series each rule draws from, in document order. */
   ruleSeries(ruleIds: string[]): Promise<RuleSeriesRow[]>;
   seriesById(id: string): Promise<SeriesRow | null>;

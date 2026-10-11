@@ -4,6 +4,7 @@ import {
   EngineNotReady,
   type ContractRow,
   type CursorRow,
+  type LastTripped,
   type EngineReads,
   type ActionRow,
   type BucketRow,
@@ -284,6 +285,20 @@ export class ViewReads implements EngineReads {
          ) n ON true
         LIMIT ${LIMIT}`,
       [ruleIds.slice(0, LIMIT)],
+    );
+  }
+
+  async lastTripped(ruleIds: string[]): Promise<LastTripped[]> {
+    const ids = ruleIds.filter((id) => /^\d+$/.test(id));
+    if (ids.length === 0) return [];
+    return this.#read<LastTripped>(
+      `SELECT DISTINCT ON (v.rule_id) v.rule_id::text, v.block_number::int,
+              v.block_time
+         FROM ${this.#schema}.violations v
+        WHERE v.rule_id = ANY($1::bigint[]) AND v.kind = 'tripped'
+        ORDER BY v.rule_id, v.id DESC
+        LIMIT ${LIMIT}`,
+      [ids.slice(0, LIMIT)],
     );
   }
 

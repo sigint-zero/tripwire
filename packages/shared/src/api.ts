@@ -222,6 +222,28 @@ export type SeriesWindow =
   | { resolution: "block"; points: SeriesPoint[] }
   | { resolution: string; buckets: SeriesBucket[] };
 
+/**
+ * What a rule's preview draws: its first series and
+ * those its limit needs, each over the window and at its newest point, the
+ * scale of the contracts read, and when it last tripped.
+ */
+export interface RulePreview {
+  ruleId: string;
+  /** At most three, reads first, as `/rules/:id/series` orders them. */
+  series: RuleSeries[];
+  /** Each series' buckets, by series id. */
+  buckets: Record<string, SeriesBucket[]>;
+  /** Each series' newest point, by series id. */
+  latest: Record<
+    string,
+    { value: string; blockNumber: number; blockTime: string }
+  >;
+  /** What `decimals()` returns, by lowercase contract address, where it has one. */
+  decimals: Record<string, number>;
+  /** The newest tripped violation; null when it never tripped. */
+  lastFired: { blockNumber: number; blockTime: string } | null;
+}
+
 /** A rule's first series over a day, for the list and the Overview. */
 export interface Sparkline {
   ruleId: string;

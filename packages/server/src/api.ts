@@ -90,7 +90,7 @@ export const api: FastifyPluginCallback<{
   app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
   app.register(responseRoutes, { commands, reads });
-  app.register(seriesRoutes, { reads });
+  app.register(seriesRoutes, { reads, commands });
   app.register(tripStateRoutes, { reads });
   app.register(setupRoutes, {
     reads,

@@ -38,6 +38,18 @@ export async function seriesOfRule(
   return ordered(await reads.ruleSeries([ruleId]));
 }
 
+/** Each rule's series, reads first, from one read of the links. */
+export async function seriesByRule(
+  reads: EngineReads,
+  ruleIds: string[],
+): Promise<Map<string, RuleSeries[]>> {
+  const rows = await reads.ruleSeries(ruleIds);
+  const by = new Map<string, RuleSeriesRow[]>();
+  for (const row of rows)
+    by.set(row.rule_id, [...(by.get(row.rule_id) ?? []), row]);
+  return new Map([...by].map(([id, own]) => [id, ordered(own)]));
+}
+
 /** Each rule's first recorded read, from one read of the links. */
 export async function firstSeries(
   reads: EngineReads,
