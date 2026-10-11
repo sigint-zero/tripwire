@@ -137,7 +137,8 @@ rule's name, an on or off dot, its sentence, and its state: "3 open,
 tripped 5 min ago" in red, else "Holding", or "Off". Empty: "Nothing
 pinned. Pin a rule from its page to keep it here."
 
-Added: a sparkline of the last 24 hours of the rule's first recorded
+Added (proposed in full in `RULE-PREVIEW.md`, which the pinned card
+uses): a sparkline of the last 24 hours of the rule's first recorded
 value (the first series of role `read` in `RULES.md`), downsampled to
 60 points by the server, with the rule's threshold or band drawn as in
 its full chart when it has one, and the latest value in the rule's

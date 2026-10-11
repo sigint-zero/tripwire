@@ -63,7 +63,9 @@ to the list.
   the order the document reads them, with its display scale; a rule
   with no series (an event-triggered rule, for instance) shows none;
 - a 24-hour sparkline of the same series, drawn with the list and read
-  in one request for all visible rows;
+  in one request for all visible rows. **Proposed:** the rule's preview
+  instead (`RULE-PREVIEW.md`): its limit, axes, a legend with the
+  headroom, and status and action pills;
 - filters for contract and status, kept in the URL;
 - a search box (`CONTRACTS.md`, Searching) matching the rule's name,
   description and sentence, its contract's name and address, its
@@ -282,7 +284,7 @@ the API's error envelope. Creating and replacing rules is specified in
 | GET | `/rules/:id/series` | **added:** the rule's series: `{ id, call, metric, windowSeconds, role }`; `role` is `read` or `metric` |
 | GET | `/rules/:id/current` | **added:** the newest point of each of those series: `{ seriesId, value, blockNumber, blockTime }` |
 | GET | `/series/:id/points` | **added:** `?from&to&points`, `points` at most 500: `{ resolution, buckets: [{ start, first, last, min, max, count }] }` or, when the range holds no more than `points` values, `{ resolution: "block", points: [{ blockNumber, blockTime, value }] }` |
-| GET | `/sparklines` | **added:** `?rules=1,2,3&window=24h`, at most 200 rules: 48 buckets per rule's first series |
+| GET | `/sparklines` | **added:** `?rules=1,2,3&window=24h`, at most 200 rules: 48 buckets per rule's first series. **Proposed:** replaced by `/previews` (`RULE-PREVIEW.md`, The read) |
 | POST | `/rules/:id/check` | **added:** a dry run of the stored document: `{ block, wouldTripNow, warming, warmupSecondsLeft, evaluationError, evidence }`; `evaluationError` is null or `{ path, message }`, the node that could not be evaluated; `block` is the engine's last evaluated block (`api_v1.engine_status`); stores nothing |
 
 Every value is a decimal string. A rule's status is computed from the

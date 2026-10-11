@@ -115,6 +115,7 @@ opens nothing else. `AUTHENTICATION.md` specifies both.
 | `CONTRACTS.md` | registering and managing contracts |
 | `RULE-WIZARD.md` | creating and editing rules |
 | `RULES.md` | the rule list, the rule page and its charts |
+| `RULE-PREVIEW.md` | the chart and readout standing for a rule in lists and pinned cards (proposed) |
 | `VIOLATIONS.md` | violation history, evidence and acknowledgement |
 | `RESPONSES.md` | on-chain response: the mode, the calls rules make, keys, the approval queue, and the optional TripwireController |
 | `ACTIVITY.md` | what is paused now, and the on-chain history of pauses and resets |
