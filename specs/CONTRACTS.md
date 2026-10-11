@@ -52,12 +52,35 @@ proxy, pasted), when it is disabled, that it is, and what is paused
 on it now: **Paused** for the whole contract, else "2 functions
 paused" (`ACTIVITY.md`, Trip state). A row opens the contract's page.
 
+## Searching
+
+The Contracts list has a search box, and so do the Rules list
+(`RULES.md`), Violations (`VIOLATIONS.md`) and each Responses tab
+(`RESPONSES.md`). They all work the same way:
+
+- a row matches when every word typed appears, ignoring case, in what
+  the row shows or stands for. Here that is the name, the address, the
+  implementation's name and address, where the ABI came from, "paused"
+  while something on it is paused, and "disabled" while it is disabled;
+- the list filters once typing pauses, and the query is kept in the URL
+  as `q`, so a search can be linked and survives a reload;
+- "/" anywhere on the page focuses the box; Escape and the × clear it;
+- while searching, "3 of 11 contracts" says how much is shown, and
+  "Nothing matches" offers to clear the search;
+- search runs in the browser over the rows loaded. Violations, loaded
+  by page, searches the pages loaded and says so; **Older** loads more.
+
 ## A contract's page
 
 At `/contracts/:address`:
 
 - the name, the full address, the chain, where the ABI came from and,
   for a proxy, its implementation;
+- **Rename**: the pencil beside the name turns it into a field. Enter
+  or Save keeps the new name (1 to 80 characters, trimmed), Escape or
+  Cancel puts the old one back. Only the name changes: the address and
+  ABI are what rules were checked against, so a different ABI means
+  removing the contract and registering it again;
 - **Disable** or **Enable**, and **New rule**, which opens the rule
   wizard with this contract chosen;
 - its rules, each with the engine's sentence, severity, action, and
@@ -71,7 +94,30 @@ At `/contracts/:address`:
 - the pause panel: what is paused on it now, whether by a rule's
   confirmed call or by the controller (`ACTIVITY.md`, Trip state), with
   **Pause** and **Unpause** by hand (`RESPONSES.md`, Pausing and
-  unpausing by hand).
+  unpausing by hand);
+- **Remove**, last on the page, apart from everything else.
+
+## Removing
+
+Removing deletes the contract, its rules and all their history, so it
+asks first, in a dialog that names what goes:
+
+- its rules: the rule's name when there is one, else how many;
+- how many violations go with them (counted up to 1,000), and the
+  responses settled for them;
+- its ABI, and the verified source kept with it;
+- that nothing changes on chain: a pause in place stays in place, and
+  the address can be registered again later, with no rules and no
+  history.
+
+The person types the contract's name, exactly, to confirm; until then
+**Remove for good** waits. While a response for one of its rules is
+waiting for approval or in flight, the dialog says so instead, links
+to the Responses page and cannot be confirmed: the engine refuses to
+drop a transaction it may still send, and the dialog says it before
+the engine has to.
+
+Once removed, the Contracts list opens and every page refetches.
 
 ## Disabling and enabling
 
@@ -99,8 +145,6 @@ page.
 
 | What | Notes |
 |-|-|
-| rename | the server route exists (`PATCH /contracts/:address`); the page does not offer it yet |
-| remove | the server route exists (`DELETE /contracts/:address`): the engine removes the contract with its rules and their history, and the application forgets what it kept about them. The page will ask for confirmation, naming how many rules and violations go with it (CT3) |
 | verified source files | kept by the application when a contract is added (`app.contract_sources`), for agents and the contract's page |
 | live values | the engine reads values at the current block; the values tab can show them |
 
@@ -142,5 +186,6 @@ nothing, plus the application's record of which rules were switched
 |-|-|-|
 | CT1 | Where contracts are registered | One form, on the Contracts page and inline in the rule wizard. Sending the user away mid-wizard to register loses their place |
 | CT2 | Name | Required, pre-filled from the verified source. Lists and alerts read better with a name the team uses than with a compiler's |
-| CT3 | Confirming | Disabling is undone by enabling, so it asks nothing. Removing destroys history, so it will ask |
+| CT3 | Confirming | Disabling is undone by enabling, so it asks nothing. Removing destroys history, so it asks, and the name must be typed: a click alone is too easy to make on the wrong contract |
 | CT4 | Key | The address, lowercase. One chain per installation makes it unique |
+| CT5 | Search | In the browser, over the rows loaded, kept in the URL. The lists are loaded whole, or by page with the page saying so, and a server search would need one index per list for a few hundred rows |

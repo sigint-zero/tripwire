@@ -64,7 +64,10 @@ to the list.
   with no series (an event-triggered rule, for instance) shows none;
 - a 24-hour sparkline of the same series, drawn with the list and read
   in one request for all visible rows;
-- filters for contract and status, kept in the URL.
+- filters for contract and status, kept in the URL;
+- a search box (`CONTRACTS.md`, Searching) matching the rule's name,
+  description and sentence, its contract's name and address, its
+  severity, status and action, and the function it pauses or calls.
 
 The empty state points to the wizard.
 

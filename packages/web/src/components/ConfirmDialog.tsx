@@ -13,6 +13,7 @@ export function ConfirmDialog({
   confirm,
   tone = "danger",
   pending = false,
+  blocked = false,
   error,
   onConfirm,
   onClose,
@@ -24,6 +25,8 @@ export function ConfirmDialog({
   confirm: string;
   tone?: "danger" | "go";
   pending?: boolean;
+  /** The act is not possible yet: the dialog says why, and the button waits. */
+  blocked?: boolean;
   error?: string;
   onConfirm: () => void;
   onClose: () => void;
@@ -74,7 +77,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={tone === "go" ? "primary" : "destroy"}
-            disabled={pending}
+            disabled={pending || blocked}
             onClick={onConfirm}
           >
             {confirm}

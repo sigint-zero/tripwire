@@ -2,6 +2,10 @@ import { chainName } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ContractExplorer } from "../components/contracts/ContractExplorer";
+import {
+  ContractName,
+  RemoveContract,
+} from "../components/contracts/ManageContract";
 import { PausePanel } from "../components/contracts/PausePanel";
 import { Readiness } from "../components/contracts/Readiness";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
@@ -70,9 +74,7 @@ export function ContractPage({ address }: { address: string }) {
       <header className="mt-4 mb-10 flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <h1 className="font-display text-3xl font-bold tracking-tighter text-white uppercase md:text-4xl">
-              {contract.name}
-            </h1>
+            <ContractName key={contract.name} contract={contract} />
             <Switch
               on={contract.active}
               onChange={(active) => toggle.mutate(active)}
@@ -144,9 +146,14 @@ export function ContractPage({ address }: { address: string }) {
         </section>
       )}
 
-      <section>
+      <section className="mb-12">
         <h2 className={heading}>What it exposes</h2>
         <ContractExplorer surface={contract.surface} />
+      </section>
+
+      <section>
+        <h2 className={heading}>Remove</h2>
+        <RemoveContract contract={contract} rules={rules} />
       </section>
     </div>
   );
