@@ -97,6 +97,7 @@ export function SearchInput({
         placeholder={placeholder}
         spellCheck={false}
         autoComplete="off"
+        maxLength={200}
         className="w-full bg-white/3 py-2.5 pr-16 pl-9 text-xs text-gray-200 placeholder:text-gray-600 transition-colors hover:bg-white/5 focus:bg-white/5 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
       />
       {text ? (

@@ -74,7 +74,7 @@ export function ContractPage({ address }: { address: string }) {
       <header className="mt-4 mb-10 flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <ContractName key={contract.name} contract={contract} />
+            <ContractName contract={contract} />
             <Switch
               on={contract.active}
               onChange={(active) => toggle.mutate(active)}

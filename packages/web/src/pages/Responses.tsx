@@ -163,7 +163,15 @@ export function ResponsesPage({
   });
 
   const { q } = search;
-  const shown = items?.filter((item) => matches(q ?? "", responseText(item)));
+  const shown = items?.filter((item) =>
+    matches(
+      q ?? "",
+      responseText(
+        item,
+        rules?.find((r) => r.id === item.rule.id),
+      ),
+    ),
+  );
 
   const count = (t: ResponseTab) =>
     t === "waiting"
@@ -225,7 +233,7 @@ export function ResponsesPage({
             </button>
           ))}
         </div>
-        {items && items.length > 0 && (
+        {((items && items.length > 0) || q) && (
           <SearchInput
             value={q}
             onChange={(next) => onSearch({ ...search, q: next })}
@@ -234,12 +242,14 @@ export function ResponsesPage({
           />
         )}
         <span className="ml-auto">
-          <SearchCount
-            query={q}
-            shown={shown?.length ?? 0}
-            total={items?.length ?? 0}
-            noun={["response", "responses"]}
-          />
+          {items && items.length > 0 && (
+            <SearchCount
+              query={q}
+              shown={shown?.length ?? 0}
+              total={items.length}
+              noun={["response", "responses"]}
+            />
+          )}
         </span>
       </div>
 
@@ -252,7 +262,7 @@ export function ResponsesPage({
         >
           <button
             type="button"
-            onClick={() => onSearch({ tab: search.tab })}
+            onClick={() => onSearch({ tab: search.tab, open: search.open })}
             className={buttonClass("ghost")}
           >
             Clear search

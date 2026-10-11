@@ -2,7 +2,7 @@ import type { SavedRule } from "@tripwire/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Button, fieldClass } from "../ui";
 import type { LoadedContract } from "./useRegisteredContract";
@@ -92,7 +92,10 @@ export function ContractName({ contract }: { contract: LoadedContract }) {
           ref={field}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && cancel()}
+          onKeyDown={(e) => {
+            // While saving, the answer must be seen, so the form stays.
+            if (e.key === "Escape" && !rename.isPending) cancel();
+          }}
           aria-label="Contract name"
           aria-invalid={!!problem}
           maxLength={NAME_MAX + 20}
@@ -131,29 +134,41 @@ export function RemoveContract({
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
 
-  // Read only once the dialog opens: what removing would take with it.
+  // Read once the dialog opens: what removing would take with it. The
+  // count is kept apart from the violations lists, so a new violation does
+  // not reload a thousand rows while the dialog is open.
   const { data: violations } = useQuery({
-    queryKey: ["violations", { contract: contract.address, count: true }],
+    queryKey: ["removal", contract.address, "violations"],
     queryFn: ({ signal }) =>
       api.violations({ contract: contract.address, limit: 1000 }, signal),
     enabled: open,
+    staleTime: Infinity,
+    gcTime: 0,
   });
-  const { data: live } = useQuery({
+  const liveQuery = useQuery({
     queryKey: ["responses", "live", contract.address],
     queryFn: async ({ signal }) => {
       const [waiting, inFlight] = await Promise.all([
-        api.responses("waiting", signal),
-        api.responses("in_flight", signal),
+        api.responses("waiting", signal, contract.address),
+        api.responses("in_flight", signal, contract.address),
       ]);
-      return [...waiting, ...inFlight].filter(
-        (r) => r.contract.address === contract.address,
-      );
+      return [...waiting, ...inFlight];
     },
     enabled: open,
+    // Removal waits on this answer, so a failure is shown, not retried long.
+    retry: 1,
   });
+  const live = liveQuery.data;
 
   const remove = useMutation({
     mutationFn: () => api.deleteContract(contract.address),
+    // The server checks again; a response that went live since the dialog
+    // opened is shown as the dialog shows one found at opening.
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "live_response") {
+        void liveQuery.refetch();
+      }
+    },
     onSuccess: async () => {
       setOpen(false);
       queryClient.removeQueries({ queryKey: ["contract", contract.address] });
@@ -178,6 +193,8 @@ export function RemoveContract({
         : violations.length.toLocaleString();
   const busy = (live?.length ?? 0) > 0;
   const confirmed = typed.trim() === contract.name;
+  // One condition for the button and for Enter in the field.
+  const removable = live !== undefined && !busy && confirmed;
 
   return (
     <>
@@ -185,10 +202,10 @@ export function RemoveContract({
         <div className="max-w-xl">
           <p className="text-sm font-bold text-white">Remove this contract</p>
           <p className="mt-1 text-sm text-gray-500">
-            Tripwire stops watching it and deletes its{" "}
-            {ruleCount === 1 ? "rule" : `${ruleCount} rules`} with their
-            violations and settled responses. To stop for a while instead,
-            switch it off at the top of the page.
+            {ruleCount === 0
+              ? "Tripwire stops watching it. It has no rules yet."
+              : `Tripwire stops watching it and deletes its ${ruleCount === 1 ? "rule" : `${ruleCount} rules`} with their violations and settled responses.`}{" "}
+            To stop for a while instead, switch it off at the top of the page.
           </p>
         </div>
         <Button variant="danger" onClick={() => setOpen(true)}>
@@ -201,8 +218,14 @@ export function RemoveContract({
         title={`Remove ${contract.name}?`}
         confirm={remove.isPending ? "Removing…" : "Remove for good"}
         pending={remove.isPending}
-        blocked={busy || !confirmed || live === undefined}
-        error={remove.error?.message}
+        blocked={!removable}
+        error={
+          remove.error && !busy
+            ? remove.error.message
+            : liveQuery.error
+              ? `Could not check for responses still waiting: ${liveQuery.error.message}. Close this and try again.`
+              : undefined
+        }
         onConfirm={() => remove.mutate()}
         onClose={close}
       >
@@ -248,6 +271,11 @@ export function RemoveContract({
                   : "its pasted ABI"}
               </li>
             </ul>
+            {live === undefined && !liveQuery.error && (
+              <p className="mt-3 text-gray-500">
+                Checking for responses still waiting…
+              </p>
+            )}
             <p className="mt-3">
               Nothing changes on chain: a pause in place stays in place. You can
               register the address again later, starting with no rules and no
@@ -263,7 +291,7 @@ export function RemoveContract({
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && confirmed && !remove.isPending) {
+                  if (e.key === "Enter" && removable && !remove.isPending) {
                     e.preventDefault();
                     remove.mutate();
                   }

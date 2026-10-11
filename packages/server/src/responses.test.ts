@@ -171,6 +171,23 @@ describe("responses in prepare mode", () => {
     expect(await get<ResponseItem[]>(t.app, "/responses")).toHaveLength(1);
   });
 
+  it("keeps a contract with a live response from being removed", async () => {
+    const [held] = await get<ResponseItem[]>(
+      t.app,
+      "/responses?status=waiting",
+    );
+    expect(held).toBeDefined();
+    const refused = await t.app.inject({
+      method: "DELETE",
+      url: `/api/v1/contracts/${token}`,
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: "live_response" });
+    expect(
+      (await t.app.inject({ url: `/api/v1/contracts/${token}` })).statusCode,
+    ).toBe(200);
+  });
+
   it("sends an approved response, once", async () => {
     const [held] = await get<ResponseItem[]>(t.app, "/responses");
     const approved = await post(t.app, `/responses/${held!.id}/approve`);

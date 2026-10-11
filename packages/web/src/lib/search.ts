@@ -4,11 +4,16 @@ import type {
   SavedRule,
   Violation,
 } from "@tripwire/shared";
+import { statusLabel } from "../components/RuleStatus";
+import { actions } from "../components/wizard/ResponseStep";
+import { sourceLabel } from "./format";
+import { responseStatuses } from "./responses";
 
 /**
  * Whether every word of the query appears somewhere in the texts, ignoring
- * case: "vault pause" finds a rule on "Treasury vault" that pauses. An empty
- * query matches everything.
+ * case: "vault pause" finds a rule on "Treasury vault" that pauses the
+ * contract. Each list matches the words its rows show as well as the values
+ * behind them. An empty query matches everything.
  */
 export function matches(query: string, texts: (string | null | undefined)[]) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -17,7 +22,7 @@ export function matches(query: string, texts: (string | null | undefined)[]) {
   return words.every((word) => haystack.includes(word));
 }
 
-/** The query as kept in the URL: trimmed, and absent when empty. */
+/** The query as kept in the URL, absent when blank, at most 200 characters. */
 export function readQuery(search: Record<string, unknown>) {
   return typeof search.q === "string" && search.q.trim()
     ? search.q.slice(0, 200)
@@ -42,7 +47,10 @@ export function ruleText(rule: SavedRule, names: Map<string, string>) {
     names.get(contract.toLowerCase()),
     severity,
     rule.status,
+    statusLabel(rule.status),
+    rule.enabled ? null : "off",
     on_trip.action.replace("_", " "),
+    actions.find((a) => a.action === on_trip.action)?.title,
     on_trip.action === "trip_function" ? on_trip.function : null,
     on_trip.action === "call" ? on_trip.call.function : null,
   ];
@@ -54,6 +62,7 @@ export function contractText(contract: Contract) {
     contract.name,
     contract.address,
     contract.source,
+    sourceLabel(contract),
     contract.implementation?.address,
     contract.implementation?.name,
     contract.active ? null : "disabled",
@@ -70,6 +79,8 @@ export function violationText(
     violation.contractAddress,
     names.get(violation.contractAddress.toLowerCase()),
     violation.kind.replace("_", " "),
+    violation.kind === "evaluation_error" ? "error" : null,
+    violation.acknowledged ? "acknowledged" : "open",
     violation.severity,
     String(violation.blockNumber),
     violation.txHash,
@@ -79,8 +90,15 @@ export function violationText(
 }
 
 /** What a response is found by: its rule, contract, call, status and transaction. */
-export function responseText(item: ResponseItem) {
+export function responseText(item: ResponseItem, rule?: SavedRule) {
+  const onTrip = rule?.rule.on_trip;
   return [
+    responseStatuses[item.status].label,
+    item.action === "trip_global"
+      ? "Pause the contract"
+      : item.action === "trip_function"
+        ? `Pause ${onTrip?.action === "trip_function" ? onTrip.function : ""}`
+        : `Call ${item.tx?.function ?? ""}`,
     item.rule.name,
     item.contract.name,
     item.contract.address,

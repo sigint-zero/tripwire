@@ -226,8 +226,11 @@ export const api = {
     request<Violation>(`/violations/${id}`, { signal }),
   acknowledge: (ids: string[], note?: string) =>
     request<Violation[]>("/violations/acknowledge", { json: { ids, note } }),
-  responses: (tab: ResponseTab, signal?: AbortSignal) =>
-    request<ResponseItem[]>(`/responses?status=${tab}`, { signal }),
+  responses: (tab: ResponseTab, signal?: AbortSignal, contract?: string) =>
+    request<ResponseItem[]>(
+      `/responses?status=${tab}${contract ? `&contract=${contract}` : ""}`,
+      { signal },
+    ),
   notifications: (
     filter: {
       cursor?: string;

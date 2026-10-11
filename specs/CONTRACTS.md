@@ -113,9 +113,10 @@ asks first, in a dialog that names what goes:
 The person types the contract's name, exactly, to confirm; until then
 **Remove for good** waits. While a response for one of its rules is
 waiting for approval or in flight, the dialog says so instead, links
-to the Responses page and cannot be confirmed: the engine refuses to
-drop a transaction it may still send, and the dialog says it before
-the engine has to.
+to the Responses page and cannot be confirmed. The server refuses the
+removal too (`409 live_response`), checking again when it is sent,
+because a transaction Tripwire may still send is never dropped; the
+pinned engine does not refuse it itself.
 
 Once removed, the Contracts list opens and every page refetches.
 
@@ -159,7 +160,7 @@ the API's error envelope.
 | GET | `/contracts/:address` | one contract, plus its `abi`; `404 not_found` |
 | POST | `/contracts` | `{ address, name, abi? }`. Without `abi` the verified ABI is looked up. `201` with the contract; `400 invalid_contract` with issues, `409 already_registered`, `404 not_verified`, `502 lookup_failed` |
 | PATCH | `/contracts/:address` | `{ name }`; returns the contract |
-| DELETE | `/contracts/:address` | removes the contract, its rules and their history; `204` |
+| DELETE | `/contracts/:address` | removes the contract, its rules and their history; `204`, or `409 live_response` while a response for it is waiting or in flight |
 | POST | `/contracts/:address/disable` | switches its rules off, remembering which; returns the contract |
 | POST | `/contracts/:address/enable` | switches the remembered rules back on; returns the contract |
 | GET | `/rules?contract=:address` | one contract's rules |

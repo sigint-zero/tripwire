@@ -8,6 +8,9 @@ const words: Record<RuleStatus, { label: string; tone: string } | null> = {
   warming: { label: "Warming up", tone: "bg-white/5 text-amber-400/80" },
 };
 
+/** The status as the list shows it, when it shows one. */
+export const statusLabel = (status: RuleStatus) => words[status]?.label ?? null;
+
 const titles: Record<RuleStatus, string> = {
   holding: "On, and the condition does not hold",
   off: "Switched off",
