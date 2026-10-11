@@ -4,9 +4,11 @@ import { Link } from "@tanstack/react-router";
 import { PageHeader } from "../components/PageHeader";
 import { RuleList } from "../components/RuleList";
 import { SearchCount, SearchInput } from "../components/SearchInput";
+import { ViewToggle } from "../components/ViewToggle";
 import { buttonClass, choice, EmptyState, Plus, track } from "../components/ui";
 import { api } from "../lib/api";
 import { contractNames, matches, readQuery, ruleText } from "../lib/search";
+import { useRulesView } from "../lib/view";
 
 /** What the list shows, kept in the URL so a view can be linked. */
 export interface RulesSearch {
@@ -60,6 +62,7 @@ export function RulesPage({
     queryKey: ["contracts"],
     queryFn: ({ signal }) => api.contracts(signal),
   });
+  const [view, setView] = useRulesView();
   const { contract, status, q } = search;
   const names = contractNames(contracts);
   const shown = rules?.filter(
@@ -145,13 +148,14 @@ export function RulesPage({
                 Clear
               </button>
             )}
-            <span className="ml-auto">
+            <span className="ml-auto flex items-center gap-4">
               <SearchCount
                 query={q}
                 shown={shown?.length ?? 0}
                 total={rules.length}
                 noun={["rule", "rules"]}
               />
+              <ViewToggle value={view} onChange={setView} />
             </span>
           </div>
           {shown?.length === 0 ? (
@@ -173,6 +177,7 @@ export function RulesPage({
             </EmptyState>
           ) : (
             <RuleList
+              view={view}
               rules={shown ?? []}
               contracts={contracts ?? []}
               highlight={search.created}

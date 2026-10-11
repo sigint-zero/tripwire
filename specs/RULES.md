@@ -67,7 +67,13 @@ to the list.
 - filters for contract and status, kept in the URL;
 - a search box (`CONTRACTS.md`, Searching) matching the rule's name,
   description and sentence, its contract's name and address, its
-  severity, status and action, and the function it pauses or calls.
+  severity, status and action, and the function it pauses or calls;
+- **Rows** or **Cards**: one full-width row per rule, or a grid of cards
+  (two across on a wide window, one on a narrow one), each card with the
+  sentence on up to three lines and the sparkline full width at its
+  foot. The choice is kept in the browser and applies to every rule
+  list, here and on a contract's page, after a reload and in other
+  tabs. Rows is the default.
 
 The empty state points to the wizard.
 

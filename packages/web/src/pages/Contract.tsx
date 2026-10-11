@@ -10,18 +10,21 @@ import { PausePanel } from "../components/contracts/PausePanel";
 import { Readiness } from "../components/contracts/Readiness";
 import { useRegisteredContract } from "../components/contracts/useRegisteredContract";
 import { RuleList } from "../components/RuleList";
+import { ViewToggle } from "../components/ViewToggle";
 import { buttonClass, EmptyState, Plus, Switch, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { shortAddress } from "../lib/format";
+import { useRulesView } from "../lib/view";
 
-const heading =
-  "mb-4 text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+const label = "text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase";
+const heading = `mb-4 ${label}`;
 
 /** One registered contract: its rules, what it exposes, and its switch. */
 export function ContractPage({ address }: { address: string }) {
   const key = address.toLowerCase();
   const queryClient = useQueryClient();
   const { contract, error } = useRegisteredContract(key);
+  const [view, setView] = useRulesView();
   const { data: rules } = useQuery({
     queryKey: ["rules", key],
     queryFn: ({ signal }) => api.rules(key, signal),
@@ -128,9 +131,14 @@ export function ContractPage({ address }: { address: string }) {
       </section>
 
       <section className="mb-12">
-        <h2 className={heading}>Rules</h2>
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 className={label}>Rules</h2>
+          {hasRules && rules.length > 1 && (
+            <ViewToggle value={view} onChange={setView} />
+          )}
+        </div>
         {hasRules ? (
-          <RuleList rules={rules} />
+          <RuleList rules={rules} view={view} />
         ) : (
           rules && (
             <EmptyState

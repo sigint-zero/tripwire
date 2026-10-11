@@ -86,7 +86,8 @@ At `/contracts/:address`:
   registering it again;
 - **Disable** or **Enable** beside the name;
 - its rules, each with the engine's sentence, severity, action, and
-  whether it is off;
+  whether it is off, as rows or cards with the Rules list's switch
+  (`RULES.md`, The list), shown when it has more than one;
 - what it exposes: the values rules can read, its events and its
   functions, as in the wizard;
 - its **Response readiness** checklist: whether Tripwire's key can make
