@@ -3,14 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PageHeader } from "../components/PageHeader";
 import { RuleList } from "../components/RuleList";
+import { SearchCount, SearchInput } from "../components/SearchInput";
 import { buttonClass, choice, EmptyState, Plus, track } from "../components/ui";
 import { api } from "../lib/api";
+import { contractNames, matches, readQuery, ruleText } from "../lib/search";
 
 /** What the list shows, kept in the URL so a view can be linked. */
 export interface RulesSearch {
   created?: string;
   contract?: string;
   status?: RuleStatus;
+  q?: string;
 }
 
 const STATUSES: { status?: RuleStatus; title: string }[] = [
@@ -34,6 +37,8 @@ export function readRulesSearch(search: Record<string, unknown>): RulesSearch {
   if (STATUSES.some((s) => s.status && s.status === search.status)) {
     out.status = search.status as RuleStatus;
   }
+  const q = readQuery(search);
+  if (q) out.q = q;
   return out;
 }
 
@@ -55,12 +60,15 @@ export function RulesPage({
     queryKey: ["contracts"],
     queryFn: ({ signal }) => api.contracts(signal),
   });
-  const { contract, status } = search;
+  const { contract, status, q } = search;
+  const names = contractNames(contracts);
   const shown = rules?.filter(
     (r) =>
       (!contract || r.rule.contract.toLowerCase() === contract) &&
-      (!status || r.status === status),
+      (!status || r.status === status) &&
+      matches(q ?? "", ruleText(r, names)),
   );
+  const narrowed = contract !== undefined || status !== undefined || !!q;
 
   return (
     <div>
@@ -95,12 +103,18 @@ export function RulesPage({
       {rules && rules.length > 0 && (
         <>
           <div className="mb-6 flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={q}
+              onChange={(next) => onSearch({ ...search, q: next })}
+              label="Search rules"
+              placeholder="Search by name, contract, function…"
+            />
             <div className={track}>
               {STATUSES.map((s) => (
                 <button
                   key={s.title}
                   type="button"
-                  onClick={() => onSearch({ contract, status: s.status })}
+                  onClick={() => onSearch({ ...search, status: s.status })}
                   className={choice(status === s.status)}
                 >
                   {s.title}
@@ -111,7 +125,7 @@ export function RulesPage({
               aria-label="Contract"
               value={contract ?? ""}
               onChange={(e) =>
-                onSearch({ status, contract: e.target.value || undefined })
+                onSearch({ ...search, contract: e.target.value || undefined })
               }
               className={select}
             >
@@ -122,12 +136,41 @@ export function RulesPage({
                 </option>
               ))}
             </select>
+            {narrowed && (
+              <button
+                type="button"
+                onClick={() => onSearch({})}
+                className="cursor-pointer text-[10px] font-bold tracking-[0.2em] text-gray-500 uppercase transition-colors hover:text-gray-300"
+              >
+                Clear
+              </button>
+            )}
+            <span className="ml-auto">
+              <SearchCount
+                query={q}
+                shown={shown?.length ?? 0}
+                total={rules.length}
+                noun={["rule", "rules"]}
+              />
+            </span>
           </div>
           {shown?.length === 0 ? (
             <EmptyState
               title="Nothing matches"
-              hint="No rule fits these filters."
-            />
+              hint={
+                q
+                  ? `No rule matches “${q}”${contract || status ? " with these filters" : ""}.`
+                  : "No rule fits these filters."
+              }
+            >
+              <button
+                type="button"
+                onClick={() => onSearch({})}
+                className={buttonClass("ghost")}
+              >
+                Clear filters
+              </button>
+            </EmptyState>
           ) : (
             <RuleList
               rules={shown ?? []}

@@ -1,9 +1,16 @@
 import type { ViolationKind } from "@tripwire/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { PageHeader } from "../components/PageHeader";
+import { SearchCount, SearchInput } from "../components/SearchInput";
 import { Button, choice, EmptyState, track } from "../components/ui";
 import { ViolationList } from "../components/ViolationList";
 import { api } from "../lib/api";
+import {
+  contractNames,
+  matches,
+  readQuery,
+  violationText,
+} from "../lib/search";
 
 const PAGE = 200;
 
@@ -14,6 +21,8 @@ export interface ViolationFilter {
   kind?: ViolationKind;
   contract?: string;
   rule?: string;
+  /** Searched in the loaded pages, not by the server. */
+  q?: string;
 }
 
 const KINDS: ViolationKind[] = ["tripped", "evaluation_error", "pending"];
@@ -34,6 +43,8 @@ export function readFilter(search: Record<string, unknown>): ViolationFilter {
   if (typeof search.rule === "string" && /^\d+$/.test(search.rule)) {
     filter.rule = search.rule;
   }
+  const q = readQuery(search);
+  if (q) filter.q = q;
   return filter;
 }
 
@@ -63,7 +74,7 @@ export function ViolationsPage({
   filter: ViolationFilter;
   onFilter: (next: ViolationFilter) => void;
 }) {
-  const { all = false, kind, contract, rule } = filter;
+  const { all = false, kind, contract, rule, q } = filter;
   const open = !all;
   const violations = useInfiniteQuery({
     queryKey: ["violations", { open, kind, contract, rule }],
@@ -84,10 +95,12 @@ export function ViolationsPage({
     queryKey: ["rules"],
     queryFn: ({ signal }) => api.rules(undefined, signal),
   });
-  const list = violations.data?.pages.flat();
+  const loaded = violations.data?.pages.flat();
+  const names = contractNames(contracts);
+  const list = loaded?.filter((v) => matches(q ?? "", violationText(v, names)));
   const set = (change: Partial<ViolationFilter>) =>
     onFilter({ ...filter, ...change });
-  const narrowed = kind !== undefined || contract || rule;
+  const narrowed = kind !== undefined || contract || rule || q;
   const choosable = rules?.filter(
     (r) => !contract || r.rule.contract.toLowerCase() === contract,
   );
@@ -100,6 +113,12 @@ export function ViolationsPage({
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
+        <SearchInput
+          value={q}
+          onChange={(next) => set({ q: next })}
+          label="Search violations"
+          placeholder="Search by rule, contract, block, transaction…"
+        />
         <div className={track}>
           {views.map((view) => (
             <button
@@ -163,6 +182,14 @@ export function ViolationsPage({
             Clear
           </button>
         )}
+        <span className="ml-auto">
+          <SearchCount
+            query={q}
+            shown={list?.length ?? 0}
+            total={loaded?.length ?? 0}
+            noun={["loaded violation", "loaded violations"]}
+          />
+        </span>
       </div>
 
       {violations.error && (
@@ -180,7 +207,9 @@ export function ViolationsPage({
           }
           hint={
             narrowed
-              ? "No violation fits these filters."
+              ? q
+                ? `No violation matches “${q}”${violations.hasNextPage ? " in the ones loaded; Older loads more" : ""}.`
+                : "No violation fits these filters."
               : open
                 ? "Every violation has been acknowledged."
                 : "When a rule trips, it shows up here."
@@ -188,7 +217,7 @@ export function ViolationsPage({
         />
       )}
 
-      {list && list.length > 0 && (
+      {list && (list.length > 0 || violations.hasNextPage) && (
         <>
           <ViolationList
             violations={list}
