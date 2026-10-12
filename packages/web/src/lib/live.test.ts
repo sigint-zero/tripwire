@@ -16,6 +16,15 @@ describe("what an event refreshes", () => {
     );
   });
 
+  it("refreshes the rule previews on a violation and a rule's state", () => {
+    expect(invalidations("violation", { ruleId: "7" })).toContainEqual([
+      "previews",
+    ]);
+    expect(invalidations("rule_state", { ruleId: "7" })).toContainEqual([
+      "previews",
+    ]);
+  });
+
   it("refreshes everything on resync, and only readiness on a block", () => {
     expect(invalidations("resync", { reason: "connected" })).toBe("all");
     expect(invalidations("block", { number: 1 })).toEqual([["readiness"]]);

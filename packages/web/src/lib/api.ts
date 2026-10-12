@@ -35,7 +35,7 @@ import type {
   SeriesWindow,
   SetupState,
   Severity,
-  Sparkline,
+  RulePreview,
   TripStateItem,
   RuleCheck,
   SavedRule,
@@ -181,8 +181,8 @@ export const api = {
       }).toString()}`,
       { signal },
     ),
-  sparklines: (ruleIds: string[], signal?: AbortSignal) =>
-    request<Sparkline[]>(`/sparklines?rules=${ruleIds.join(",")}`, { signal }),
+  previews: (ruleIds: string[], signal?: AbortSignal) =>
+    request<RulePreview[]>(`/previews?rules=${ruleIds.join(",")}`, { signal }),
   checkReplacement: (id: string, rule: Rule, signal?: AbortSignal) =>
     request<RuleCheck>(`/rules/${id}`, {
       method: "PUT",

@@ -3,13 +3,12 @@ import {
   type RulePreview,
   type SeriesBucket,
   type SeriesWindow,
-  type Sparkline,
 } from "@tripwire/shared";
 import type { FastifyPluginCallback } from "fastify";
 import { z } from "zod";
 import type { BucketRow, EngineCommands, EngineReads } from "./engine/types";
 import { refuse } from "./refuse";
-import { firstSeries, seriesByRule } from "./rule-series";
+import { seriesByRule } from "./rule-series";
 
 // A series over a window: its points when there are few, else buckets
 // cut on the server with min and max kept, so a one-block spike shows at
@@ -17,8 +16,8 @@ import { firstSeries, seriesByRule } from "./rule-series";
 
 const MAX_POINTS = 500;
 const DAY_MS = 86_400_000;
-const SPARK_BUCKETS = 48;
-const SPARK_WINDOWS: Record<string, number> = {
+const PREVIEW_BUCKETS = 48;
+const PREVIEW_WINDOWS: Record<string, number> = {
   "1h": 3_600_000,
   "24h": DAY_MS,
   "7d": 7 * DAY_MS,
@@ -28,14 +27,6 @@ const window = z.object({
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
   points: z.coerce.number().int().min(2).max(MAX_POINTS).optional(),
-});
-const sparks = z.object({
-  rules: z
-    .string()
-    .regex(/^\d+(,\d+)*$/, "must be rule ids separated by commas")
-    .transform((s) => [...new Set(s.split(","))])
-    .refine((ids) => ids.length <= 200, "at most 200 rules"),
-  window: z.enum(["1h", "24h", "7d"]).optional(),
 });
 // 64 rules × 3 series × 48 buckets stays inside the bucket read's rows.
 const PREVIEW_RULES = 64;
@@ -171,40 +162,6 @@ export const seriesRoutes: FastifyPluginCallback<{
     },
   );
 
-  // One request for every visible row: a list of fifty rules costs the
-  // same few reads as a list of one.
-  app.get(
-    "/sparklines",
-    async (request, reply): Promise<Sparkline[] | undefined> => {
-      const params = sparks.safeParse(request.query);
-      if (!params.success) {
-        return refuse(reply, 400, "invalid_request", "Invalid query.", {
-          issues: issuesOf(params.error),
-        });
-      }
-      const first = await firstSeries(reads, params.data.rules);
-      const to = new Date();
-      const span = SPARK_WINDOWS[params.data.window ?? "24h"]!;
-      const from = new Date(to.getTime() - span);
-      const rows = await reads.buckets(
-        [...new Set(first.values())],
-        from,
-        to,
-        SPARK_BUCKETS,
-      );
-      const width = span / SPARK_BUCKETS;
-      return [...first].map(([ruleId, seriesId]) => ({
-        ruleId,
-        seriesId,
-        buckets: toBuckets(
-          rows.filter((b) => b.series_id === seriesId),
-          from,
-          width,
-        ),
-      }));
-    },
-  );
-
   // Everything a page of rule previews draws, in a fixed number of reads
   // however many rules are on it.
   app.get(
@@ -228,7 +185,7 @@ export const seriesRoutes: FastifyPluginCallback<{
         ...new Set([...kept.values()].flat().map((s) => s.id)),
       ];
       const to = new Date();
-      const span = SPARK_WINDOWS[params.data.window ?? "24h"]!;
+      const span = PREVIEW_WINDOWS[params.data.window ?? "24h"]!;
       const from = new Date(to.getTime() - span);
       const addresses = [
         ...new Set(
@@ -236,11 +193,11 @@ export const seriesRoutes: FastifyPluginCallback<{
         ),
       ];
       const [rows, newest, scales] = await Promise.all([
-        reads.buckets(seriesIds, from, to, SPARK_BUCKETS),
+        reads.buckets(seriesIds, from, to, PREVIEW_BUCKETS),
         reads.newestPoints(seriesIds),
         decimalsOf(addresses),
       ]);
-      const width = span / SPARK_BUCKETS;
+      const width = span / PREVIEW_BUCKETS;
       return ids.map((ruleId) => {
         const series = kept.get(ruleId) ?? [];
         const fired = tripped.find((t) => t.rule_id === ruleId);

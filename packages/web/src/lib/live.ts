@@ -46,6 +46,8 @@ export function invalidations(
         ["rule", text(data.ruleId)],
         ["contracts"],
         ["trip-state"],
+        // A value that crossed its limit turns red without waiting.
+        ["previews"],
       ];
     case "rule_state":
       return [
@@ -53,6 +55,7 @@ export function invalidations(
         ["rule", text(data.ruleId)],
         ["contracts"],
         ["contract"],
+        ["previews"],
       ];
     case "trip_state":
       return [

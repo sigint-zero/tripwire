@@ -2,16 +2,18 @@ import type { Contract, SavedRule } from "@tripwire/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { api } from "../lib/api";
-import { shortAddress, showValue } from "../lib/format";
+import { shortAddress } from "../lib/format";
+import { useNow } from "../lib/useNow";
+import { usePreviews } from "../lib/usePreviews";
 import type { ListView } from "../lib/view";
-import { RuleStatusTag } from "./RuleStatus";
-import { Sparkline } from "./Sparkline";
+import { RulePreview } from "./RulePreview";
+import { ActionPill, RuleStatusTag } from "./RuleStatus";
 import { PinIcon } from "./ui";
-import { actions, SeverityIcon, severities } from "./wizard/ResponseStep";
+import { SeverityIcon, severities } from "./wizard/ResponseStep";
 
 /**
- * Rules as rows, or as a grid of cards: name, the engine's sentence,
- * contract, severity, action, and the day's line of its first read.
+ * Rules as rows, or as a grid of cards: name, status, the engine's sentence,
+ * contract, severity, action, and the rule's preview.
  */
 export function RuleList({
   rules,
@@ -30,14 +32,9 @@ export function RuleList({
     queryKey: ["pinned"],
     queryFn: ({ signal }) => api.pinnedRules(signal),
   });
-  // Every row's line in one request, whatever the number of rules.
-  const ids = rules.map((r) => r.id);
-  const { data: sparklines } = useQuery({
-    queryKey: ["sparklines", ids],
-    queryFn: ({ signal }) => api.sparklines(ids, signal),
-    enabled: ids.length > 0,
-    refetchInterval: 60_000,
-  });
+  // Every row's preview in a fixed number of requests, however many rules.
+  const previews = usePreviews(rules.map((r) => r.id));
+  const now = useNow();
   return (
     <ul
       className={
@@ -50,22 +47,19 @@ export function RuleList({
         const severity = severities.find(
           (s) => s.severity === saved.rule.severity,
         );
-        const action = actions.find(
-          (a) => a.action === saved.rule.on_trip.action,
-        );
         const contract = contracts?.find(
           (c) => c.address === saved.rule.contract.toLowerCase(),
         );
         const isNew = saved.id === highlight;
-        const line = sparklines?.find((s) => s.ruleId === saved.id);
-        const latest = line?.buckets.at(-1)?.last;
         return (
           <li key={saved.id}>
             <Link
               to="/rules/$id"
               params={{ id: saved.id }}
               className={`flex h-full px-5 py-4 transition-colors ${
-                cards ? "flex-col gap-4" : "items-center justify-between gap-6"
+                cards
+                  ? "flex-col gap-4"
+                  : "flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6"
               } ${
                 isNew
                   ? "bg-emerald-500/10 hover:bg-emerald-500/15"
@@ -84,11 +78,6 @@ export function RuleList({
                       className="text-gray-400"
                     >
                       <PinIcon className="size-3" />
-                    </span>
-                  )}
-                  {!saved.enabled && (
-                    <span className="text-[10px] tracking-[0.2em] text-gray-500">
-                      Off
                     </span>
                   )}
                   {typeof saved.origin === "object" && (
@@ -115,6 +104,7 @@ export function RuleList({
                   <RuleStatusTag
                     status={saved.status}
                     open={saved.openViolations}
+                    pill
                   />
                 </p>
                 <p
@@ -137,34 +127,22 @@ export function RuleList({
                       {severity.title}
                     </span>
                   )}
-                  {action && (
-                    <span className="text-[10px] font-bold tracking-[0.2em] uppercase">
-                      {action.title}
-                    </span>
-                  )}
+                  <ActionPill onTrip={saved.rule.on_trip} />
                 </p>
               </div>
-              {line && (
-                <div
-                  className={
-                    cards
-                      ? "flex items-end justify-between gap-4 border-t border-white/5 pt-3"
-                      : "flex shrink-0 flex-col items-end gap-1"
-                  }
-                  title="The rule's first read over the last day"
-                >
-                  <Sparkline
-                    buckets={line.buckets}
-                    alert={saved.status === "tripped"}
-                    className={cards ? "h-10 min-w-0 flex-1" : "h-8 w-36"}
-                  />
-                  {latest && (
-                    <span className="font-mono text-xs text-gray-300 tabular-nums">
-                      {showValue(latest, saved.display)}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div
+                className={
+                  cards ? "mt-auto border-t border-white/5 pt-3" : undefined
+                }
+              >
+                <RulePreview
+                  rule={saved}
+                  preview={previews.get(saved.id)}
+                  size={cards ? "card" : "row"}
+                  contractName={contracts ? contract?.name : undefined}
+                  now={now}
+                />
+              </div>
             </Link>
           </li>
         );

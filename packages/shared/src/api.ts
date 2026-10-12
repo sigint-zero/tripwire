@@ -244,13 +244,6 @@ export interface RulePreview {
   lastFired: { blockNumber: number; blockTime: string } | null;
 }
 
-/** A rule's first series over a day, for the list and the Overview. */
-export interface Sparkline {
-  ruleId: string;
-  seriesId: string;
-  buckets: SeriesBucket[];
-}
-
 /** Where the engine could not evaluate a rule, and what happened. */
 export interface EvaluationError {
   /** The failing node's JSON pointer in the document. */

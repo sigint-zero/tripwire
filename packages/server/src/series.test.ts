@@ -5,7 +5,6 @@ import type {
   RuleSeries,
   SavedRule,
   SeriesWindow,
-  Sparkline,
   StoredRuleCheck,
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
@@ -214,24 +213,6 @@ describe("series", () => {
       url: `/api/v1/series/${id}/points?from=${new Date(now).toISOString()}&to=${new Date(now - 1000).toISOString()}`,
     });
     expect(backwards.statusCode).toBe(400);
-  });
-});
-
-describe("sparklines", () => {
-  it("draws every asked rule's first series in one request", async () => {
-    const lines = await get<Sparkline[]>(
-      `/sparklines?rules=${tripping},${holding},999`,
-    );
-    expect(lines.map((l) => l.ruleId).sort()).toEqual(
-      [tripping, holding].sort(),
-    );
-    for (const line of lines) {
-      expect(line.buckets.length).toBeGreaterThan(0);
-      expect(line.buckets.length).toBeLessThanOrEqual(48);
-    }
-    expect(
-      (await app.inject({ url: "/api/v1/sparklines?rules=a" })).statusCode,
-    ).toBe(400);
   });
 });
 
