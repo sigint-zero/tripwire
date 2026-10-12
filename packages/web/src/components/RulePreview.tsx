@@ -20,6 +20,17 @@ const TONE: Record<Tone, { line: string; text: string; fill: string }> = {
 };
 const OFF = { line: "#6b7280", text: "text-gray-500", fill: "#6b7280" };
 
+/** "43m", "1h 5m", "2d 3h": a length of time in seconds, short. */
+function duration(seconds: number) {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
 /** "24h", "3h", "40m": how far back the axis reaches. */
 function shortSpan(ms: number) {
   const hours = ms / 3_600_000;
@@ -88,14 +99,10 @@ export function RulePreview({
   const from = Math.max(now - WINDOW_MS, m.primary.samples[0]!.t);
   const span = Math.max(now - from, 60_000);
   const { low, high } = m.range;
-  const x = (t: number) =>
-    Math.min(100, Math.max(0, ((t - from) / span) * 100));
-  const y = (v: number) => ((high - v) / (high - low || 1)) * 100;
-  const path = (pts: { t: number; v: number }[]) =>
-    pts.map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`).join("");
   const samples = m.primary.samples;
   // The line breaks where nothing was recorded for more than three
-  // buckets, as the full chart's does: a gap reads as a gap.
+  // buckets, and the break is squeezed to a sliver, so the stretches that
+  // were recorded fill the chart instead of an empty middle.
   const gap = (3 * span) / 48;
   const runs: (typeof samples)[] = [];
   for (const sample of samples) {
@@ -103,6 +110,26 @@ export function RulePreview({
     if (run && sample.t - run.at(-1)!.t <= gap) run.push(sample);
     else runs.push([sample]);
   }
+  const breaks = runs.slice(1).map((run, i) => ({
+    from: runs[i]!.at(-1)!.t,
+    to: run[0]!.t,
+  }));
+  const sliver = breaks.length ? span * 0.03 : 0;
+  const hidden = breaks.reduce((sum, b) => sum + (b.to - b.from), 0);
+  const shownSpan = Math.max(span - hidden + sliver * breaks.length, 1);
+  /** Time to x: recorded time at full width, each break a sliver. */
+  const x = (t: number) => {
+    let at = t - from;
+    for (const b of breaks) {
+      if (t >= b.to) at -= b.to - b.from - sliver;
+      else if (t > b.from)
+        at -= ((t - b.from) / (b.to - b.from)) * (b.to - b.from - sliver);
+    }
+    return Math.min(100, Math.max(0, (at / shownSpan) * 100));
+  };
+  const y = (v: number) => ((high - v) / (high - low || 1)) * 100;
+  const path = (pts: { t: number; v: number }[]) =>
+    pts.map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`).join("");
   const lineOf = (run: typeof samples) =>
     path(run.map((s) => ({ t: s.t, v: Number(s.last) })));
   const rangeOf = (run: typeof samples) =>
@@ -142,9 +169,12 @@ export function RulePreview({
   return (
     <div className={box}>
       <span className="sr-only">
-        {`${m.primary.name} ${compact(latest.raw, m.scale)}`}
+        {`${m.primary.name} ${m.age !== null ? `updated ${duration(m.age)} ago` : compact(latest.raw, m.scale)}`}
         {words.length > 0 && `, trips ${words.join(" or ")}`}
-        {m.headroom !== null && `, ${pct(m.headroom)} from the limit`}
+        {m.headroom !== null &&
+          (m.spare !== null
+            ? `, ${duration(Math.abs(m.spare))} ${m.spare >= 0 ? "to spare" : "overdue"}`
+            : `, ${pct(m.headroom)} from the limit`)}
         {m.tone === "near" && ", near the limit"}
         {m.tone === "breached" && ", past the limit"}.
       </span>
@@ -180,6 +210,19 @@ export function RulePreview({
               d={rangeOf(run)}
               fill={tone.fill}
               opacity={0.12}
+            />
+          ))}
+          {breaks.map((b) => (
+            <line
+              key={b.from}
+              x1={x((b.from + b.to) / 2)}
+              x2={x((b.from + b.to) / 2)}
+              y1={0}
+              y2={100}
+              stroke="#6b7280"
+              strokeOpacity={0.5}
+              strokeDasharray="1 2"
+              vectorEffect="non-scaling-stroke"
             />
           ))}
           {centre && (
@@ -283,7 +326,9 @@ export function RulePreview({
           )}
         </span>
         <span className={`tabular-nums ${tone.text}`}>
-          {compact(latest.raw, m.scale)}
+          {m.age !== null
+            ? `updated ${duration(m.age)} ago`
+            : compact(latest.raw, m.scale)}
         </span>
         {words.length > 0 && <span>· trips {words.join(" or ")}</span>}
         {m.headroom !== null && rule.enabled && (
@@ -291,7 +336,12 @@ export function RulePreview({
             className={`tabular-nums ${tone.text}`}
             title="How far the latest value is from its limit"
           >
-            · {pct(m.headroom)}
+            ·{" "}
+            {m.spare !== null
+              ? m.spare >= 0
+                ? `${duration(m.spare)} to spare`
+                : `${duration(-m.spare)} overdue`
+              : pct(m.headroom)}
           </span>
         )}
         {m.scale.auto && (

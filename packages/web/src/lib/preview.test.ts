@@ -414,3 +414,66 @@ describe("compact, more", () => {
     );
   });
 });
+
+describe("clocks, counters and age", () => {
+  const feed = (fn: string): RuleSeries => ({
+    id: "60",
+    call: {
+      address: vault,
+      function: `${fn}() returns (uint256)`,
+      args: [],
+      returns: null,
+    },
+    metric: null,
+    windowSeconds: null,
+    role: "read",
+  });
+
+  it("keeps a timestamp or counter out of the contract's decimals", () => {
+    for (const fn of ["latestTimestamp", "_tokenIdCounter", "updatedAt"]) {
+      const scale = scaleOf(
+        ruleOf(true),
+        previewWith({}, [feed(fn)], { [vault]: 8 }),
+      );
+      expect(scale.auto).toBe(false);
+    }
+    expect(
+      scaleOf(
+        ruleOf(true),
+        previewWith({}, [feed("latestAnswer")], { [vault]: 8 }),
+      ).auto,
+    ).toBe(true);
+  });
+
+  it("measures an age limit in time to spare", () => {
+    const updated = BigInt(Math.floor(now / 1000) - 17 * 60);
+    const m = previewOf(
+      ruleOf({
+        node: "compare",
+        op: "gt",
+        left: {
+          node: "arithmetic",
+          op: "sub",
+          left: { node: "now" },
+          right: read("latestTimestamp"),
+        },
+        right: lit("3600"),
+      }),
+      previewWith({ "60": [updated, updated] }, [feed("latestTimestamp")], {
+        [vault]: 8,
+      }),
+      now,
+    );
+    expect(m.scale.auto).toBe(false);
+    expect(m.age).toBe(17 * 60);
+    expect(m.spare).toBeGreaterThan(42 * 60);
+    expect(m.spare).toBeLessThanOrEqual(43 * 60);
+    expect(m.tone).toBe("safe");
+  });
+
+  it("shows a small raw axis value with its decimals", () => {
+    const raw = { decimals: null, unit: null, auto: false };
+    expect(compact(4.48, raw, 0.96)).toBe("4.48");
+    expect(compact(3.52, raw, 0.96)).toBe("3.52");
+  });
+});

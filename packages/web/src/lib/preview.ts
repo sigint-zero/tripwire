@@ -28,6 +28,8 @@ export interface PreviewLine {
   near: number;
   /** Trips at the limit itself (`le`, `ge`), not only past it. */
   inclusive: boolean;
+  /** An age limit's window: its headroom is time to spare, as a share of it. */
+  per?: number;
 }
 
 export type Tone = "safe" | "near" | "breached" | "none";
@@ -49,6 +51,10 @@ export interface PreviewModel {
   lines: PreviewLine[];
   /** The tightest headroom, positive on the safe side; null when none applies. */
   headroom: number | null;
+  /** For an age limit, the seconds to spare (negative once overdue). */
+  spare: number | null;
+  /** For a read of a time, how long ago it was, in seconds. */
+  age: number | null;
   tone: Tone;
   scale: Scale;
   /** The value range drawn, padded, and limits left off it as too far away. */
@@ -91,7 +97,14 @@ export function scaleOf(
   if (rule.display.decimals !== null) {
     return { decimals: rule.display.decimals, unit, auto: false };
   }
-  const auto = contractDecimals(preview);
+  // A token's decimals scale its amounts, not its clocks or counters: a
+  // timestamp, an id or a rule measuring age stays as it is.
+  const fn = lineOf(preview)?.call.function.replace(/\(.*$/, "") ?? "";
+  const timeLike =
+    /time|stamp|updated|counter|count|nonce|round|block|index|decimals|duration|period|expiry|deadline|id$/i.test(
+      fn,
+    ) || JSON.stringify(rule.rule.trip_when).includes('"node":"now"');
+  const auto = timeLike ? null : contractDecimals(preview);
   return auto === null
     ? { decimals: null, unit, auto: false }
     : { decimals: auto, unit, auto: true };
@@ -110,6 +123,14 @@ export function compact(
   const unit = scale.unit ? ` ${scale.unit}` : "";
   // Raw, chosen as 0 decimals, reads like no scale once it is long.
   const huge = scale.decimals === 0 && Math.abs(Number(raw)) >= 1e15;
+  if (
+    (scale.decimals === null || huge) &&
+    typeof raw === "number" &&
+    Math.abs(raw) < 1e9
+  ) {
+    const digits = span !== undefined && span > 0 && span < 10 ? 2 : 0;
+    return `${new Intl.NumberFormat("en", { maximumFractionDigits: digits }).format(raw)}${unit}`;
+  }
   if (scale.decimals === null || huge) {
     const whole =
       typeof raw === "string"
@@ -269,6 +290,8 @@ export function previewOf(
       primary: null,
       lines: [],
       headroom: null,
+      spare: null,
+      age: null,
       tone: "none",
       scale,
       range: { low: 0, high: 1, off: [] },
@@ -341,14 +364,18 @@ export function previewOf(
             : band
               ? `outside ${edges.find((e) => e.label)?.label ?? b.label}`
               : `${side(b.trips)} ${b.label}`;
+      const points = shown(b.points.map((p) => ({ t: p.t, v: p.v })));
+      // The age limit runs on to now, where it is judged.
+      if (d.kind === "age") points.push({ t: now, v: now / 1000 - d.seconds });
       lines.push({
         key: `${d.kind}:${b.key}`,
-        points: shown(b.points.map((p) => ({ t: p.t, v: p.v }))),
+        points,
         trips: b.trips,
         words,
         role: band ? "edge" : "limit",
         near: band ? edgeNear(d.percent / 100, b.trips) : NEAR,
         inclusive: d.kind === "read" && (d.op === "le" || d.op === "ge"),
+        ...(d.kind === "age" ? { per: d.seconds } : {}),
       });
     }
   }
@@ -400,13 +427,18 @@ export function previewOf(
   // The tightest limit at the latest value decides the colour, unless the
   // rule needs several terms at once, which no single limit can say.
   let headroom: number | null = null;
+  let spare: number | null = null;
   let tone: Tone = "none";
   if (latest && !conjunction(rule.rule.trip_when)) {
     const rank = { breached: 3, near: 2, safe: 1, none: 0 };
     for (const line of lines) {
-      const at = line.points.at(-1)?.v;
+      // An age limit stands at now, wherever the last bucket began.
+      const at = line.per ? now / 1000 - line.per : line.points.at(-1)?.v;
       if (at === undefined || line.trips === null) continue;
-      const h = headroomOf(latest.v, at, line.trips, line.inclusive);
+      // An age limit is measured in time: how much of its window is left.
+      const h = line.per
+        ? (latest.v - at) / line.per
+        : headroomOf(latest.v, at, line.trips, line.inclusive);
       if (h === null) continue;
       const t = toneOf(h, line.near);
       if (
@@ -416,6 +448,7 @@ export function previewOf(
       ) {
         headroom = h;
         tone = t;
+        spare = line.per ? latest.v - at : null;
       }
     }
     // An equality trips on the exact value, so it is safe or breached only.
@@ -439,6 +472,11 @@ export function previewOf(
     primary: { name: nameOf(first), samples, latest },
     lines,
     headroom: headroom !== null && Number.isFinite(headroom) ? headroom : null,
+    spare: spare !== null && Number.isFinite(spare) ? spare : null,
+    age:
+      latest && lines.some((l) => l.per)
+        ? Math.max(0, Math.round(now / 1000 - latest.v))
+        : null,
     tone,
     scale,
     range,
