@@ -52,7 +52,9 @@ export function showValue(
     ? /^-?\d+\.\d+$/.test(raw)
       ? formatNumber(raw)
       : raw
-    : display?.decimals != null
+    : display?.decimals != null &&
+        // Raw is kept as 0 decimals; a long one reads as no scale does.
+        !(display.decimals === 0 && raw.replace(/^-/, "").length > 15)
       ? formatUnits(raw, display.decimals)
       : formatBig(raw);
   return display?.unit ? `${scaled} ${display.unit}` : scaled;

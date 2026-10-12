@@ -233,6 +233,11 @@ export interface RulePreview {
   series: RuleSeries[];
   /** Each series' buckets, by series id. */
   buckets: Record<string, SeriesBucket[]>;
+  /**
+   * 48 buckets of the first read over the window before `buckets` begin,
+   * for a rule whose metrics reach back over one; by series id.
+   */
+  history: Record<string, SeriesBucket[]>;
   /** Each series' newest point, by series id. */
   latest: Record<
     string,

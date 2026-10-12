@@ -133,14 +133,22 @@ export function RulePreview({
           .map((p) => `L${x(p.t)},${y(p.v)}`)
           .join("")}Z`
       : null;
+  // Every limit by name once, equalities included; a band's centre is not one.
   const words = [
-    ...new Set(m.lines.filter((l) => l.trips !== null).map((l) => l.words)),
+    ...new Set(m.lines.filter((l) => l.role !== "centre").map((l) => l.words)),
   ];
   const labelled = limits.length === 1 ? limits[0] : undefined;
 
   return (
     <div className={box}>
-      <div className={`relative ${height}`}>
+      <span className="sr-only">
+        {`${m.primary.name} ${compact(latest.raw, m.scale)}`}
+        {words.length > 0 && `, trips ${words.join(" or ")}`}
+        {m.headroom !== null && `, ${pct(m.headroom)} from the limit`}
+        {m.tone === "near" && ", near the limit"}
+        {m.tone === "breached" && ", past the limit"}.
+      </span>
+      <div className={`relative ${height}`} aria-hidden="true">
         <svg
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
@@ -244,20 +252,30 @@ export function RulePreview({
             {compact(labelled.points.at(-1)!.v, m.scale)}
           </span>
         )}
-        {m.range.off.map((o) => (
-          <span
-            key={o.words}
-            className={`absolute right-0 font-mono text-[9px] leading-none text-red-400/80 ${o.side === "above" ? "top-0" : "bottom-0"}`}
-          >
-            {o.side === "above" ? "↑" : "↓"} trips {o.words}
-          </span>
-        ))}
+        {(["above", "below"] as const).map((at) => {
+          const off = m.range.off.filter((o) => o.side === at);
+          return off.length === 0 ? null : (
+            <span
+              key={at}
+              className={`absolute right-0 font-mono text-[9px] leading-none text-red-400/80 ${at === "above" ? "top-0" : "bottom-0"}`}
+            >
+              {at === "above" ? "↑" : "↓"} trips{" "}
+              {off.map((o) => o.words).join(" or ")}
+            </span>
+          );
+        })}
       </div>
-      <div className="mt-0.5 flex justify-between font-mono text-[9px] text-gray-600">
+      <div
+        aria-hidden="true"
+        className="mt-0.5 flex justify-between font-mono text-[9px] text-gray-600"
+      >
         <span>−{shortSpan(span)}</span>
         <span>now</span>
       </div>
-      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 font-mono text-[10px] text-gray-500">
+      <p
+        aria-hidden="true"
+        className="mt-1 flex flex-wrap items-baseline gap-x-2 font-mono text-[10px] text-gray-500"
+      >
         <span className="truncate">
           {m.primary.name}
           {contractName && (

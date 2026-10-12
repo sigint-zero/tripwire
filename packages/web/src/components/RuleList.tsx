@@ -39,7 +39,7 @@ export function RuleList({
     <ul
       className={
         cards
-          ? "grid grid-cols-1 items-stretch gap-2 lg:grid-cols-2"
+          ? "grid grid-cols-1 items-stretch gap-2 md:grid-cols-2 xl:grid-cols-3"
           : "space-y-2"
       }
     >

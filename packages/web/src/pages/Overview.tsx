@@ -8,6 +8,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { RulePreview } from "../components/RulePreview";
+import { ActionPill, RuleStatusTag } from "../components/RuleStatus";
 import { TrippedNow } from "../components/TrippedNow";
 import { HealthStrip } from "../components/HealthStrip";
 import { SetupChecklist } from "../components/SetupChecklist";
@@ -138,7 +139,7 @@ export function OverviewPage() {
           />
         )}
         {pinnedRules.length > 0 && (
-          <ul className="grid gap-2 md:grid-cols-2">
+          <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {pinnedRules.map((rule) => (
               <PinnedRule
                 key={rule.id}
@@ -202,11 +203,13 @@ function PinnedRule({
         params={{ id: rule.id }}
         className="block h-full bg-white/3 px-5 py-4 transition-colors hover:bg-white/5"
       >
-        <p className="flex items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
+        <p className="flex flex-wrap items-center gap-2 text-sm font-bold tracking-wider text-white uppercase">
           <span
             className={`size-1.5 ${rule.enabled ? "bg-emerald-500" : "bg-gray-600"}`}
           />
           {rule.rule.name}
+          <RuleStatusTag status={rule.status} open={0} pill />
+          <ActionPill onTrip={rule.rule.on_trip} />
         </p>
         <p className="mt-1 line-clamp-2 font-mono text-xs text-gray-400">
           {rule.sentence}

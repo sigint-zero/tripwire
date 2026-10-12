@@ -1,6 +1,7 @@
 import {
   issuesOf,
   type RulePreview,
+  type RuleSeries,
   type SeriesBucket,
   type SeriesWindow,
 } from "@tripwire/shared";
@@ -34,7 +35,7 @@ const PREVIEW_SERIES = 3;
 const previews = z.object({
   rules: z
     .string()
-    .regex(/^\d+(,\d+)*$/, "must be rule ids separated by commas")
+    .regex(/^\d{1,18}(,\d{1,18})*$/, "must be rule ids separated by commas")
     .transform((s) => [...new Set(s.split(","))])
     .refine(
       (ids) => ids.length <= PREVIEW_RULES,
@@ -42,6 +43,34 @@ const previews = z.object({
     ),
   window: z.enum(["1h", "24h", "7d"]).optional(),
 });
+
+/** The longest window a rule's metrics reach back over, in seconds. */
+function reachOf(document: unknown): number {
+  if (typeof document !== "object" || document === null) return 0;
+  const node = document as { node?: string; window?: { seconds?: number } };
+  const own =
+    node.node === "metric" && typeof node.window?.seconds === "number"
+      ? node.window.seconds
+      : 0;
+  return Math.max(own, ...Object.values(document).map(reachOf));
+}
+
+/**
+ * The series a preview draws, at most three: the first read, then the
+ * metrics a band's centre may be, then the other reads a limit may be.
+ */
+function keptSeries(list: RuleSeries[]): RuleSeries[] {
+  // A rule reading only through a windowed metric has its base as its line.
+  const first =
+    list.find((s) => s.role === "read") ??
+    list.find((s) => s.role === "metric" && s.metric === null);
+  const metrics = list.filter((s) => s.role === "metric");
+  const reads = list.filter((s) => s.role === "read" && s !== first);
+  return [...(first ? [first] : []), ...metrics, ...reads].slice(
+    0,
+    PREVIEW_SERIES,
+  );
+}
 
 /** A no-argument `decimals()` in an ABI, as a read names it, or null. */
 function decimalsCall(abi: unknown[] | null): string | null {
@@ -98,9 +127,14 @@ export const seriesRoutes: FastifyPluginCallback<{
         const call = decimalsCall((await reads.contract(address))?.abi ?? null);
         if (!call) return decimals.set(address, null);
         try {
-          const [value] = await commands.read([
-            { address, function: call, args: [] },
+          const [value] = await Promise.race([
+            commands.read([{ address, function: call, args: [] }]),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("decimals() timed out")), 2000),
+            ),
           ]);
+          // A call that failed answers null: not kept, tried again later.
+          if (typeof value !== "string" || !/^\d+$/.test(value)) return;
           const n = Number(value);
           decimals.set(
             address,
@@ -174,12 +208,13 @@ export const seriesRoutes: FastifyPluginCallback<{
         });
       }
       const ids = params.data.rules;
-      const [byRule, tripped] = await Promise.all([
+      const [byRule, tripped, documents] = await Promise.all([
         seriesByRule(reads, ids),
         reads.lastTripped(ids),
+        reads.rules(),
       ]);
       const kept = new Map(
-        [...byRule].map(([id, list]) => [id, list.slice(0, PREVIEW_SERIES)]),
+        [...byRule].map(([id, list]) => [id, keptSeries(list)]),
       );
       const seriesIds = [
         ...new Set([...kept.values()].flat().map((s) => s.id)),
@@ -204,10 +239,33 @@ export const seriesRoutes: FastifyPluginCallback<{
           ];
         }),
       );
-      const [rows, newest, scales] = await Promise.all([
+      // A windowed limit needs the window before the first time shown, as
+      // the full chart reads it: 48 buckets of each rule's first read there.
+      const reach = new Map<string, number>();
+      const needs = new Set<string>();
+      for (const ruleId of ids) {
+        const first = kept.get(ruleId)?.[0];
+        const document = documents.find((d) => d.id === ruleId)?.document;
+        const seconds = document ? reachOf(document) : 0;
+        if (first && seconds > 0) {
+          needs.add(ruleId);
+          reach.set(first.id, Math.max(reach.get(first.id) ?? 0, seconds));
+        }
+      }
+      const historyOf = (id: string) => {
+        const end = startOf.get(id)!;
+        return {
+          from: new Date(end.getTime() - reach.get(id)! * 1000),
+          to: end,
+        };
+      };
+      const [rows, before, newest, scales] = await Promise.all([
         reads.bucketsFrom(
-          seriesIds.map((id) => ({ seriesId: id, from: startOf.get(id)! })),
-          to,
+          seriesIds.map((id) => ({ seriesId: id, from: startOf.get(id)!, to })),
+          PREVIEW_BUCKETS,
+        ),
+        reads.bucketsFrom(
+          [...reach.keys()].map((id) => ({ seriesId: id, ...historyOf(id) })),
           PREVIEW_BUCKETS,
         ),
         reads.newestPoints(seriesIds),
@@ -234,6 +292,24 @@ export const seriesRoutes: FastifyPluginCallback<{
                 widthOf(s.id),
               ),
             ]),
+          ),
+          history: Object.fromEntries(
+            series
+              .filter((s) => needs.has(ruleId) && reach.has(s.id))
+              .map((s) => {
+                const h = historyOf(s.id);
+                return [
+                  s.id,
+                  toBuckets(
+                    before.filter((b) => b.series_id === s.id),
+                    h.from,
+                    Math.max(
+                      (h.to.getTime() - h.from.getTime()) / PREVIEW_BUCKETS,
+                      1000,
+                    ),
+                  ),
+                ];
+              }),
           ),
           latest: Object.fromEntries(
             series.flatMap((s) => {

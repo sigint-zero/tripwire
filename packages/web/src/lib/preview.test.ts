@@ -83,6 +83,7 @@ const previewWith = (
       },
     ]),
   ),
+  history: {},
   decimals,
   lastFired: null,
 });
@@ -268,5 +269,148 @@ describe("previewOf", () => {
     );
     expect(m.lines[0]!.words).toBe("at 0");
     expect(m.tone).toBe("breached");
+  });
+
+  it("trips at an inclusive limit itself", () => {
+    const at = (op: string) =>
+      previewOf(
+        ruleOf({
+          node: "compare",
+          op,
+          left: read("totalAssets"),
+          right: lit("100"),
+        }),
+        previewWith({ "40": [200n, 100n] }, [assets]),
+        now,
+      ).tone;
+    expect(at("le")).toBe("breached");
+    expect(at("lt")).toBe("near");
+    const zero = previewOf(
+      ruleOf({
+        node: "compare",
+        op: "le",
+        left: read("totalAssets"),
+        right: lit("0"),
+      }),
+      previewWith({ "40": [5n, 0n] }, [assets]),
+      now,
+    );
+    expect(zero.tone).toBe("breached");
+  });
+
+  it("gives no colour or headroom to a rule that needs several terms at once", () => {
+    const both = previewOf(
+      ruleOf({
+        node: "and",
+        terms: [
+          {
+            node: "compare",
+            op: "gt",
+            left: read("totalAssets"),
+            right: lit("1"),
+          },
+          {
+            node: "compare",
+            op: "lt",
+            left: read("totalAssets"),
+            right: lit("2"),
+          },
+        ],
+      }),
+      previewWith({ "40": [100n, 100n] }, [assets]),
+      now,
+    );
+    expect(both.lines).toHaveLength(2);
+    expect(both.tone).toBe("none");
+    expect(both.headroom).toBeNull();
+  });
+
+  it("leaves a band on another read off this one's preview", () => {
+    const twap: RuleSeries = {
+      ...debts,
+      id: "50",
+      role: "metric",
+      metric: "twap",
+      windowSeconds: 3600,
+    };
+    const m = previewOf(
+      ruleOf({
+        node: "or",
+        terms: [
+          {
+            node: "compare",
+            op: "gt",
+            left: read("totalAssets"),
+            right: lit("1000"),
+          },
+          {
+            node: "deviation_band",
+            value: read("totalLiabilities"),
+            center: {
+              node: "metric",
+              metric: "twap",
+              of: read("totalLiabilities"),
+              window: { seconds: 3600 },
+            },
+            tolerance_percent: "10",
+            sides: "both",
+          },
+        ],
+      }),
+      previewWith(
+        { "40": [100n, 100n], "41": [5000n, 5000n], "50": [9000n, 9000n] },
+        [assets, debts, twap],
+      ),
+      now,
+    );
+    expect(m.lines.map((l) => l.words)).toEqual(["above 1,000"]);
+    expect(m.tone).toBe("safe");
+  });
+
+  it("works a windowed limit out over the history before the window", () => {
+    const rule = ruleOf({
+      node: "compare",
+      op: "ge",
+      left: {
+        node: "metric",
+        metric: "windowed_drop",
+        of: read("totalAssets"),
+        window: { seconds: 7 * 86_400 },
+      },
+      right: lit("20"),
+    });
+    const p = previewWith({ "40": [70n, 70n] }, [assets]);
+    // The 7-day high, 100, three days back: the engine's floor is 80.
+    p.history = {
+      "40": [
+        {
+          start: new Date(now - 3 * 86_400_000).toISOString(),
+          first: "100",
+          last: "100",
+          min: "100",
+          max: "100",
+          count: 1,
+        },
+      ],
+    };
+    const m = previewOf(rule, p, now);
+    expect(m.lines[0]!.points.at(-1)!.v).toBe(80);
+    expect(m.tone).toBe("breached");
+  });
+});
+
+describe("compact, more", () => {
+  it("keeps a small scaled value from rounding to zero", () => {
+    expect(
+      compact("3000000000000000", { decimals: 18, unit: null, auto: true }),
+    ).toBe("0.003");
+  });
+
+  it("gives a narrow raw range enough digits to tell its edges apart", () => {
+    const raw = { decimals: null, unit: null, auto: false };
+    const span = 1e19;
+    expect(compact("5312000000000000000000000", raw, span)).not.toBe(
+      compact("5311000000000000000000000", raw, span),
+    );
   });
 });

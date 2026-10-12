@@ -137,7 +137,7 @@ describe("overlaysOf", () => {
       [assets],
     );
     expect(thresholds).toEqual([
-      { seriesId: "40", value: "50", label: "< 50", trips: "below" },
+      { seriesId: "40", value: "50", label: "< 50", trips: "below", op: "lt" },
     ]);
   });
 
@@ -183,7 +183,7 @@ describe("overlaysOf", () => {
       [assets],
     );
     expect(thresholds).toEqual([
-      { seriesId: "40", value: "5", label: "< 5", trips: "below" },
+      { seriesId: "40", value: "5", label: "< 5", trips: "below", op: "lt" },
     ]);
   });
 

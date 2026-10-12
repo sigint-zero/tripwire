@@ -61,7 +61,8 @@ export function samplesOf(window: SeriesWindow | undefined): Sample[] {
 
 export const sameCall = (node: ValueNode, s: RuleSeries, contract: string) =>
   node.node === "view_call" &&
-  s.role === "read" &&
+  // A read, or the base a windowed metric is worked out over.
+  (s.role === "read" || s.metric === null) &&
   (node.address ?? contract).toLowerCase() === s.call.address.toLowerCase() &&
   node.function === s.call.function &&
   JSON.stringify(node.args) === JSON.stringify(s.call.args) &&
@@ -93,6 +94,8 @@ export interface Threshold {
   value: string;
   label: string;
   trips: Trips;
+  /** The comparison as it trips, so `le` and `ge` trip at the limit itself. */
+  op: string;
 }
 
 /**
@@ -123,6 +126,8 @@ export interface Boundary {
 }
 
 export interface Band {
+  /** The read the band holds, which the centre is worked out over. */
+  valueId: string | null;
   centerId: string;
   percent: number;
   sides: "both" | "above" | "below";
@@ -216,6 +221,7 @@ export function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
               value: other.value,
               label: `${OPS[op]} ${showValue(other.value, rule.display)}`,
               trips: TRIPS[op] ?? null,
+              op,
             });
           }
         }
@@ -227,14 +233,17 @@ export function overlaysOf(rule: SavedRule, series: RuleSeries[]) {
         if (negated) return;
         const center = n.center;
         if (center.node !== "metric") return;
+        // The recorded centre is the metric over the centre's own read.
         const s = series.find(
           (x) =>
             x.role === "metric" &&
             x.metric === center.metric &&
-            (x.windowSeconds ?? null) === (center.window?.seconds ?? null),
+            (x.windowSeconds ?? null) === (center.window?.seconds ?? null) &&
+            sameCall(center.of, { ...x, role: "read" }, contract),
         );
         if (s) {
           bands.push({
+            valueId: readOf(n.value)?.id ?? null,
             centerId: s.id,
             percent: Number(n.tolerance_percent),
             sides: n.sides,

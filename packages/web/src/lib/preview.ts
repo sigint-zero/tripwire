@@ -26,6 +26,8 @@ export interface PreviewLine {
   role: "limit" | "edge" | "centre";
   /** Within this fraction of the limit the value counts as near it. */
   near: number;
+  /** Trips at the limit itself (`le`, `ge`), not only past it. */
+  inclusive: boolean;
 }
 
 export type Tone = "safe" | "near" | "breached" | "none";
@@ -63,11 +65,19 @@ const NEAR = 0.1;
 const PAD = 0.12;
 const FAR = 20;
 
+/** The series a preview draws: the first read, else a windowed metric's base. */
+export function lineOf(preview: RulePreview | undefined) {
+  return (
+    preview?.series.find((s) => s.role === "read") ??
+    preview?.series.find((s) => s.role === "metric" && s.metric === null)
+  );
+}
+
 /** The decimals() of the contract the rule's first read reads, when it has one. */
 export function contractDecimals(
   preview: RulePreview | undefined,
 ): number | null {
-  const first = preview?.series.find((s) => s.role === "read");
+  const first = lineOf(preview);
   if (!first) return null;
   return preview?.decimals[first.call.address.toLowerCase()] ?? null;
 }
@@ -108,10 +118,8 @@ export function compact(
           ? BigInt(Math.round(raw)).toString()
           : String(raw);
     const text = /^-?\d+$/.test(whole)
-      ? formatBig(whole.replace(/^-/, "")).replace(
-          /^/,
-          whole.startsWith("-") ? "−" : "",
-        )
+      ? (whole.startsWith("-") ? "−" : "") +
+        mantissa(whole.replace(/^-/, ""), span)
       : whole;
     return `${text}${unit}`;
   }
@@ -129,12 +137,28 @@ export function compact(
     notation: abs >= 1e6 ? "compact" : "standard",
     ...(significant
       ? { maximumSignificantDigits: significant }
-      : {
-          maximumFractionDigits:
-            abs >= 1e6 ? 1 : abs >= 100 ? 1 : abs >= 1 ? 2 : 4,
-        }),
+      : abs > 0 && abs < 1
+        ? { maximumSignificantDigits: 3 }
+        : { maximumFractionDigits: abs >= 100 ? 1 : 2 }),
   }).format(n);
   return `${text}${unit}`;
+}
+
+/**
+ * A long whole number as 1.000 × 10²⁰, as the dashboard writes raw values,
+ * with more digits when `span` says the axis needs them to differ.
+ */
+function mantissa(digits: string, span?: number): string {
+  if (digits.length <= 9 || span === undefined || !(span > 0)) {
+    return formatBig(digits);
+  }
+  const need = Math.ceil(Math.log10(Number(digits) / span)) + 2;
+  const keep = Math.min(Math.max(4, need), digits.length, 10);
+  if (keep <= 4) return formatBig(digits);
+  const exponent = [...String(digits.length - 1)]
+    .map((d) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[Number(d)])
+    .join("");
+  return `${digits[0]}.${digits.slice(1, keep)} × 10${exponent}`;
 }
 
 /** The event a rule fires on, by name: "Transfer" for an event trigger. */
@@ -144,15 +168,22 @@ export function eventOf(rule: SavedRule): string | null {
   return when.event.replace(/\(.*$/, "").trim() || null;
 }
 
-/** How far a value is from a limit, as a fraction of it, positive when safe. */
+/**
+ * How far a value is from a limit, as a fraction of it, positive when safe.
+ * An inclusive comparison (`le`, `ge`) trips at the limit itself, so there
+ * the headroom is just below zero.
+ */
 export function headroomOf(
   v: number,
   limit: number,
   trips: Trips,
+  inclusive = false,
 ): number | null {
   if (trips === null) return null;
   const gap = trips === "below" ? v - limit : limit - v;
-  if (limit === 0) return gap >= 0 ? Infinity : -Infinity;
+  const tripped = gap < 0 || (inclusive && gap === 0);
+  if (limit === 0) return tripped ? -Infinity : Infinity;
+  if (tripped && gap === 0) return -Number.EPSILON;
   return gap / Math.abs(limit);
 }
 
@@ -176,12 +207,20 @@ export function rangeOf(
   const span = high - low || Math.abs(high) || 1;
   const off: PreviewModel["range"]["off"] = [];
   for (const limit of limits) {
+    if (limit.v.length === 0) continue;
     const lo = Math.min(...limit.v);
     const hi = Math.max(...limit.v);
-    if (values.length && lo > high + FAR * span) {
-      off.push({ words: limit.words, side: "above" });
-    } else if (values.length && hi < low - FAR * span) {
-      off.push({ words: limit.words, side: "below" });
+    const side =
+      values.length && lo > high + FAR * span
+        ? "above"
+        : values.length && hi < low - FAR * span
+          ? "below"
+          : null;
+    if (side) {
+      // One label per limit, however many edges draw it.
+      if (!off.some((o) => o.words === limit.words)) {
+        off.push({ words: limit.words, side });
+      }
     } else {
       low = Math.min(low, lo);
       high = Math.max(high, hi);
@@ -195,6 +234,27 @@ export function rangeOf(
 const side = (trips: Trips) =>
   trips === "below" ? "below" : trips === "above" ? "above" : "at";
 
+/** A band edge counts as near once the value has used 60% of the band. */
+const edgeNear = (fraction: number, trips: Trips) =>
+  (0.4 * fraction) / (trips === "below" ? 1 - fraction : 1 + fraction);
+
+/**
+ * Whether the rule trips only when several terms hold at once: then no one
+ * limit says how close it is, and the preview gives no colour or headroom.
+ */
+function conjunction(node: unknown, negated = false): boolean {
+  if (node === true || typeof node !== "object" || node === null) return false;
+  const n = node as { node: string; terms?: unknown[]; expr?: unknown };
+  if (n.node === "not") return conjunction(n.expr, !negated);
+  if (n.node === "and" || n.node === "or") {
+    const all = (n.node === "and") !== negated;
+    const live = (n.terms ?? []).filter((t) => t !== true);
+    if (all && live.length > 1) return true;
+    return live.some((t) => conjunction(t, negated));
+  }
+  return false;
+}
+
 /** Everything a preview draws for one rule. */
 export function previewOf(
   rule: SavedRule,
@@ -203,7 +263,7 @@ export function previewOf(
 ): PreviewModel {
   const scale = scaleOf(rule, preview);
   const event = eventOf(rule);
-  const first = preview?.series.find((s) => s.role === "read");
+  const first = lineOf(preview);
   if (!preview || !first) {
     return {
       primary: null,
@@ -217,7 +277,19 @@ export function previewOf(
   }
   const samplesFor = (id: string) =>
     samplesOf({ resolution: "preview", buckets: preview.buckets[id] ?? [] });
+  // A windowed limit is worked out over the history before the preview too,
+  // as the full chart does, so it sits where the engine has it.
+  const withHistory = (id: string) => [
+    ...samplesOf({
+      resolution: "preview",
+      buckets: preview.history?.[id] ?? [],
+    }),
+    ...samplesFor(id),
+  ];
   const samples = samplesFor(first.id);
+  const start = samples[0]?.t ?? now - WINDOW_MS;
+  const shown = (points: { t: number; v: number }[]) =>
+    points.filter((p) => p.t >= start);
   const newest = preview.latest[first.id];
   const latest = newest
     ? {
@@ -226,9 +298,8 @@ export function previewOf(
         t: Date.parse(newest.blockTime),
       }
     : null;
-  const from = now - WINDOW_MS;
   const flat = (v: number) => [
-    { t: from, v },
+    { t: start, v },
     { t: now, v },
   ];
 
@@ -236,15 +307,16 @@ export function previewOf(
   const lines: PreviewLine[] = [];
   for (const t of thresholds.filter((x) => x.seriesId === first.id)) {
     lines.push({
-      key: `threshold:${t.value}`,
+      key: `threshold:${t.op}:${t.value}`,
       points: flat(Number(t.value)),
       trips: t.trips,
       words:
         t.trips !== null
           ? `${side(t.trips)} ${compact(t.value, scale)}`
-          : `${t.label.startsWith("≠") ? "away from" : "at"} ${compact(t.value, scale)}`,
+          : `${t.op === "ne" ? "away from" : "at"} ${compact(t.value, scale)}`,
       role: "limit",
       near: NEAR,
+      inclusive: t.op === "le" || t.op === "ge",
     });
   }
   for (const d of derived.filter((x) => x.seriesId === first.id)) {
@@ -255,7 +327,7 @@ export function previewOf(
     const otherName = other ? nameOf(other) : "";
     const edges = boundaryOf(
       d,
-      samples,
+      withHistory(first.id),
       other ? samplesFor(other.id) : [],
       otherName,
     );
@@ -270,16 +342,18 @@ export function previewOf(
               ? `outside ${edges.find((e) => e.label)?.label ?? b.label}`
               : `${side(b.trips)} ${b.label}`;
       lines.push({
-        key: b.key,
-        points: b.points.map((p) => ({ t: p.t, v: p.v })),
+        key: `${d.kind}:${b.key}`,
+        points: shown(b.points.map((p) => ({ t: p.t, v: p.v }))),
         trips: b.trips,
         words,
         role: band ? "edge" : "limit",
-        near: band ? (0.4 * d.percent) / (100 + d.percent) : NEAR,
+        near: band ? edgeNear(d.percent / 100, b.trips) : NEAR,
+        inclusive: d.kind === "read" && (d.op === "le" || d.op === "ge"),
       });
     }
   }
-  for (const b of bands) {
+  // Only a band on the line itself: a band on another read is not this one's.
+  for (const b of bands.filter((x) => x.valueId === first.id)) {
     const centre = preview.series.find((s) => s.id === b.centerId);
     if (!centre) continue;
     const points = samplesFor(centre.id).map((s) => ({
@@ -289,48 +363,52 @@ export function previewOf(
     const f = b.percent / 100;
     const sign = b.sides === "both" ? "±" : b.sides === "above" ? "+" : "−";
     const words = `outside ${sign}${b.percent}% of ${nameOf(centre)}`;
-    const near = (0.4 * f) / (1 + f);
+    const key = `band:${b.centerId}`;
     lines.push({
-      key: "centre",
+      key: `${key}:centre`,
       points,
       trips: null,
       words,
       role: "centre",
-      near,
+      near: 0,
+      inclusive: false,
     });
     if (b.sides !== "below") {
       lines.push({
-        key: "band:above",
+        key: `${key}:above`,
         points: points.map((p) => ({ ...p, v: p.v * (1 + f) })),
         trips: "above",
         words,
         role: "edge",
-        near,
+        near: edgeNear(f, "above"),
+        inclusive: false,
       });
     }
     if (b.sides !== "above") {
       lines.push({
-        key: "band:below",
+        key: `${key}:below`,
         points: points.map((p) => ({ ...p, v: p.v * (1 - f) })),
         trips: "below",
         words,
         role: "edge",
-        near,
+        near: edgeNear(f, "below"),
+        inclusive: false,
       });
     }
   }
 
-  // The tightest limit at the latest value decides the colour.
+  // The tightest limit at the latest value decides the colour, unless the
+  // rule needs several terms at once, which no single limit can say.
   let headroom: number | null = null;
   let tone: Tone = "none";
-  if (latest) {
+  if (latest && !conjunction(rule.rule.trip_when)) {
+    const rank = { breached: 3, near: 2, safe: 1, none: 0 };
     for (const line of lines) {
       const at = line.points.at(-1)?.v;
       if (at === undefined || line.trips === null) continue;
-      const h = headroomOf(latest.v, at, line.trips);
+      const h = headroomOf(latest.v, at, line.trips, line.inclusive);
       if (h === null) continue;
       const t = toneOf(h, line.near);
-      const rank = { breached: 3, near: 2, safe: 1, none: 0 };
       if (
         headroom === null ||
         rank[t] > rank[tone] ||
@@ -345,7 +423,7 @@ export function previewOf(
       (x) => x.seriesId === first.id && x.trips === null,
     )) {
       const equal = latest.raw === t.value;
-      const hit = t.label.startsWith("≠") ? !equal : equal;
+      const hit = t.op === "ne" ? !equal : equal;
       if (hit) tone = "breached";
       else if (tone === "none") tone = "safe";
     }

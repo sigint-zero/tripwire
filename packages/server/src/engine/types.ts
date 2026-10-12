@@ -431,8 +431,7 @@ export interface EngineReads {
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
   bucketsFrom(
-    windows: { seriesId: string; from: Date }[],
-    to: Date,
+    windows: { seriesId: string; from: Date; to: Date }[],
     buckets: number,
   ): Promise<BucketRow[]>;
   firstPoints(
