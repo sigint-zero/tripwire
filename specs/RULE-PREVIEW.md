@@ -8,10 +8,9 @@ and how close the value is to it. `RULES.md` places the lists and owns
 the full chart on a rule's page; `OVERVIEW.md` owns the pinned cards;
 this spec owns what the preview draws and the one read that feeds it.
 
-Nothing here is built. Today a preview is a bare line of the rule's
-first recorded read and one number (`components/Sparkline.tsx`), with
-no limit, no axis and no label. On the Overview the threshold or band
-is already specified (`OVERVIEW.md`, Pinned) but not drawn.
+It replaced a bare line of the rule's first recorded read and one
+number, which had no limit, no axis and no label
+(`components/RulePreview.tsx`, `lib/preview.ts`, `lib/overlays.ts`).
 
 ## Terms
 
@@ -49,7 +48,8 @@ tall) and in a card (chart across the foot, full width, 96 px tall):
    - a windowed or age limit: the moving limit `RULES.md` works out,
      dashed.
 5. **Axes.** The value range at the top and bottom edges, and the
-   limit's value at its line, in the display scale; "−24h" at the left
+   limit's value at its line, in the display scale; "−24h" at the left (or where the series starts, "−3h", when it holds
+less than a day, as the full chart does)
    and "now" at the right. No grid.
 6. **Legend**, one line under the chart:
    `totalAssets() · Test vault  100.2  ·  trips below 50  ·  +100.4%`.
@@ -79,7 +79,7 @@ pressed flat.
 | no recorded series (only non-numeric reads) | "Nothing recorded to chart", with the rule's sentence above as now |
 | warming up | the line from where its data starts; the status pill says Warming up, and the legend says how long is left when the rule's check knows |
 | off | the line up to when it was switched off, grey |
-| a limit that cannot be drawn (arithmetic on both sides, several terms) | the line alone; the legend shows the condition in the engine's words instead of a limit, and no headroom |
+| a limit that cannot be drawn (arithmetic on both sides, several terms) | the line alone and no headroom; the rule's sentence beside the preview says the condition |
 
 A rule with several drawable limits (an `or` of two thresholds) draws
 them all and gives the headroom of the nearest.
@@ -87,21 +87,23 @@ them all and gives the headroom of the nearest.
 ## Scale
 
 Values show in the rule's display scale (`RULES.md`, Display scale).
-**Proposed:** when a rule has none set, the preview uses the contract's
-own `decimals()` for reads of that contract, read once by the server
-through the engine and kept with the contract. The legend then says
-"auto · 18 decimals", so the scale is never applied silently. Setting
-a number format on the rule's page overrides it, and "raw" turns it
-off for that rule. Values the rule computes from several reads stay
-raw, as on the full chart. Whether to apply it by default or only
-suggest it is open question 1.
+When a rule has none set, the preview uses the `decimals()` of the
+contract its first read reads, read once through the engine by the
+server and kept while it runs. The legend then says "auto, 18
+decimals", so the scale is never applied silently. The rule's page uses
+the same scale for its readout and full chart. A number format set on
+the rule's page overrides it; "raw" is kept as 0 decimals. Values the
+rule computes from several reads stay raw, as on the full chart.
 
 Numbers show compact once scaled (100.2, 3,417.5, 1.2M, 4.8B) and as
-today's mantissa × 10ⁿ when raw.
+the mantissa × 10ⁿ the dashboard uses elsewhere when raw. The axis
+labels keep enough digits that the top and bottom of a narrow range
+read differently (5.343M and 5.284M, not 5.3M twice).
 
 ## The read
 
-One request for all the previews on a page, replacing `/sparklines`:
+One request for all the previews on a page, which replaced
+`/sparklines`:
 
 `GET /previews?rules=1,2,3&window=24h`, at most 64 rules (the list asks
 in batches of 64); `window` is `1h`, `24h` or `7d`.
@@ -122,7 +124,8 @@ in batches of 64); `window` is `1h`, `24h` or `7d`.
 ```
 
 - `series` is the rule's series as `/rules/:id/series` returns them,
-  at most three: the primary series and those its limit needs.
+  the first three: its reads first, which is where a limit's second
+  read sits.
 - `buckets` holds 48 per series, as `/sparklines` does now.
 - `latest` comes from the newest point, so the dot and the headroom
   use the exact last value and not a bucket's.
@@ -132,11 +135,10 @@ in batches of 64); `window` is `1h`, `24h` or `7d`.
   it comes from the same bounded query that works out status.
 
 The browser works out the limits and headroom from the rule document
-it already holds and these series, with the code the full chart uses,
-moved to one module, so a preview and its rule's chart never disagree.
+it already holds and these series, with the code the full chart uses
+(`lib/overlays.ts`), so a preview and its rule's chart never disagree.
 The server reads every series' buckets in one bounded query: 64 rules
-× 3 series × 48 buckets stays under the 10,000-row cap the bucket read
-has today.
+× 3 series × 48 buckets stays under the bucket read's 10,000 rows.
 
 ## Live
 
@@ -147,17 +149,7 @@ red without waiting.
 
 ## Open questions
 
-1. Applying the contract's `decimals()` by default can mislabel a read
-   with its own scale: an oracle's 8-decimal `latestAnswer()` on an
-   18-decimal token reads 10¹⁰ too small. Applying it by default, as
-   proposed, makes most previews readable at once; only suggesting it
-   ("looks like 18 decimals: use") makes none wrong. The answer decides
-   RP4.
-2. The bucket read allows 10,000 rows (`server/src/engine/reads.ts`,
-   `buckets`), against 1,000 for every other view read; `/sparklines`
-   already relies on it. Allowing it for bucket reads, or cutting batches
-   to 6 rules, settles it.
-3. Hover on a preview (value and time under the pointer) is left out,
+1. Hover on a preview (value and time under the pointer) is left out,
    since the rule's page has it. Adding it costs a small tooltip per
    preview.
 
@@ -168,8 +160,9 @@ red without waiting.
 | RP1 | Where limits are worked out | In the browser, with the full chart's code moved to one module. The server would need a second copy of the document walk, and two copies drift; the browser already holds every rule document |
 | RP2 | Colour by value or by status | By value, with the status in its own pill. A rule tripped by its event or by another term would otherwise paint a healthy line red, and a holding rule one block from its limit would look as safe as one far away |
 | RP3 | One read per page | `/previews` for up to 64 rules at a time. The list must cost a fixed number of requests whatever its length (`RULES.md`, RL5), and 64 × 3 × 48 rows fits the bucket read's cap |
-| RP4 | Scale | The rule's own scale first; the contract's `decimals()` as a labelled default. Raw 10²⁰ numbers are the main reason the previews read as noise today |
-| RP5 | Padding and far limits | Pad 12% and include the limit, unless it is far away. A limit at 0 under values near 10²⁰ would otherwise flatten the line into the top edge, as the full chart does today |
+| RP4 | Scale | The rule's own scale first; the contract's `decimals()` as a labelled default, chosen over only suggesting it. Raw 10²⁰ numbers were the main reason the previews read as noise; an oracle with its own decimals on a token contract is set once on its rule's page |
+| RP5 | Padding and far limits | Pad 12% and include the limit, unless it is far away. A limit at 0 under values near 10²⁰ would otherwise flatten the line into the top edge, as the full chart does |
+| RP6 | Rows per read | The bucket read keeps its 10,000 rows, chosen over batches of six rules |
 
 ## Checkpoint
 

@@ -128,6 +128,14 @@ export function RulePreview({
     return Math.min(100, Math.max(0, (at / shownSpan) * 100));
   };
   const y = (v: number) => ((high - v) / (high - low || 1)) * 100;
+  // A read of a time labels its axis with clock times, not seconds.
+  const tick = (v: number) =>
+    m.age !== null
+      ? new Date(v * 1000).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : compact(v, m.scale, high - low);
   const path = (pts: { t: number; v: number }[]) =>
     pts.map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`).join("");
   const lineOf = (run: typeof samples) =>
@@ -280,10 +288,10 @@ export function RulePreview({
           }}
         />
         <span className="absolute top-0 left-0 font-mono text-[9px] leading-none text-gray-600">
-          {compact(high, m.scale, high - low)}
+          {tick(high)}
         </span>
         <span className="absolute bottom-0 left-0 font-mono text-[9px] leading-none text-gray-600">
-          {compact(low, m.scale, high - low)}
+          {tick(low)}
         </span>
         {labelled && !m.range.off.some((o) => o.words === labelled.words) && (
           <span
@@ -292,7 +300,7 @@ export function RulePreview({
               top: `${Math.min(100, Math.max(8, y(labelled.points.at(-1)!.v)))}%`,
             }}
           >
-            {compact(labelled.points.at(-1)!.v, m.scale)}
+            {tick(labelled.points.at(-1)!.v)}
           </span>
         )}
         {(["above", "below"] as const).map((at) => {
