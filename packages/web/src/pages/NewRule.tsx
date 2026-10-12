@@ -171,7 +171,8 @@ export function NewRulePage({
     if (!("watch" in read)) return;
     const { rest } = read;
     if (rest.name !== undefined) setName(rest.name);
-    if (rest.description !== undefined) setDescription(rest.description);
+    // A null description, as the engine allows, reads as none.
+    if (rest.description !== undefined) setDescription(rest.description ?? "");
     if (rest.severity !== undefined) setSeverity(rest.severity);
     if (rest.on_trip !== undefined) setOnTrip(rest.on_trip);
   };
