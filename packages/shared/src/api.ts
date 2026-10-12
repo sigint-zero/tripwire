@@ -157,7 +157,7 @@ export interface RuleDisplay {
   unit: string | null;
 }
 
-/** Where a rule stands now; `RULES.md` defines each. */
+/** Where a rule stands now. */
 export type RuleStatus = "off" | "tripped" | "error" | "warming" | "holding";
 
 /** A rule as the engine keeps it. */
@@ -418,7 +418,7 @@ export interface ChainSetup {
   rpcWs?: string | null;
 }
 
-/** The engine's verify invocation on an endpoint (`ENGINE.md`, G2). */
+/** The engine's verify invocation on an endpoint. */
 export interface ChainVerify {
   ok: boolean;
   chainId: number;

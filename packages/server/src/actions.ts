@@ -10,7 +10,7 @@ import type {
 } from "./engine/types";
 import { refuse } from "./refuse";
 
-// Pausing and unpausing by hand during an incident (`RESPONSES.md`): a
+// Pausing and unpausing by hand during an incident: a
 // person's decision, sent by the engine from the signing key through the
 // same path as a response, in any mode: a call to one of the contract's
 // own functions, or the controller's pauses for a contract registered

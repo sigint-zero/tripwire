@@ -1,4 +1,4 @@
-// Notifications and alert channels (NOTIFICATIONS.md), shared by the
+// Notifications and alert channels, shared by the
 // server and the dashboard.
 
 import type { Severity } from "./rule";

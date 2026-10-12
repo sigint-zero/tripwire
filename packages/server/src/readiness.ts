@@ -16,8 +16,8 @@ import type {
 } from "./engine/types";
 import { refuse } from "./refuse";
 
-// Whether each contract's responses would work when a rule trips
-// (`RESPONSES.md`, Readiness), computed from the keys, the configuration,
+// Whether each contract's responses would work when a rule trips,
+// computed from the keys, the configuration,
 // the rules and the controller's mirrored events. Each rule's last test is
 // kept in memory until the next test or a restart.
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 /**
  * The pinned engine release and the check an installed copy must pass
- * before it runs (`ENGINE.md`, Installing). A release fetched by hand into
+ * before it runs. A release fetched by hand into
  * `TRIPWIRE_HOME/engine/bin/<version>/` is checked exactly as a download
  * would be.
  */

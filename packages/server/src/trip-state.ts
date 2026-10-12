@@ -4,7 +4,7 @@ import { toFunctionSelector } from "viem";
 import type { EngineReads, TripStateRow } from "./engine/types";
 import { toTx } from "./responses";
 
-// What is paused now (`ACTIVITY.md`): the tripped rows of the engine's
+// What is paused now: the tripped rows of the engine's
 // trip state for registered contracts, each with the function it names,
 // who paused it when that was Tripwire, and for a confirmed call the
 // rules whose confirmation reads true.

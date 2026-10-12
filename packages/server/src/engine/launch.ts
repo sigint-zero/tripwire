@@ -16,7 +16,7 @@ import {
 } from "../config";
 
 /**
- * The pieces of running the installed engine (`ENGINE.md`, Start):
+ * The pieces of running the installed engine:
  * `engine.toml` from the configuration, the engine's allow-listed
  * environment, `migrate`, `verify`, the spawn, and stopping it. The
  * supervisor puts them in order and decides what an exit means.
@@ -62,7 +62,7 @@ export function withEnvironmentChain(
 }
 
 /**
- * `engine.toml` for this run (`ENGINE.md`, engine.toml). Every secret is
+ * `engine.toml` for this run. Every secret is
  * an `env:` reference, so the file holds none; null values are left out
  * so the engine's own defaults apply.
  */
@@ -95,7 +95,7 @@ export function engineToml(
     "",
     "[database]",
     'url = "env:TRIPWIRE_DATABASE_URL"',
-    // The local database is one session behind the pooler (DATABASE.md).
+    // The local database is one session behind the pooler.
     ...(options.local ? ["max_connections = 1"] : []),
     "",
     "[data]",
@@ -137,8 +137,7 @@ export function engineToml(
 }
 
 /**
- * Only what the engine needs reaches it (ENGINE.md, the engine's
- * environment), with every `env:` reference resolved.
+ * Only what the engine needs reaches it, with every `env:` reference resolved.
  */
 export function engineEnvironment(
   chain: ChainConfig,

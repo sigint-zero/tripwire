@@ -6,7 +6,7 @@ import type {
 import type { NoticeRow } from "./store";
 
 // Every message says what happened, where, how bad, and links to the page
-// that shows the evidence (NOTIFICATIONS.md, Messages). A notification is
+// that shows the evidence. A notification is
 // rendered from its row alone, with the registered contracts' names.
 
 export interface Rendered {

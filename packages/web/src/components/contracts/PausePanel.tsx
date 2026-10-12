@@ -42,7 +42,7 @@ type Contract = {
 
 /**
  * What is paused on this contract now, and pausing it by hand during an
- * incident (`RESPONSES.md`, Pausing and unpausing by hand). The status
+ * incident. The status
  * comes first; the ways to pause stay behind one button, offering the
  * contract's own pause switch before anything else.
  */

@@ -18,8 +18,8 @@ import {
 } from "./engine/supervisor";
 import { refuse } from "./refuse";
 
-// The engine as the application runs it (`ENGINE.md`, API) and first run's
-// chain step (`FIRST-RUN.md`, API). Attached engines and the stand-in have
+// The engine as the application runs it and first run's
+// chain step. Attached engines and the stand-in have
 // nothing here to restart or configure.
 
 const endpoint = z.string().trim().min(1).max(2000);

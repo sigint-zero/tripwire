@@ -17,8 +17,7 @@ import {
 } from "./release";
 
 /**
- * Installing the pinned release (`ENGINE.md`, Download and verify, and
- * Offline): the signed checksums first, then the executable streamed
+ * Installing the pinned release: the signed checksums first, then the executable streamed
  * through SHA-256, renamed into place only once it matches, then the same
  * check `tripwire start` makes. A verification failure is never retried;
  * a network failure is, three times.

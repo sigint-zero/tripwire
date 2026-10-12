@@ -11,7 +11,7 @@ import type {
   NotificationStore,
 } from "./store";
 
-// Delivery (NOTIFICATIONS.md): dispatch turns each new notification into a
+// Delivery: dispatch turns each new notification into a
 // delivery per matching channel; the worker sends what is due, retrying
 // with backoff forever, and folds a storm into one digest a minute. It runs
 // every five seconds, and at once when a notification arrives.

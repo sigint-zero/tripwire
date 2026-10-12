@@ -15,8 +15,8 @@ import { Keys } from "../Keys";
 import { Button } from "../ui";
 
 /**
- * What happens to this contract when one of its rules trips
- * (`RESPONSES.md`, Readiness). A contract whose rules only alert says so
+ * What happens to this contract when one of its rules trips.
+ * A contract whose rules only alert says so
  * in a line. Once a rule is meant to pause it, the checks become a short
  * guide: each thing Tripwire still needs, in order, with the way to do it
  * right there. It re-reads on every block, so a step ticks by itself once
