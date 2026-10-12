@@ -101,6 +101,12 @@ describe("compact", () => {
     expect(compact(String(100n * E18), raw)).toBe("1.000 × 10²⁰");
     expect(compact("1234", raw)).toBe("1,234");
   });
+
+  it("reads raw chosen as no decimals like no scale once it is long", () => {
+    const zero = { decimals: 0, unit: null, auto: false };
+    expect(compact(String(100n * E18), zero)).toBe("1.000 × 10²⁰");
+    expect(compact("1234", zero)).toBe("1,234");
+  });
 });
 
 describe("headroom and tone", () => {

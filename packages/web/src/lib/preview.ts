@@ -63,6 +63,15 @@ const NEAR = 0.1;
 const PAD = 0.12;
 const FAR = 20;
 
+/** The decimals() of the contract the rule's first read reads, when it has one. */
+export function contractDecimals(
+  preview: RulePreview | undefined,
+): number | null {
+  const first = preview?.series.find((s) => s.role === "read");
+  if (!first) return null;
+  return preview?.decimals[first.call.address.toLowerCase()] ?? null;
+}
+
 /** The rule's scale: its own display first, else its contract's decimals(). */
 export function scaleOf(
   rule: SavedRule,
@@ -72,11 +81,8 @@ export function scaleOf(
   if (rule.display.decimals !== null) {
     return { decimals: rule.display.decimals, unit, auto: false };
   }
-  const first = preview?.series.find((s) => s.role === "read");
-  const auto = first
-    ? preview?.decimals[first.call.address.toLowerCase()]
-    : undefined;
-  return auto === undefined
+  const auto = contractDecimals(preview);
+  return auto === null
     ? { decimals: null, unit, auto: false }
     : { decimals: auto, unit, auto: true };
 }
@@ -92,7 +98,9 @@ export function compact(
   span?: number,
 ): string {
   const unit = scale.unit ? ` ${scale.unit}` : "";
-  if (scale.decimals === null) {
+  // Raw, chosen as 0 decimals, reads like no scale once it is long.
+  const huge = scale.decimals === 0 && Math.abs(Number(raw)) >= 1e15;
+  if (scale.decimals === null || huge) {
     const whole =
       typeof raw === "string"
         ? raw
