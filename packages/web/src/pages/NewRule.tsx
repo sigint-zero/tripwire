@@ -1,6 +1,7 @@
 import {
   chainName,
   comparedValues,
+  describeCondition,
   describeValue,
   formatDuration,
   issuesOf,
@@ -32,11 +33,13 @@ import {
 } from "../components/wizard/ResponseStep";
 import { RuleSentence, sentenceText } from "../components/wizard/RuleSentence";
 import { Stepper } from "../components/wizard/Stepper";
+import { JsonCondition, readJson } from "../components/wizard/JsonCondition";
 import { TemplatePicker } from "../components/wizard/TemplatePicker";
 import { TripSimulation } from "../components/wizard/TripSimulation";
-import { Button, Eyebrow } from "../components/ui";
+import { Button, choice, Eyebrow, track } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { shortAddress } from "../lib/format";
+import { readingOrder } from "../lib/readingOrder";
 import {
   initialValues,
   rankTemplates,
@@ -52,12 +55,15 @@ const steps = [
   { title: "Review", hint: "Name it and switch it on." },
 ];
 
-/** A stored rule opened in the wizard, read back into a starting point. */
+/**
+ * A stored rule opened in the wizard: read back into a starting point, or,
+ * when none builds it, with its condition in the JSON box.
+ */
 export interface Editing {
   id: string;
   rule: Rule;
-  templateId: string;
-  values: Values;
+  templateId: string | null;
+  values: Values | null;
 }
 
 /**
@@ -82,11 +88,32 @@ export function NewRulePage({
   const [templateId, setTemplateId] = useState<string | null>(
     editing?.templateId ?? null,
   );
+  // The condition from a starting point, or written as JSON.
+  const [mode, setMode] = useState<"wizard" | "json">(
+    editing && !editing.templateId ? "json" : "wizard",
+  );
+  const [jsonText, setJsonText] = useState(() =>
+    editing
+      ? JSON.stringify(
+          readingOrder({
+            when: editing.rule.when,
+            trip_when: editing.rule.trip_when,
+          }),
+          null,
+          2,
+        )
+      : "",
+  );
+  const json = readJson(jsonText);
   // Blanks are kept per template, so trying another preset and coming back
   // does not lose what was filled in.
   const [valuesByTemplate, setValuesByTemplate] = useState<
     Record<string, Values>
-  >(editing ? { [editing.templateId]: editing.values } : {});
+  >(
+    editing?.templateId && editing.values
+      ? { [editing.templateId]: editing.values }
+      : {},
+  );
   const [name, setName] = useState<string | null>(editing?.rule.name ?? null);
   const [description, setDescription] = useState(
     editing?.rule.description ?? "",
@@ -121,6 +148,7 @@ export function NewRulePage({
   // one keeps its own.
   const selectTemplate = (id: string) => {
     setTemplateId(id);
+    setMode("wizard");
     if (editing) return;
     setName(null);
     setSeverity(null);
@@ -129,11 +157,34 @@ export function NewRulePage({
   const labelOf = (id: string) =>
     surface?.reads.find((r) => r.id === id)?.label ?? id;
   const ruleName =
-    name ?? (template ? template.defaultName(values, labelOf) : "");
+    name ??
+    (mode === "wizard" && template
+      ? template.defaultName(values, labelOf)
+      : "");
   const ruleSeverity = severity ?? template?.severity ?? "warning";
 
+  // A pasted whole document fills the other steps; only the condition
+  // stays in the box.
+  const writeJson = (text: string) => {
+    setJsonText(text);
+    const read = readJson(text);
+    if (!("watch" in read)) return;
+    const { rest } = read;
+    if (rest.name !== undefined) setName(rest.name);
+    if (rest.description !== undefined) setDescription(rest.description);
+    if (rest.severity !== undefined) setSeverity(rest.severity);
+    if (rest.on_trip !== undefined) setOnTrip(rest.on_trip);
+  };
+
   // The whole document, as the engine will receive it.
-  const watch = template ? template.build(values) : null;
+  const watch =
+    mode === "json"
+      ? "watch" in json
+        ? json.watch
+        : null
+      : template
+        ? template.build(values)
+        : null;
   const draft: Rule | null =
     watch && contract
       ? {
@@ -151,7 +202,18 @@ export function NewRulePage({
   const issues = checked && !checked.success ? issuesOf(checked.error) : [];
   const issueAt = (...prefixes: string[]) =>
     issues.find((i) => prefixes.some((p) => i.path.startsWith(p)));
-  const watchProblem = issueAt("/when", "/trip_when")?.message;
+  const watchProblem =
+    mode === "json" && "problem" in json
+      ? json.problem
+      : issueAt("/when", "/trip_when")?.message;
+  // The condition in words, from its starting point or, for JSON, as the
+  // dashboard describes any document.
+  const conditionText = (): string =>
+    mode === "wizard" && template && surface
+      ? sentenceText(template, values, surface)
+      : draft && draft.trip_when !== true
+        ? describeCondition(draft.trip_when, readName)
+        : "";
 
   // Both sides of the condition, named the way the sentence names them.
   const readName: CallNamer = (call) =>
@@ -353,12 +415,42 @@ export function NewRulePage({
               {reference && contract && (
                 <ContractExplorer surface={contract.surface} />
               )}
-              <TemplatePicker
-                ranked={ranked}
-                selected={templateId}
-                onSelect={selectTemplate}
-              />
-              {template && (
+              <div
+                className={track}
+                role="group"
+                aria-label="How to write the rule"
+              >
+                <button
+                  type="button"
+                  aria-pressed={mode === "wizard"}
+                  onClick={() => setMode("wizard")}
+                  className={choice(mode === "wizard")}
+                >
+                  Starting point
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mode === "json"}
+                  onClick={() => setMode("json")}
+                  className={choice(mode === "json")}
+                >
+                  JSON
+                </button>
+              </div>
+              {mode === "json" ? (
+                <JsonCondition
+                  text={jsonText}
+                  onChange={writeJson}
+                  problem={watchProblem}
+                />
+              ) : (
+                <TemplatePicker
+                  ranked={ranked}
+                  selected={templateId}
+                  onSelect={selectTemplate}
+                />
+              )}
+              {mode === "wizard" && template && (
                 <div className="space-y-5 bg-emerald-500/4 bg-[radial-gradient(ellipse_at_top_left,--theme(--color-emerald-500/14%),transparent_70%)] px-6 py-8 md:px-10 md:py-10">
                   <Eyebrow>Your rule</Eyebrow>
                   <RuleSentence
@@ -403,10 +495,10 @@ export function NewRulePage({
                 contract={selected ?? ""}
                 registered={contract?.controller != null}
               />
-              {draft && template && ready[1] && engine && (
+              {draft && ready[1] && engine && (
                 <TripSimulation
                   rule={draft}
-                  sentence={sentenceText(template, values, surface)}
+                  sentence={conditionText()}
                   responseMode={engine.responseMode}
                   contractName={contract?.name ?? ""}
                   valueLabel={ruleLabels[0] ?? ""}
@@ -418,7 +510,7 @@ export function NewRulePage({
 
         {section(
           3,
-          template && surface && draft ? (
+          surface && draft && watch ? (
             <>
               <Review
                 name={ruleName}
@@ -431,7 +523,7 @@ export function NewRulePage({
                     "Watches",
                     `${contract?.name} (${shortAddress(selected ?? "")})${chain ? ` on ${chain}` : ""}`,
                   ],
-                  ["Rule", sentenceText(template, values, surface)],
+                  ["Rule", conditionText()],
                   [
                     "Severity",
                     severities.find((s) => s.severity === ruleSeverity)
