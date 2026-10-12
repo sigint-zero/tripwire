@@ -20,6 +20,14 @@ const TONE: Record<Tone, { line: string; text: string; fill: string }> = {
 };
 const OFF = { line: "#6b7280", text: "text-gray-500", fill: "#6b7280" };
 
+/** "24h", "3h", "40m": how far back the axis reaches. */
+function shortSpan(ms: number) {
+  const hours = ms / 3_600_000;
+  return hours >= 1
+    ? `${Math.round(hours)}h`
+    : `${Math.max(1, Math.round(ms / 60_000))}m`;
+}
+
 /** Headroom as a percentage, and as a multiple once it passes 10×. */
 function pct(h: number) {
   const sign = h >= 0 ? "+" : "−";
@@ -75,10 +83,13 @@ export function RulePreview({
   }
 
   const tone = rule.enabled ? TONE[m.tone] : OFF;
-  const from = now - WINDOW_MS;
+  // Like the full chart, the time axis starts where the series does when it
+  // holds less than a day, so a new rule's line is not squeezed into the edge.
+  const from = Math.max(now - WINDOW_MS, m.primary.samples[0]!.t);
+  const span = Math.max(now - from, 60_000);
   const { low, high } = m.range;
   const x = (t: number) =>
-    Math.min(100, Math.max(0, ((t - from) / WINDOW_MS) * 100));
+    Math.min(100, Math.max(0, ((t - from) / span) * 100));
   const y = (v: number) => ((high - v) / (high - low || 1)) * 100;
   const path = (pts: { t: number; v: number }[]) =>
     pts.map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`).join("");
@@ -220,7 +231,7 @@ export function RulePreview({
         ))}
       </div>
       <div className="mt-0.5 flex justify-between font-mono text-[9px] text-gray-600">
-        <span>−24h</span>
+        <span>−{shortSpan(span)}</span>
         <span>now</span>
       </div>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2 font-mono text-[10px] text-gray-500">
