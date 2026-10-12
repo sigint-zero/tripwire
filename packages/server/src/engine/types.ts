@@ -430,6 +430,15 @@ export interface EngineReads {
   registrations(): Promise<RegistrationRow[]>;
   /** Each rule's newest violation and open count, in one bounded read. */
   ruleActivity(ruleIds: string[]): Promise<RuleActivity[]>;
+  bucketsFrom(
+    windows: { seriesId: string; from: Date }[],
+    to: Date,
+    buckets: number,
+  ): Promise<BucketRow[]>;
+  firstPoints(
+    seriesIds: string[],
+    from: Date,
+  ): Promise<{ series_id: string; first_at: string }[]>;
   /** Each rule's newest tripped violation, for the rules that have one. */
   lastTripped(ruleIds: string[]): Promise<LastTripped[]>;
   /** The series each rule draws from, in document order. */

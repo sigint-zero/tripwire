@@ -94,13 +94,22 @@ export function RulePreview({
   const path = (pts: { t: number; v: number }[]) =>
     pts.map((p, i) => `${i ? "L" : "M"}${x(p.t)},${y(p.v)}`).join("");
   const samples = m.primary.samples;
-  const lastOf = samples.map((s) => ({ t: s.t, v: Number(s.last) }));
-  const upper = samples.map((s) => `L${x(s.t)},${y(Number(s.max))}`).join("");
-  const lower = [...samples]
-    .reverse()
-    .map((s) => `L${x(s.t)},${y(Number(s.min))}`)
-    .join("");
-  const range = `M${upper.slice(1)}${lower}Z`;
+  // The line breaks where nothing was recorded for more than three
+  // buckets, as the full chart's does: a gap reads as a gap.
+  const gap = (3 * span) / 48;
+  const runs: (typeof samples)[] = [];
+  for (const sample of samples) {
+    const run = runs.at(-1);
+    if (run && sample.t - run.at(-1)!.t <= gap) run.push(sample);
+    else runs.push([sample]);
+  }
+  const lineOf = (run: typeof samples) =>
+    path(run.map((s) => ({ t: s.t, v: Number(s.last) })));
+  const rangeOf = (run: typeof samples) =>
+    `M${run.map((s) => `${x(s.t)},${y(Number(s.max))}`).join("L")}${[...run]
+      .reverse()
+      .map((s) => `L${x(s.t)},${y(Number(s.min))}`)
+      .join("")}Z`;
   const latest = m.primary.latest ?? {
     raw: samples.at(-1)!.last,
     v: Number(samples.at(-1)!.last),
@@ -157,7 +166,14 @@ export function RulePreview({
                 />
               ) : null;
             })}
-          <path d={range} fill={tone.fill} opacity={0.12} />
+          {runs.map((run, i) => (
+            <path
+              key={`range:${i}`}
+              d={rangeOf(run)}
+              fill={tone.fill}
+              opacity={0.12}
+            />
+          ))}
           {centre && (
             <path
               d={path(centre.points)}
@@ -189,13 +205,20 @@ export function RulePreview({
               vectorEffect="non-scaling-stroke"
             />
           ))}
-          <path
-            d={path([...lastOf, { t: latest.t, v: latest.v }])}
-            fill="none"
-            stroke={tone.line}
-            strokeWidth={1.5}
-            vectorEffect="non-scaling-stroke"
-          />
+          {runs.map((run, i) => (
+            <path
+              key={`line:${i}`}
+              d={lineOf(
+                i === runs.length - 1 && latest.t - run.at(-1)!.t <= gap
+                  ? [...run, { ...run.at(-1)!, t: latest.t, last: latest.raw }]
+                  : run,
+              )}
+              fill="none"
+              stroke={tone.line}
+              strokeWidth={1.5}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
         </svg>
         <span
           className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"

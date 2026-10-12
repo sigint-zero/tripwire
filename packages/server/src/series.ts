@@ -192,12 +192,33 @@ export const seriesRoutes: FastifyPluginCallback<{
           [...kept.values()].flat().map((s) => s.call.address.toLowerCase()),
         ),
       ];
+      // A series holding less than the window is cut over what it holds, so
+      // its preview is as fine as a full day's.
+      const firsts = await reads.firstPoints(seriesIds, from);
+      const startOf = new Map(
+        seriesIds.map((id) => {
+          const at = firsts.find((f) => f.series_id === id)?.first_at;
+          return [
+            id,
+            at ? new Date(Math.max(from.getTime(), Date.parse(at))) : from,
+          ];
+        }),
+      );
       const [rows, newest, scales] = await Promise.all([
-        reads.buckets(seriesIds, from, to, PREVIEW_BUCKETS),
+        reads.bucketsFrom(
+          seriesIds.map((id) => ({ seriesId: id, from: startOf.get(id)! })),
+          to,
+          PREVIEW_BUCKETS,
+        ),
         reads.newestPoints(seriesIds),
         decimalsOf(addresses),
       ]);
-      const width = span / PREVIEW_BUCKETS;
+      // The same width the bucket read cuts by, at least a second.
+      const widthOf = (id: string) =>
+        Math.max(
+          (to.getTime() - startOf.get(id)!.getTime()) / PREVIEW_BUCKETS,
+          1000,
+        );
       return ids.map((ruleId) => {
         const series = kept.get(ruleId) ?? [];
         const fired = tripped.find((t) => t.rule_id === ruleId);
@@ -209,8 +230,8 @@ export const seriesRoutes: FastifyPluginCallback<{
               s.id,
               toBuckets(
                 rows.filter((b) => b.series_id === s.id),
-                from,
-                width,
+                startOf.get(s.id)!,
+                widthOf(s.id),
               ),
             ]),
           ),

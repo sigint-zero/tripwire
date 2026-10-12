@@ -400,6 +400,70 @@ export class ViewReads implements EngineReads {
     );
   }
 
+  /**
+   * Buckets of each series over its own window, from its `from` to `to`,
+   * each cut into the same number of equal stretches: one query for series
+   * that started recording at different times.
+   */
+  async bucketsFrom(
+    windows: { seriesId: string; from: Date }[],
+    to: Date,
+    buckets: number,
+  ): Promise<BucketRow[]> {
+    if (windows.length === 0) return [];
+    const ids = windows.map((w) => w.seriesId);
+    const froms = windows.map((w) => w.from);
+    const widths = windows.map((w) =>
+      Math.max((to.getTime() - w.from.getTime()) / 1000 / buckets, 1),
+    );
+    return this.#read<BucketRow>(
+      `WITH w AS (
+         SELECT * FROM unnest($1::bigint[], $2::timestamptz[], $3::float8[])
+           AS w(series_id, start, width)
+       ), parts AS (
+         SELECT p.series_id, p.block_time AS t, p.value AS first, p.value AS last,
+                p.value AS min, p.value AS max, 1 AS n
+           FROM ${this.#schema}.series_points p
+           JOIN w ON w.series_id = p.series_id
+          WHERE p.block_time >= w.start AND p.block_time < $4
+         UNION ALL
+         SELECT r.series_id, r.bucket_start, r.first, r.last, r.min, r.max, r.samples
+           FROM ${this.#schema}.series_rollups r
+           JOIN w ON w.series_id = r.series_id
+          WHERE r.bucket_start >= w.start AND r.bucket_start < $4
+       )
+       SELECT parts.series_id::text,
+              floor(extract(epoch FROM t - w.start) / w.width)::int AS bucket,
+              (array_agg(first ORDER BY t))[1]::text AS first,
+              (array_agg(last ORDER BY t DESC))[1]::text AS last,
+              min(min)::text AS min, max(max)::text AS max,
+              sum(n)::int AS count
+         FROM parts JOIN w ON w.series_id = parts.series_id
+        GROUP BY parts.series_id, bucket
+        ORDER BY parts.series_id, bucket
+        LIMIT ${LIMIT * 10}`,
+      [ids, froms, widths, to],
+    );
+  }
+
+  /** When each series' first point at or after `from` was recorded. */
+  async firstPoints(
+    seriesIds: string[],
+    from: Date,
+  ): Promise<{ series_id: string; first_at: string }[]> {
+    if (seriesIds.length === 0) return [];
+    return this.#read(
+      `SELECT series_id::text, min(t) AS first_at FROM (
+         SELECT series_id, block_time AS t FROM ${this.#schema}.series_points
+          WHERE series_id = ANY($1::bigint[]) AND block_time >= $2
+         UNION ALL
+         SELECT series_id, bucket_start FROM ${this.#schema}.series_rollups
+          WHERE series_id = ANY($1::bigint[]) AND bucket_start >= $2
+       ) s GROUP BY series_id LIMIT ${LIMIT}`,
+      [seriesIds, from],
+    );
+  }
+
   /** Responses with the violation that caused them and the contract's name. */
   #responses() {
     return `${this.#schema}.responses p

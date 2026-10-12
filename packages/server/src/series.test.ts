@@ -284,6 +284,23 @@ describe("previews", () => {
     });
   });
 
+  it("cuts a series holding less than the window over what it holds", async () => {
+    const [p] = await get<RulePreview[]>(`/previews?rules=${reading}`);
+    const id = p!.series[0]!.id;
+    const buckets = p!.buckets[id]!;
+    const { rows } = await pool.query<{ first: Date }>(
+      `SELECT min(block_time) AS first FROM ${STUB_VIEWS}.series_points
+        WHERE series_id = $1 AND block_time >= $2`,
+      [id, new Date(now - 86_400_000)],
+    );
+    // The first bucket starts at the series' first point within the day,
+    // whenever that is, so a young series fills its preview.
+    expect(
+      Math.abs(Date.parse(buckets[0]!.start) - rows[0]!.first.getTime()),
+    ).toBeLessThan(1000);
+    expect(buckets.length).toBeGreaterThan(40);
+  });
+
   it("says when a rule last tripped", async () => {
     const all = await get<RulePreview[]>(
       `/previews?rules=${tripping},${holding}`,
