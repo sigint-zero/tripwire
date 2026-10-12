@@ -8,6 +8,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { formatBig, showValue } from "../lib/format";
+import { timeAxis } from "../lib/timeAxis";
 import {
   boundaryOf,
   nameOf,
@@ -180,21 +181,24 @@ export function Chart({
 
   const W = 800;
   const H = 220;
-  const x = (t: number) => ((t - start) / (to - start || 1)) * W;
+  // Stretches where nothing was recorded are squeezed to a sliver, so what
+  // was recorded fills the chart and the line runs on across the break.
+  const axis = timeAxis(
+    all.map((s) => s.t),
+    start,
+    to,
+  );
+  const x = (t: number) => axis.x(t) * W;
   const y = (v: number) => H - ((v - yLow) / (yHigh - yLow)) * H;
 
-  /** The line, broken where points are more than three times their usual gap apart. */
-  const pathOf = (samples: Sample[], pick: (s: Sample) => number) => {
-    const gaps = samples.slice(1).map((s, i) => s.t - samples[i]!.t);
-    const usual =
-      [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)] ?? 0;
-    return samples
-      .map((s, i) => {
-        const broken = i === 0 || (usual > 0 && gaps[i - 1]! > usual * 3);
-        return `${broken ? "M" : "L"}${x(s.t).toFixed(1)},${y(pick(s)).toFixed(1)}`;
-      })
+  /** The line through the samples, on across any squeezed stretch. */
+  const pathOf = (samples: Sample[], pick: (s: Sample) => number) =>
+    samples
+      .map(
+        (s, i) =>
+          `${i ? "L" : "M"}${x(s.t).toFixed(1)},${y(pick(s)).toFixed(1)}`,
+      )
       .join("");
-  };
   const rangeOf = (samples: Sample[]) =>
     samples.length < 2
       ? ""
@@ -255,7 +259,7 @@ export function Chart({
         className="relative bg-black/30"
         onMouseMove={(e) => {
           const r = box.current!.getBoundingClientRect();
-          setHover(start + ((e.clientX - r.left) / r.width) * (to - start));
+          setHover(axis.time((e.clientX - r.left) / r.width));
         }}
         onMouseLeave={() => setHover(null)}
       >
@@ -265,6 +269,26 @@ export function Chart({
           className="block h-56 w-full"
           aria-label="Chart of the rule's values"
         >
+          {axis.breaks.map((b) => {
+            const at = x((b.from + b.to) / 2);
+            return (
+              <line
+                key={b.from}
+                x1={at}
+                x2={at}
+                y1={0}
+                y2={H}
+                stroke="#6b7280"
+                strokeOpacity={0.5}
+                strokeDasharray="2 4"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>
+                  {`Nothing recorded from ${new Date(b.from).toLocaleString()} to ${new Date(b.to).toLocaleString()}`}
+                </title>
+              </line>
+            );
+          })}
           {bands.map((b) => {
             const center = lines.find((l) => l.series.id === b.centerId);
             if (!center) return null;

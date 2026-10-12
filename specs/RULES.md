@@ -188,10 +188,12 @@ every label and hover shows the exact string, with the display scale.
 | violations | a mark at the time of each violation in the window: filled for tripped, amber for errors, hollow for pending |
 
 **Gaps.** Nothing is recorded while a rule is off, while the engine is
-stopped, or before a computed series' first warm block. The line
-breaks where consecutive points are more than three times the series'
-usual interval apart, so a gap reads as a gap and not as a straight
-line across it.
+stopped, or before a computed series' first warm block. A stretch where
+consecutive points are more than three times the series' usual interval
+apart is squeezed to a sliver of the width, marked with a dotted line
+that names the stretch on hover, and the line runs on across it, so what
+was recorded fills the chart instead of an empty middle. The rule
+preview does the same.
 
 **Display scale** applies to the series of the rule's contract reads,
 to metrics computed over them, and to thresholds compared against

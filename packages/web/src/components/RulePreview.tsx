@@ -1,5 +1,6 @@
 import type { RulePreview as PreviewRead, SavedRule } from "@tripwire/shared";
 import { timeAgo } from "../lib/format";
+import { timeAxis } from "../lib/timeAxis";
 import {
   compact,
   previewOf,
@@ -100,33 +101,16 @@ export function RulePreview({
   const span = Math.max(now - from, 60_000);
   const { low, high } = m.range;
   const samples = m.primary.samples;
-  // The line breaks where nothing was recorded for more than three
-  // buckets, and the break is squeezed to a sliver, so the stretches that
-  // were recorded fill the chart instead of an empty middle.
-  const gap = (3 * span) / 48;
-  const runs: (typeof samples)[] = [];
-  for (const sample of samples) {
-    const run = runs.at(-1);
-    if (run && sample.t - run.at(-1)!.t <= gap) run.push(sample);
-    else runs.push([sample]);
-  }
-  const breaks = runs.slice(1).map((run, i) => ({
-    from: runs[i]!.at(-1)!.t,
-    to: run[0]!.t,
-  }));
-  const sliver = breaks.length ? span * 0.03 : 0;
-  const hidden = breaks.reduce((sum, b) => sum + (b.to - b.from), 0);
-  const shownSpan = Math.max(span - hidden + sliver * breaks.length, 1);
-  /** Time to x: recorded time at full width, each break a sliver. */
-  const x = (t: number) => {
-    let at = t - from;
-    for (const b of breaks) {
-      if (t >= b.to) at -= b.to - b.from - sliver;
-      else if (t > b.from)
-        at -= ((t - b.from) / (b.to - b.from)) * (b.to - b.from - sliver);
-    }
-    return Math.min(100, Math.max(0, (at / shownSpan) * 100));
-  };
+  // Stretches where nothing was recorded are squeezed to a sliver, as on
+  // the full chart, and the line runs on across them.
+  const axis = timeAxis(
+    samples.map((s) => s.t),
+    from,
+    now,
+  );
+  const breaks = axis.breaks;
+  const runs = [samples];
+  const x = (t: number) => axis.x(t) * 100;
   const y = (v: number) => ((high - v) / (high - low || 1)) * 100;
   // A read of a time labels its axis with clock times, not seconds.
   const tick = (v: number) =>
@@ -268,7 +252,7 @@ export function RulePreview({
             <path
               key={`line:${i}`}
               d={lineOf(
-                i === runs.length - 1 && latest.t - run.at(-1)!.t <= gap
+                i === runs.length - 1 && latest.t >= run.at(-1)!.t
                   ? [...run, { ...run.at(-1)!, t: latest.t, last: latest.raw }]
                   : run,
               )}
