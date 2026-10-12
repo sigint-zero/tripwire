@@ -289,16 +289,16 @@ describe("previews", () => {
     const [p] = await get<RulePreview[]>(`/previews?rules=${reading}`);
     const id = p!.series[0]!.id;
     const buckets = p!.buckets[id]!;
-    const { rows } = await pool.query<{ first: Date }>(
-      `SELECT min(block_time) AS first FROM ${STUB_VIEWS}.series_points
-        WHERE series_id = $1 AND block_time >= $2`,
-      [id, new Date(now - 86_400_000)],
+    // Nothing recorded within the day comes before the first bucket, so
+    // the buckets begin where the series' points do. The server's window
+    // ends at its own now, so this reads from a minute inside it.
+    const start = Date.parse(buckets[0]!.start);
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ${STUB_VIEWS}.series_points
+        WHERE series_id = $1 AND block_time >= $2 AND block_time < $3`,
+      [id, new Date(Date.now() - 86_400_000 + 60_000), new Date(start - 1000)],
     );
-    // The first bucket starts at the series' first point within the day,
-    // whenever that is, so a young series fills its preview.
-    expect(
-      Math.abs(Date.parse(buckets[0]!.start) - rows[0]!.first.getTime()),
-    ).toBeLessThan(1000);
+    expect(rows[0]!.n).toBe(0);
     expect(buckets.length).toBeGreaterThan(40);
   });
 
