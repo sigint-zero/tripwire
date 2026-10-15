@@ -405,7 +405,18 @@ export const trigger = z.union([
 ]);
 export type Trigger = z.infer<typeof trigger>;
 
-const cooldown = z.number().int().nonnegative().nullish();
+// A year: past it a cooldown means "never again", which is what
+// switching the rule off says.
+const MAX_COOLDOWN_SECONDS = 365 * 24 * 60 * 60;
+const cooldown = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(
+    MAX_COOLDOWN_SECONDS,
+    `a cooldown runs at most ${MAX_COOLDOWN_SECONDS} seconds (365 days)`,
+  )
+  .nullish();
 
 // The engine reads a null optional field as absent, so
 // an action may carry another action's field as null.
@@ -459,6 +470,7 @@ export type Severity = z.infer<typeof severity>;
 const MAX_DEPTH = 32;
 const MAX_NODES = 256;
 const MAX_CALLS = 32;
+const MAX_WATCH = 16;
 
 type AnyNode = ValueNode | BoolNode | ViewCall;
 
@@ -701,6 +713,12 @@ export const rule = z
     when: trigger,
     trip_when: boolNode,
     on_trip: onTrip,
+    watch: z
+      .array(address)
+      .max(MAX_WATCH, `a rule may watch at most ${MAX_WATCH} contracts`)
+      // Checked below; stated so the published schema says it too.
+      .meta({ uniqueItems: true })
+      .nullish(),
   })
   .superRefine((r, ctx) => {
     let depth = 0;
@@ -746,6 +764,20 @@ export const rule = z
         }
       });
     }
+
+    const watched = new Set<string>();
+    r.watch?.forEach((a, i) => {
+      const key = a.toLowerCase();
+      if (key === r.contract.toLowerCase()) {
+        issue(
+          ["watch", i],
+          "is the rule's own contract, which is always watched",
+        );
+      } else if (watched.has(key)) {
+        issue(["watch", i], "is listed twice");
+      }
+      watched.add(key);
+    });
 
     if (r.on_trip.action === "call") {
       const call = r.on_trip.call;

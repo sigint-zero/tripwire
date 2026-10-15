@@ -15,6 +15,7 @@ export const ENGINE_OPERATIONS: Record<string, Record<string, string>> = {
   "PATCH /v1/contracts/{address}": { "200": "renamed or new ABI stored" },
   "DELETE /v1/contracts/{address}": {
     "204": "removed; the application forgets its own data about it",
+    "409": "one of its rules has a live response: kept, and the refusal shown",
   },
   "POST /v1/rules": {
     "201": "stored",
@@ -28,6 +29,7 @@ export const ENGINE_OPERATIONS: Record<string, Record<string, string>> = {
   "POST /v1/rules/enabled": { "200": "switched on or off together" },
   "DELETE /v1/rules/{id}": {
     "204": "removed; the application forgets its own data about it",
+    "409": "it has a live response: kept, and the refusal shown",
   },
   "POST /v1/rules/dry-run": {
     "200": "the check's verdict",
