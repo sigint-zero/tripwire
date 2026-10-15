@@ -12,7 +12,7 @@ import { dirname } from "node:path";
 import { maskUrls } from "../config";
 
 /**
- * `TRIPWIRE_HOME/logs/engine.log` (`ENGINE.md`, Logs): the engine's
+ * `TRIPWIRE_HOME/logs/engine.log`: the engine's
  * output line by line, and the supervisor's own lines prefixed
  * `[tripwire]`. Rotated at 10 MB, five files kept; the directory is 0700
  * and the files 0600. The last lines are kept in memory for the API.

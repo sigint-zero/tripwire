@@ -1,0 +1,1849 @@
+{
+  "components": {
+    "schemas": {
+      "BatchEnabled": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "ids": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ContractResponse": {
+        "properties": {
+          "abi": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "address": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "address",
+          "name",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ControllerHealth": {
+        "properties": {
+          "address": {
+            "description": "The mirrored TripwireController.",
+            "type": "string"
+          },
+          "mirrored_block": {
+            "description": "The mirror commits inside each block's unit of work, so it is\ncurrent to this height: `evaluated_block`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "type": "object"
+      },
+      "CreateContract": {
+        "properties": {
+          "abi": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateKey": {
+        "properties": {
+          "passphrase": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passphrase"
+        ],
+        "type": "object"
+      },
+      "CreateManualAction": {
+        "properties": {
+          "action": {
+            "description": "`trip_function`, `trip_global`, `reset_function`,\n`reset_global` or `call`. Reset kinds exist only here: rules\nnever unpause anything. `call` invokes a declared function on\nthe target directly and needs no controller: the manual route\nfor contracts guarded by their own `pause()`.",
+            "type": "string"
+          },
+          "args": {
+            "description": "The call's literal arguments, one string each, for `call`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "function": {
+            "description": "The called signature form, for `call`, e.g. `pause()`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "description": "Recorded with the action.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selector": {
+            "description": "The 4-byte selector, for the controller function-level kinds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "target"
+        ],
+        "type": "object"
+      },
+      "CreateRule": {
+        "properties": {
+          "document": {
+            "description": "The rule document.",
+            "type": "object"
+          },
+          "enabled": {
+            "description": "Whether the rule starts enabled; an agent-submitted rule\nstarting disabled is the caller's policy, expressed here.",
+            "type": "boolean"
+          },
+          "origin": {
+            "description": "Who wrote it: `app`, `mcp` or `api`; recorded for attribution.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "CursorStatus": {
+        "properties": {
+          "age_seconds": {
+            "description": "Seconds since the cursor last moved.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "block_hash": {
+            "type": "string"
+          },
+          "block_number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "block_number",
+          "block_hash",
+          "age_seconds"
+        ],
+        "type": "object"
+      },
+      "DependenciesResponse": {
+        "description": "A rule's unwatched dependencies.",
+        "properties": {
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyOut"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependencies"
+        ],
+        "type": "object"
+      },
+      "DependencyOut": {
+        "description": "One unwatched dependency of a rule.",
+        "properties": {
+          "acknowledged": {
+            "description": "Whether the owner acknowledged it.",
+            "type": "boolean"
+          },
+          "address": {
+            "type": "string"
+          },
+          "first_block": {
+            "description": "The block whose evaluation first touched it.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "address",
+          "first_block",
+          "acknowledged"
+        ],
+        "type": "object"
+      },
+      "DryRunRequest": {
+        "properties": {
+          "document": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "type": "object"
+      },
+      "DryRunResponse": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "document": {
+            "description": "The document in canonical form. Series keys are assigned by\nthe engine, derived canonically from each call; callers never\ninvent them.",
+            "type": "object"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluationOut"
+          },
+          "needs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "document",
+          "description",
+          "needs",
+          "evaluation"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "description": "The plain error envelope on every other non-2xx answer.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorInfo"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "ErrorInfo": {
+        "description": "The error envelope every non-2xx answer carries.",
+        "properties": {
+          "code": {
+            "description": "Machine-readable category.",
+            "type": "string"
+          },
+          "message": {
+            "description": "What happened, why, and what to do about it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "EvaluationOut": {
+        "properties": {
+          "error": {
+            "description": "Set when the rule cannot be judged: the failing node's\nJSON-pointer path and what happened.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "evidence": {
+            "description": "The evidence tree, every node's value exactly as a violation\nwould carry it.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "warming": {
+            "description": "Some metric is still warming: \"cannot yet know\", as opposed\nto \"would not trip\". `needs.warmup_seconds` says how long.",
+            "type": "boolean"
+          },
+          "would_trip": {
+            "description": "`trip_when` holds now. The polarity is the language's:\n`trip_when` states the violation, so true means the bad\ncondition holds; a caller whose users write conditions that\nmust hold translates at its own boundary.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "would_trip",
+          "warming"
+        ],
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "cause": {
+            "description": "What degrades the engine, when something does.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chain_id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "controller": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ControllerHealth",
+                "description": "The mirrored controller; absent when none is configured\nor the engine is still starting."
+              }
+            ]
+          },
+          "cursors": {
+            "items": {
+              "$ref": "#/components/schemas/CursorStatus"
+            },
+            "type": "array"
+          },
+          "evaluated_block": {
+            "description": "The last block the evaluator committed.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "keys": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KeysHealth",
+                "description": "The signer summary; absent while starting."
+              }
+            ]
+          },
+          "mempool": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MempoolHealth",
+                "description": "The mempool summary; absent when disabled or starting."
+              }
+            ]
+          },
+          "observed_head": {
+            "description": "The head the follower last observed on the node.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rpc": {
+            "$ref": "#/components/schemas/RpcStatus"
+          },
+          "status": {
+            "description": "`starting` | `ready` | `degraded`.",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "chain_id",
+          "cursors",
+          "rpc"
+        ],
+        "type": "object"
+      },
+      "ImportKey": {
+        "properties": {
+          "keystore": {
+            "description": "The Web3 secret-storage (keystore v3) document.",
+            "type": "object"
+          },
+          "passphrase": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keystore",
+          "passphrase"
+        ],
+        "type": "object"
+      },
+      "InvalidDocument": {
+        "description": "The `400` shape of an invalid rule document: the envelope plus\nevery issue the validator found, all at once, exactly as the\nvalidator reports them.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorInfo"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueOut"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "error",
+          "issues"
+        ],
+        "type": "object"
+      },
+      "IssueOut": {
+        "description": "One validation failure, exactly as the validator reports it.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "description": "JSON pointer into the document.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "path"
+        ],
+        "type": "object"
+      },
+      "KeyAddress": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "unlocked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "unlocked"
+        ],
+        "type": "object"
+      },
+      "KeyOut": {
+        "properties": {
+          "address": {
+            "description": "Lowercase `0x` address.",
+            "type": "string"
+          },
+          "balance": {
+            "description": "The key's native balance at the current block, wei as a\ndecimal string: whether it can pay for gas.",
+            "type": "string"
+          },
+          "unlocked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "unlocked",
+          "balance"
+        ],
+        "type": "object"
+      },
+      "KeysHealth": {
+        "properties": {
+          "known": {
+            "description": "Keystore files on disk.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unlocked": {
+            "description": "Signers currently unlocked in memory.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "known",
+          "unlocked"
+        ],
+        "type": "object"
+      },
+      "MempoolHealth": {
+        "properties": {
+          "candidates_dropped": {
+            "description": "Candidates shed to keep the queue bound.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidates_seen": {
+            "description": "Pending transactions the stream has delivered.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "connected": {
+            "description": "The pending-transaction subscription stands.",
+            "type": "boolean"
+          },
+          "last_error": {
+            "description": "Why it does not, when it does not.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "connected",
+          "candidates_seen",
+          "candidates_dropped"
+        ],
+        "type": "object"
+      },
+      "Passphrase": {
+        "properties": {
+          "passphrase": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passphrase"
+        ],
+        "type": "object"
+      },
+      "PatchContract": {
+        "properties": {
+          "abi": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PatchRule": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ReadCallIn": {
+        "properties": {
+          "address": {
+            "description": "The contract address.",
+            "type": "string"
+          },
+          "args": {
+            "description": "Literal arguments, one string each.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "function": {
+            "description": "The signature form with its return declaration, e.g.\n`balanceOf(address) returns (uint256)`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "function"
+        ],
+        "type": "object"
+      },
+      "ReadRequest": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/ReadCallIn"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "calls"
+        ],
+        "type": "object"
+      },
+      "ReadResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ReadResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "type": "object"
+      },
+      "ReadResult": {
+        "properties": {
+          "error": {
+            "description": "Why this call failed, when it did.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "values": {
+            "description": "The decoded return components: quantities as decimal strings,\ntuples as arrays. Absent when the call failed.",
+            "items": {
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "RejectBody": {
+        "properties": {
+          "reason": {
+            "description": "Recorded with the abandoned response.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ReplaceRule": {
+        "properties": {
+          "document": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "type": "object"
+      },
+      "ResponseDryRunRequest": {
+        "properties": {
+          "rule_id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "type": "object"
+      },
+      "ResponseDryRunResponse": {
+        "properties": {
+          "gas_estimate": {
+            "description": "The node's (or the fork's) gas estimate, when it executes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ok": {
+            "description": "The action would execute at the current head.",
+            "type": "boolean"
+          },
+          "preview": {
+            "description": "The decoded call, exactly as the approval queue would show\nit: target, function, decoded_args, value.",
+            "type": "object"
+          },
+          "revert_reason": {
+            "description": "Why it would not, when it would not.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "preview"
+        ],
+        "type": "object"
+      },
+      "RpcStatus": {
+        "properties": {
+          "last_failure_unix_ms": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_success_unix_ms": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "observed_head": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "`ok`, `failing`, or `unknown` before the first poll.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "RuleResponse": {
+        "properties": {
+          "contract_address": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "dependencies": {
+            "description": "The rule's unwatched dependencies (detection R57,\nstore-and-interface R58): every contract its evaluations\ntouched that it neither names nor watches, stored once with the\nblock that first touched it. Replacing the document clears\nthem; `api_v1.rules.dependencies` carries the same list.",
+            "items": {
+              "$ref": "#/components/schemas/DependencyOut"
+            },
+            "type": "array"
+          },
+          "description": {
+            "description": "The engine-rendered sentence.",
+            "type": "string"
+          },
+          "document": {
+            "description": "The document in canonical form.",
+            "type": "object"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "needs": {
+            "description": "What evaluating the rule requires (reads, events, series,\n`warmup_seconds`).",
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "trace": {
+            "description": "On create and replace: every contract the rule's reads,\n`verify` and simulations touch, at any depth, walking every\nbranch (store-and-interface R55). Absent when the trace did not\nfinish within 5 s or the chain could not be read; the rule is\nstored regardless, and `POST /v1/rules/trace` answers the same.",
+            "items": {
+              "$ref": "#/components/schemas/TracedOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "trace_skipped": {
+            "description": "With `trace`: the nodes the trace could not evaluate (a\nreverting read, an `event_arg` with no log). Empty means every\nbranch was walked through.",
+            "items": {
+              "$ref": "#/components/schemas/SkippedOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "document",
+          "description",
+          "needs",
+          "contract_address",
+          "severity",
+          "enabled",
+          "origin",
+          "created_at",
+          "updated_at",
+          "dependencies"
+        ],
+        "type": "object"
+      },
+      "SkippedOut": {
+        "description": "A node a trace could not evaluate; reads beneath it that did run\nare still in the trace.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "description": "JSON pointer into the document.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "error"
+        ],
+        "type": "object"
+      },
+      "TraceResponse": {
+        "properties": {
+          "complete": {
+            "description": "True when every node was evaluated: every branch and every read\nran. False when some node was skipped (see `skipped`).",
+            "type": "boolean"
+          },
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/TracedOut"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "description": "The nodes the trace could not evaluate, each with its JSON\npointer and why: a reverting read (what it reached before\nreverting is still listed), or an `event_arg`, which has no log\nto read outside an event. Every other branch was still walked.",
+            "items": {
+              "$ref": "#/components/schemas/SkippedOut"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contracts",
+          "complete",
+          "skipped"
+        ],
+        "type": "object"
+      },
+      "TracedOut": {
+        "description": "One contract in a rule's trace.",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "role": {
+            "description": "`named` (the rule names it), `watched` (in its `watch`) or\n`unwatched` (read through the rule but neither).",
+            "type": "string"
+          },
+          "touched": {
+            "description": "Whether this evaluation reached it; a named or watched\ncontract can be cold right now.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "role",
+          "touched"
+        ],
+        "type": "object"
+      },
+      "WithdrawRequest": {
+        "properties": {
+          "amount_wei": {
+            "description": "Decimal wei, or the literal `\"all\"`: the balance minus a fee\nreserve that keeps every escalation payable.",
+            "type": "string"
+          },
+          "note": {
+            "description": "Recorded with the action.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "description": "The recipient address. Destinations are not judged.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "amount_wei"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "The localhost HTTP API through which every mutation and action flows, plus a server-sent event stream of what the engine sees. Reads of records come from the api_v1 views (see contract/views.json); this interface is how the application changes the engine. Every request carries `Authorization: Bearer <interface secret>`; anything else is 401. Errors are `{ \"error\": { \"code\", \"message\" } }` with a fitting status; an invalid rule document is 400 with `issues`, every issue at once. Every on-chain quantity is a decimal string. Mutations return the resulting resource.",
+    "license": {
+      "name": ""
+    },
+    "title": "Tripwire engine control interface",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/actions": {
+      "post": {
+        "operationId": "create_manual_action",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManualAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded action (the api_v1.actions row)"
+          }
+        },
+        "summary": "A person pausing or unpausing from the dashboard during an\nincident: the same pre-flight, signing, submission and receipt\nwatch as a response, recorded in `api_v1.actions` with its note.",
+        "tags": [
+          "responses"
+        ]
+      }
+    },
+    "/v1/contracts": {
+      "post": {
+        "operationId": "create_contract",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContract"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractResponse"
+                }
+              }
+            },
+            "description": "The stored contract"
+          }
+        },
+        "summary": "Register a contract. The ABI is stored with it (it serves\ndecoding and authoring); reads of contracts come from the views.",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/contracts/{address}": {
+      "delete": {
+        "operationId": "delete_contract",
+        "parameters": [
+          {
+            "description": "The contract address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "409": {
+            "description": "One of its rules has a live response"
+          }
+        },
+        "summary": "Remove a contract and, by the store's cascades, its rules and\ntheir history; the compiled set reloads before the answer.",
+        "tags": [
+          "contracts"
+        ]
+      },
+      "patch": {
+        "operationId": "update_contract",
+        "parameters": [
+          {
+            "description": "The contract address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchContract"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractResponse"
+                }
+              }
+            },
+            "description": "The updated contract"
+          }
+        },
+        "summary": "Update a contract's name and ABI. Absent fields keep their value.",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "stream",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "text/event-stream of named engine events"
+          }
+        },
+        "summary": "The live stream. Named events (`block`, `violation`,\n`rule_state`, `trip_state`, `response`, `notification`,\n`health`), payloads mirroring the corresponding view rows.",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "The process's own state"
+          }
+        },
+        "summary": "The live process speaking for itself; liveness while the engine\nis down is the views' job (`engine_status`).",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "operationId": "list_keys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KeyOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every key in the keys directory"
+          }
+        },
+        "summary": "The keys on disk with their lock status and native balance at the\ncurrent block.",
+        "tags": [
+          "keys"
+        ]
+      },
+      "post": {
+        "operationId": "create_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyAddress"
+                }
+              }
+            },
+            "description": "The new key's address"
+          }
+        },
+        "summary": "Generate a key in-process and write its keystore file. The key\nstarts unlocked; its material never leaves the engine.",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/v1/keys/import": {
+      "post": {
+        "operationId": "import_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyAddress"
+                }
+              }
+            },
+            "description": "The imported key's address"
+          }
+        },
+        "summary": "Import a keystore made elsewhere: it must decrypt with the given\npassphrase; the imported key starts locked.",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/v1/keys/{address}/lock": {
+      "post": {
+        "operationId": "lock_key",
+        "parameters": [
+          {
+            "description": "The key's address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyAddress"
+                }
+              }
+            },
+            "description": "The key, now locked"
+          }
+        },
+        "summary": "Drop the signer; the decrypted material zeroes on the way out.",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/v1/keys/{address}/unlock": {
+      "post": {
+        "operationId": "unlock_key",
+        "parameters": [
+          {
+            "description": "The key's address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Passphrase"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyAddress"
+                }
+              }
+            },
+            "description": "The key, now unlocked"
+          }
+        },
+        "summary": "Decrypt the key into a memory-locked signer. A wrong passphrase\nis `400` and names nothing further.",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/v1/keys/{address}/withdraw": {
+      "post": {
+        "operationId": "withdraw_key",
+        "parameters": [
+          {
+            "description": "The signing key's address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded action (the api_v1.actions row)"
+          }
+        },
+        "summary": "Send ETH out of an operator key: recorded as a manual action of\nkind `withdraw`, driven on the key's own transaction lane with\nthe usual pre-flight, receipt watch and escalation. The named\nkey signs, whether or not it is the configured response signer.",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Prometheus text format"
+          }
+        },
+        "summary": "Prometheus text: what the engine has done since it started.",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/v1/read": {
+      "post": {
+        "operationId": "read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadResponse"
+                }
+              }
+            },
+            "description": "One result per call, in order"
+          }
+        },
+        "summary": "Execute view calls at the current head on the local fork:\nread-only, stores nothing, rejects state-changing functions on\nexecution evidence.",
+        "tags": [
+          "read"
+        ]
+      }
+    },
+    "/v1/responses/dry-run": {
+      "post": {
+        "operationId": "response_dry_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponseDryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseDryRunResponse"
+                }
+              }
+            },
+            "description": "Whether the action would execute, with its preview"
+          }
+        },
+        "summary": "Build a rule's on-chain action exactly as a trip would and\nsimulate it at the current head: nothing is sent, nothing is\nstored. A missing operator grant shows here, before an incident.",
+        "tags": [
+          "responses"
+        ]
+      }
+    },
+    "/v1/responses/{id}/approve": {
+      "post": {
+        "operationId": "approve_response",
+        "parameters": [
+          {
+            "description": "The response id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The response as it now stands (the api_v1.responses row)"
+          }
+        },
+        "summary": "Approve a held response: preconditions re-checked, rebuilt if the\nchain moved under it, then submitted. `409` when the response is\nnot awaiting approval.",
+        "tags": [
+          "responses"
+        ]
+      }
+    },
+    "/v1/responses/{id}/reject": {
+      "post": {
+        "operationId": "reject_response",
+        "parameters": [
+          {
+            "description": "The response id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The abandoned response (the api_v1.responses row)"
+          }
+        },
+        "summary": "Reject a held response: `abandoned`, with the reason on file.",
+        "tags": [
+          "responses"
+        ]
+      }
+    },
+    "/v1/rules": {
+      "post": {
+        "operationId": "create_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "The stored rule"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidDocument"
+                }
+              }
+            },
+            "description": "Invalid document; issues carry every failure"
+          }
+        },
+        "summary": "Create a rule: validate against the rule language, store canonically,\nhot-reload, and return the canonical document, sentence and\nneeds. An invalid document is `400` with every issue at once.",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/v1/rules/dry-run": {
+      "post": {
+        "operationId": "dry_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResponse"
+                }
+              }
+            },
+            "description": "The evaluation at the current head"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidDocument"
+                }
+              }
+            },
+            "description": "Invalid document; issues carry every failure"
+          }
+        },
+        "summary": "A full check of a rule document with no side effects: the store\nis byte-identical before and after. Metric nodes use recorded\nhistory when their series already exists and report warming\notherwise.",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/v1/rules/enabled": {
+      "post": {
+        "operationId": "set_rules_enabled",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchEnabled"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchEnabled"
+                }
+              }
+            },
+            "description": "The switch as applied"
+          }
+        },
+        "summary": "The batch form: all rows in one transaction, so switching a\ncontract's worth of rules is all-or-nothing; one reload covers\nthe batch.",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/v1/rules/trace": {
+      "post": {
+        "operationId": "trace_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            },
+            "description": "The contracts the rule reaches"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidDocument"
+                }
+              }
+            },
+            "description": "Invalid document; issues carry every failure"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The chain could not be read (`chain_unreadable`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The trace did not finish within 10 s, waiting for the one trace slot included (`trace_timeout`); nothing was stored, try again"
+          }
+        },
+        "summary": "Trace a rule document (store-and-interface R55): every contract\nits reads, `verify` and simulations touch at the current head, at\nany depth, each marked named, watched or unwatched. The walk takes\nevery `and`/`or` branch and continues past a read that fails, so\na dependency is listed whatever the current verdict. Nothing is\nstored or sent; the owner picks what to `watch` from the result.\nOne trace runs at a time; a trace that has not finished within\n10 s, waiting included, answers 503 `trace_timeout`.",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/v1/rules/{id}": {
+      "delete": {
+        "operationId": "delete_rule",
+        "parameters": [
+          {
+            "description": "The rule id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "409": {
+            "description": "The rule has a live response"
+          }
+        },
+        "summary": "Delete a rule and its history.",
+        "tags": [
+          "rules"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_rule",
+        "parameters": [
+          {
+            "description": "The rule id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "The updated rule"
+          }
+        },
+        "summary": "Enable or disable one rule. A disabled rule leaves the compiled\nset; its document, history and any queued responses stay.",
+        "tags": [
+          "rules"
+        ]
+      },
+      "put": {
+        "operationId": "replace_rule",
+        "parameters": [
+          {
+            "description": "The rule id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "The updated rule"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidDocument"
+                }
+              }
+            },
+            "description": "Invalid document"
+          }
+        },
+        "summary": "Replace a rule's document; identity and history persist. Its\nstored unwatched dependencies are cleared: they belonged to the old\ndocument.",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/v1/rules/{id}/dependencies/{address}/acknowledge": {
+      "post": {
+        "operationId": "acknowledge_dependency",
+        "parameters": [
+          {
+            "description": "The rule id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The dependency's address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependenciesResponse"
+                }
+              }
+            },
+            "description": "The rule's unwatched dependencies"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The address is malformed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such rule, or the rule has no unwatched dependency at that address"
+          }
+        },
+        "summary": "Acknowledge one of a rule's unwatched dependencies\n(store-and-interface R58): the owner has seen it and chooses not to\nwatch it. Idempotent; answers the rule's whole list.",
+        "tags": [
+          "rules"
+        ]
+      }
+    }
+  }
+}

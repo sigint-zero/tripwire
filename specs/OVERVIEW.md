@@ -137,13 +137,12 @@ rule's name, an on or off dot, its sentence, and its state: "3 open,
 tripped 5 min ago" in red, else "Holding", or "Off". Empty: "Nothing
 pinned. Pin a rule from its page to keep it here."
 
-Added: a sparkline of the last 24 hours of the rule's first recorded
-value (the first series of role `read` in `RULES.md`), downsampled to
-60 points by the server, with the rule's threshold or band drawn as in
-its full chart when it has one, and the latest value in the rule's
-display scale. A rule with no recorded series (an event rule) shows
-its last firing instead. A warming rule's line starts where its data
-does, and the card says "Warming up".
+Each card draws the rule's preview (`RULE-PREVIEW.md`) at card size:
+the last 24 hours of the rule's first recorded value with its limit
+drawn as in its full chart, the latest value and its headroom in the
+rule's display scale, and, for a rule with nothing recorded (an event
+rule), its last firing instead. A warming rule's line starts where its
+data does, and the card says "Warming up".
 
 ## Reading
 

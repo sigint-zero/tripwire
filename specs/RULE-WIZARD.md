@@ -342,17 +342,21 @@ description. The contract cannot change; a rule stays on its own. The
 starting point is recovered by asking each one to read the document
 back into blanks, and keeping the first whose blanks name what the
 contract still offers and build the same document again; a document no
-starting point recognises opens in JSON mode. The check treats the rule
+starting point recognises opens in the same wizard with its condition
+in JSON mode, every other section filled in as usual. The check treats the rule
 as a replacement, so it is not its own duplicate, and Save stays off
 until something has changed. Saving goes through the engine, which
 re-validates the document and keeps the rule's identity and history.
 
-**JSON mode.** The document as editable JSON, laid out to read
-top-down and validated as it is typed, with problems shown against
-their path and the engine's sentence once it is valid. Editing uses it
-for rules outside the starting points; as an alternative to the
-sentence when creating a rule, and for pasting a rule exported from
-another installation, it is not built yet.
+**JSON mode.** The rule section offers **Starting point** (the
+default) or **JSON**. In JSON mode the condition, `when` and
+`trip_when`, is written as JSON, laid out to read top-down and checked
+as it is typed, with the first problem shown; the response, severity,
+name and description stay in their own sections. Pasting a whole rule
+document, such as one an AI agent wrote or one exported from another
+installation, also fills those sections from it. Creating and editing
+are the same page: editing a rule no starting point builds opens it in
+JSON mode, and choosing a starting point switches back.
 
 ## Units
 

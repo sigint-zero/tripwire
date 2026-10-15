@@ -39,7 +39,7 @@ import {
 } from "./release";
 
 /**
- * The application as the engine's supervisor (`ENGINE.md`, Supervision):
+ * The application as the engine's supervisor:
  * it installs the pinned release, starts it from `config.json`, restarts
  * it by exit code, kills it when it hangs, applies configuration with a
  * way back, and stops it in order. Health itself is the monitor's; the
@@ -107,7 +107,7 @@ const TIMING: SupervisorTiming = {
 
 const REPEATED_WINDOW_MS = 10 * 60_000;
 
-/** What an exit means (`ENGINE.md`, Restart policy, and G3). */
+/** What an exit means. */
 export function exitPolicy(
   code: number | null,
   lines: string[],
@@ -330,7 +330,7 @@ export class EngineSupervisor {
   }
 
   /**
-   * Applies a configuration (`ENGINE.md`, Applying configuration): keep
+   * Applies a configuration: keep
    * the previous one, write the new one, restart, and wait for ready or
    * degraded. When the engine does not get there, the previous one comes
    * back and the engine's own words are the error.

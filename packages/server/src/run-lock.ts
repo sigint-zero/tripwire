@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { alive } from "./engine/launch";
 
 /**
- * `TRIPWIRE_HOME/run.lock` (`ENGINE.md`, One engine only): created
+ * `TRIPWIRE_HOME/run.lock`: created
  * exclusively with the server's pid, in both database modes. A lock whose
  * pid is gone is replaced; a live one stops the start.
  */

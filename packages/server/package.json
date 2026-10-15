@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false --exclude \"../web/**\" src/dev.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "contract:refresh": "tsx src/engine/contract-refresh.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

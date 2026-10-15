@@ -103,6 +103,10 @@ At `/violations`:
 - **added:** filters for kind, contract and rule, kept in the URL so a
   filtered view can be linked; the rule filter is what a rule's page
   and an alert link to;
+- a search box (`CONTRACTS.md`, Searching) matching the rule's name,
+  the contract's name and address, the kind, severity, block,
+  transaction, and who acknowledged it and why, over the violations
+  loaded: "4 of 200 loaded violations", with **Older** loading more;
 - runs, newest first, loaded 200 violations at a time with **Older**
   paging by id;
 - empty states: "Nothing open" when everything is acknowledged, "No

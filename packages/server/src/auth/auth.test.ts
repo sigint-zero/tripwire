@@ -7,7 +7,7 @@ import { TEST_ACCOUNT, TEST_COST, testHome, testServer } from "../testing";
 import { Auth } from "./index";
 import { SESSION_MAX_MS } from "./sessions";
 
-// Authentication as AUTHENTICATION.md specifies it, against a server in
+// Authentication against a server in
 // memory with a temporary data directory.
 
 let home: Awaited<ReturnType<typeof testHome>>;

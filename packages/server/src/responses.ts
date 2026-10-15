@@ -20,7 +20,7 @@ import { refuse } from "./refuse";
 // approving and rejecting pass a person's decision to the engine, which
 // re-checks, rebuilds and sends. The application never signs anything.
 
-const TABS: Record<ResponseTab, ResponseStatus[]> = {
+export const TABS: Record<ResponseTab, ResponseStatus[]> = {
   waiting: ["awaiting_approval"],
   in_flight: ["pending", "approved", "submitted"],
   history: ["confirmed", "failed", "abandoned"],

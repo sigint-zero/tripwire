@@ -90,7 +90,7 @@ export const api: FastifyPluginCallback<{
   app.register(ruleRoutes, { commands, reads, store, rules });
   app.register(violationRoutes, { reads, store });
   app.register(responseRoutes, { commands, reads });
-  app.register(seriesRoutes, { reads });
+  app.register(seriesRoutes, { reads, commands });
   app.register(tripStateRoutes, { reads });
   app.register(setupRoutes, {
     reads,
@@ -156,8 +156,8 @@ export const api: FastifyPluginCallback<{
 };
 
 /**
- * The alerts about the engine that the engine cannot raise itself
- * (`NOTIFICATIONS.md`): it stopped, keeps restarting, cannot start, or
+ * The alerts about the engine that the engine cannot raise itself:
+ * it stopped, keeps restarting, cannot start, or
  * stopped answering; and that it came back.
  */
 function raiseEngineAlerts(

@@ -1,7 +1,7 @@
 import type { ChannelType, NotificationKind, Severity } from "@tripwire/shared";
 import type pg from "pg";
 
-// Everything notification delivery keeps (NOTIFICATIONS.md): the feed over
+// Everything notification delivery keeps: the feed over
 // the engine's notifications and the application's own, read marks,
 // dispatch, deliveries and channels. The engine's rows are read from its
 // view; everything written lives in the `app` schema.

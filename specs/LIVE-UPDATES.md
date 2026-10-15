@@ -82,9 +82,10 @@ Consumers inside the server, all fed from this one connection:
   expires or is revoked. The browser's reconnect then gets `401`, and
   the dashboard handles it as any other `401`: clear the query cache,
   go to `/login`.
-- **Per session.** At most ten open streams per session, one per tab
-  in practice. The eleventh closes the oldest, which reconnects if its
-  tab is still open, so a leaked stream never pins a slot.
+- **Per session.** At most ten open streams per session, one per
+  browser in practice (below), one per tab where tabs cannot share.
+  The eleventh closes the oldest, which reconnects if its tab is
+  still open, so a leaked stream never pins a slot.
 - **Keep-alive.** A comment line every 15 seconds, so proxies and
   load balancers do not close an idle connection. Responses carry
   `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so a reverse
@@ -125,8 +126,42 @@ dropped from a connection that stays open.
 
 ## The dashboard
 
-One `EventSource` per tab, opened after login by the shell and closed
-at logout.
+One `EventSource` per browser, shared by its tabs, opened after login
+by the shell and closed at logout.
+
+### One stream per browser
+
+A browser keeps six HTTP/1.1 connections per site, and a stream holds
+one for as long as it is open. With a stream per tab, the sixth tab's
+API calls stall and a seventh tab never loads, and the default
+install is plain HTTP, where HTTP/2 does not apply. So the tabs share:
+
+- Every tab asks for the same Web Lock. The tab holding it opens the
+  stream and passes each event, and whether the stream is open, to the
+  other tabs over a `BroadcastChannel`; each tab then invalidates its
+  own queries as below.
+- When the holder closes, the next tab in line gets the lock and opens
+  its own stream, which starts with `resync`, so every tab refetches
+  whatever the handover missed.
+- A tab that joins asks the holder whether the stream is open, and
+  counts as reconnecting until it hears. The first time it hears the
+  stream is open, it refetches every query, as a tab with its own
+  stream does on the `resync` that starts it.
+- A page leaving for the back-forward cache, or frozen in the
+  background where the browser says so (`freeze`), gives up the stream
+  and its place in line, and joins again when it comes back.
+- The holder tells the other tabs every 20 seconds that it is still
+  there. A tab that hears nothing from it for 90 seconds (longer than
+  the minute Chromium allows a long-hidden page's timers) counts the
+  stream as down, with the indicator and the 60-second poll, and
+  refetches every query once it hears again: a holder suspended
+  without `freeze` leaves pages marked paused, never silently stale.
+- Web Locks need a secure context. Outside one (plain HTTP to
+  anything but a loopback address), or where the browser refuses the
+  lock, every tab holds its own stream, as before, and the
+  per-session cap above bounds them.
+- A `401` reaches the holder, which goes to `/login`; the next tab then
+  holds the stream, is refused in turn, and follows.
 
 ### Invalidate, not patch
 
@@ -163,7 +198,7 @@ does not cause a request per block per chart.
 The 12-second `refetchInterval` on the Overview, Violations and rule
 pages is removed; the stream replaces it. While the stream is
 disconnected, the shell turns on a 60-second poll of every query on
-screen, and turns it off at the next `resync`.
+screen, and turns it off when the stream is open again.
 
 The shell's server indicator keeps polling `/api/v1/health`, which
 needs no session, every ten seconds, so "server unreachable" stays
@@ -208,6 +243,7 @@ No MCP tool reads the stream.
 | LU5 | Block events | Throttled to one a second. A head number is the only thing a block changes on screen |
 | LU6 | Polling | Removed while the stream is open; a 60-second poll only while it is not. The stream is the fast path, the poll the floor |
 | LU7 | Agents | No stream for MCP tokens. Agents ask when they need to; nothing an agent does is time-critical |
+| LU8 | A stream per tab or per browser | Per browser, held by one tab under a Web Lock and passed to the others over a `BroadcastChannel`. A stream per tab exhausts the browser's six connections per site at the sixth tab; HTTP/2 needs TLS the default install does not have; a `SharedWorker` is not available in every browser the dashboard supports and needs its own build. The cost: a reload of the holding tab is a handover, so every tab refetches |
 
 ## Checkpoint
 
@@ -235,3 +271,7 @@ Live updates are done when, provably and repeatably:
    refresh.
 8. Behind a reverse proxy with default buffering, events arrive as
    written, and an idle stream survives ten minutes.
+9. Ten tabs open on `http://127.0.0.1` in one browser hold one stream
+   between them, every tab's API calls answer, and a violation reaches
+   every tab; closing the tab holding the stream moves it to another
+   tab, which refetches.

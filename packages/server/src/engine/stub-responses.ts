@@ -6,7 +6,7 @@ import { toFunctionSelector } from "viem";
 // sent: the values are shaped like the engine's so the Responses page
 // reads the stand-in as it will read the engine.
 
-/** The known controller deployment on Ethereum (`RESPONSES.md`). */
+/** The known controller deployment on Ethereum. */
 export const CONTROLLER = "0x328aed8f7a01f45a959c187f3cb97ec508064854";
 /** The guardian every contract registers with the stand-in's controller: the owner's wallet. */
 export const GUARDIAN = "0x7e57000000000000000000000000000000000001";

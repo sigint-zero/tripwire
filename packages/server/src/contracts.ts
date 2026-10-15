@@ -9,6 +9,7 @@ import { z } from "zod";
 import { lookupFailed, type AbiLookup } from "./abi";
 import type { EngineCommands, EngineReads, ContractRow } from "./engine/types";
 import { refuse } from "./refuse";
+import { TABS } from "./responses";
 import { DASHBOARD, type AppStore } from "./store";
 
 const name = z.string().trim().min(1, "is required").max(80);
@@ -169,6 +170,21 @@ export const contractRoutes: FastifyPluginCallback<{
   app.delete<ByAddress>("/contracts/:address", async (request, reply) => {
     const row = await reads.contract(request.params.address);
     if (!row) return notFound(reply);
+    // A response that may still be sent is never dropped with its rule;
+    // newer engines refuse it too; the pinned release does not.
+    const [live] = await reads.responses({
+      statuses: [...TABS.waiting, ...TABS.in_flight],
+      contractAddress: row.address,
+      limit: 1,
+    });
+    if (live) {
+      return refuse(
+        reply,
+        409,
+        "live_response",
+        "A response for this contract is waiting or in flight. Reject it or let it settle first.",
+      );
+    }
     const rules = (await reads.rules({ contractId: row.id })).map((r) => r.id);
     await commands.deleteContract(row.address);
     await Promise.all([

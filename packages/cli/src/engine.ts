@@ -26,8 +26,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { askPassword } from "./users";
 
-// `tripwire engine …` and `tripwire setup` (`ENGINE.md`, Command line;
-// `FIRST-RUN.md`, Command line). Both work with the server stopped, on
+// `tripwire engine …` and `tripwire setup`. Both work with the server stopped, on
 // the files under TRIPWIRE_HOME, so a machine with no browser can be set
 // up and inspected entirely from here.
 

@@ -157,7 +157,7 @@ export interface RuleDisplay {
   unit: string | null;
 }
 
-/** Where a rule stands now; `RULES.md` defines each. */
+/** Where a rule stands now. */
 export type RuleStatus = "off" | "tripped" | "error" | "warming" | "holding";
 
 /** A rule as the engine keeps it. */
@@ -222,11 +222,31 @@ export type SeriesWindow =
   | { resolution: "block"; points: SeriesPoint[] }
   | { resolution: string; buckets: SeriesBucket[] };
 
-/** A rule's first series over a day, for the list and the Overview. */
-export interface Sparkline {
+/**
+ * What a rule's preview draws: its first series and
+ * those its limit needs, each over the window and at its newest point, the
+ * scale of the contracts read, and when it last tripped.
+ */
+export interface RulePreview {
   ruleId: string;
-  seriesId: string;
-  buckets: SeriesBucket[];
+  /** At most three, reads first, as `/rules/:id/series` orders them. */
+  series: RuleSeries[];
+  /** Each series' buckets, by series id. */
+  buckets: Record<string, SeriesBucket[]>;
+  /**
+   * 48 buckets of the first read over the window before `buckets` begin,
+   * for a rule whose metrics reach back over one; by series id.
+   */
+  history: Record<string, SeriesBucket[]>;
+  /** Each series' newest point, by series id. */
+  latest: Record<
+    string,
+    { value: string; blockNumber: number; blockTime: string }
+  >;
+  /** What `decimals()` returns, by lowercase contract address, where it has one. */
+  decimals: Record<string, number>;
+  /** The newest tripped violation; null when it never tripped. */
+  lastFired: { blockNumber: number; blockTime: string } | null;
 }
 
 /** Where the engine could not evaluate a rule, and what happened. */
@@ -418,7 +438,7 @@ export interface ChainSetup {
   rpcWs?: string | null;
 }
 
-/** The engine's verify invocation on an endpoint (`ENGINE.md`, G2). */
+/** The engine's verify invocation on an endpoint. */
 export interface ChainVerify {
   ok: boolean;
   chainId: number;

@@ -160,6 +160,22 @@ describe("storing a rule", () => {
     expect(res.json()).toMatchObject({ code: "duplicate" });
   });
 
+  it("tells a rule watching other contracts apart from one watching none", async () => {
+    const res = await submit(
+      {
+        ...floor,
+        name: "Floor, watching its oracle",
+        watch: ["0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"],
+      },
+      true,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json<RuleCheck>()).toMatchObject({
+      valid: true,
+      duplicateOf: null,
+    });
+  });
+
   it("refuses a second rule with the same name on the contract", async () => {
     const res = await submit({
       ...floor,

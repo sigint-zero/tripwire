@@ -4,6 +4,7 @@ import {
   EngineNotReady,
   type ContractRow,
   type CursorRow,
+  type LastTripped,
   type EngineReads,
   type ActionRow,
   type BucketRow,
@@ -287,6 +288,24 @@ export class ViewReads implements EngineReads {
     );
   }
 
+  async lastTripped(ruleIds: string[]): Promise<LastTripped[]> {
+    const ids = ruleIds.filter((id) => /^\d+$/.test(id));
+    if (ids.length === 0) return [];
+    return this.#read<LastTripped>(
+      `SELECT r.id::text AS rule_id, n.block_number, n.block_time
+         FROM unnest($1::bigint[]) AS r(id)
+         JOIN LATERAL (
+           -- Newest first, one row: never a scan of every violation.
+           SELECT v.block_number::int, v.block_time
+             FROM ${this.#schema}.violations v
+            WHERE v.rule_id = r.id AND v.kind = 'tripped'
+            ORDER BY v.id DESC LIMIT 1
+         ) n ON true
+        LIMIT ${LIMIT}`,
+      [ids.slice(0, LIMIT)],
+    );
+  }
+
   async ruleSeries(ruleIds: string[]): Promise<RuleSeriesRow[]> {
     const ids = ruleIds.filter((id) => /^\d+$/.test(id));
     if (ids.length === 0) return [];
@@ -382,6 +401,71 @@ export class ViewReads implements EngineReads {
         ORDER BY series_id, bucket
         LIMIT ${LIMIT * 10}`,
       [seriesIds, from, to, width],
+    );
+  }
+
+  /**
+   * Buckets of each series over its own window, from its `from` to its
+   * `to`, each cut into the same number of equal stretches: one query for
+   * series that started recording at different times. One window a series.
+   */
+  async bucketsFrom(
+    windows: { seriesId: string; from: Date; to: Date }[],
+    buckets: number,
+  ): Promise<BucketRow[]> {
+    if (windows.length === 0) return [];
+    const ids = windows.map((w) => w.seriesId);
+    const froms = windows.map((w) => w.from);
+    const tos = windows.map((w) => w.to);
+    const widths = windows.map((w) =>
+      Math.max((w.to.getTime() - w.from.getTime()) / 1000 / buckets, 1),
+    );
+    return this.#read<BucketRow>(
+      `WITH w AS (
+         SELECT * FROM unnest($1::bigint[], $2::timestamptz[], $3::float8[],
+                              $4::timestamptz[])
+           AS w(series_id, start, width, stop)
+       ), parts AS (
+         SELECT p.series_id, p.block_time AS t, p.value AS first, p.value AS last,
+                p.value AS min, p.value AS max, 1 AS n
+           FROM ${this.#schema}.series_points p
+           JOIN w ON w.series_id = p.series_id
+          WHERE p.block_time >= w.start AND p.block_time < w.stop
+         UNION ALL
+         SELECT r.series_id, r.bucket_start, r.first, r.last, r.min, r.max, r.samples
+           FROM ${this.#schema}.series_rollups r
+           JOIN w ON w.series_id = r.series_id
+          WHERE r.bucket_start >= w.start AND r.bucket_start < w.stop
+       )
+       SELECT parts.series_id::text,
+              floor(extract(epoch FROM t - w.start) / w.width)::int AS bucket,
+              (array_agg(first ORDER BY t))[1]::text AS first,
+              (array_agg(last ORDER BY t DESC))[1]::text AS last,
+              min(min)::text AS min, max(max)::text AS max,
+              sum(n)::int AS count
+         FROM parts JOIN w ON w.series_id = parts.series_id
+        GROUP BY parts.series_id, bucket
+        ORDER BY parts.series_id, bucket
+        LIMIT ${LIMIT * 10}`,
+      [ids, froms, widths, tos],
+    );
+  }
+
+  /** When each series' first point at or after `from` was recorded. */
+  async firstPoints(
+    seriesIds: string[],
+    from: Date,
+  ): Promise<{ series_id: string; first_at: string }[]> {
+    if (seriesIds.length === 0) return [];
+    return this.#read(
+      `SELECT series_id::text, min(t) AS first_at FROM (
+         SELECT series_id, block_time AS t FROM ${this.#schema}.series_points
+          WHERE series_id = ANY($1::bigint[]) AND block_time >= $2
+         UNION ALL
+         SELECT series_id, bucket_start FROM ${this.#schema}.series_rollups
+          WHERE series_id = ANY($1::bigint[]) AND bucket_start >= $2
+       ) s GROUP BY series_id LIMIT ${LIMIT}`,
+      [seriesIds, from],
     );
   }
 

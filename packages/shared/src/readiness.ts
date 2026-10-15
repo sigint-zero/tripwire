@@ -1,6 +1,5 @@
 // Whether a contract's responses would work when a rule trips, and the
-// pauses a person makes by hand (`RESPONSES.md`, Readiness and Pausing
-// and unpausing by hand).
+// pauses a person makes by hand.
 
 export const readinessSteps = [
   "signing_key",

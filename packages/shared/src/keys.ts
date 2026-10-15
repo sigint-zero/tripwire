@@ -1,4 +1,4 @@
-// The keys Tripwire signs its responses with (`RESPONSES.md`, Keys). The
+// The keys Tripwire signs its responses with. The
 // engine holds them; the dashboard lists them and passes a passphrase
 // through, never seeing key material.
 

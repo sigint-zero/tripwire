@@ -324,6 +324,11 @@ waiting count:
 | In flight | `pending`, `approved`, `submitted` |
 | History | `confirmed`, `failed`, `abandoned` |
 
+Each tab has a search box (`CONTRACTS.md`, Searching) matching the
+rule's name, the contract's name and address, the action, the status,
+the function and its arguments, the transaction hash and the error. It
+searches the open tab; switching tabs keeps the query.
+
 Every row shows the rule and its contract (each a link), the action in
 words ("pause the contract", "pause `withdraw(uint256)`", "call
 `pause()`"), the status, the violation that caused it (a link, with its

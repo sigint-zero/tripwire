@@ -9,7 +9,7 @@ import { api } from "../lib/api";
 const OTHER = "other";
 
 /**
- * First run's chain step (`FIRST-RUN.md`): the chain and its RPC
+ * First run's chain step: the chain and its RPC
  * endpoint, verified through the engine before anything is saved, then
  * the engine started on it, with its progress shown until it is ready.
  */

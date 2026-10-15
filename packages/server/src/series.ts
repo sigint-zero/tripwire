@@ -1,14 +1,15 @@
 import {
   issuesOf,
+  type RulePreview,
+  type RuleSeries,
   type SeriesBucket,
   type SeriesWindow,
-  type Sparkline,
 } from "@tripwire/shared";
 import type { FastifyPluginCallback } from "fastify";
 import { z } from "zod";
-import type { BucketRow, EngineReads } from "./engine/types";
+import type { BucketRow, EngineCommands, EngineReads } from "./engine/types";
 import { refuse } from "./refuse";
-import { firstSeries } from "./rule-series";
+import { seriesByRule } from "./rule-series";
 
 // A series over a window: its points when there are few, else buckets
 // cut on the server with min and max kept, so a one-block spike shows at
@@ -16,8 +17,8 @@ import { firstSeries } from "./rule-series";
 
 const MAX_POINTS = 500;
 const DAY_MS = 86_400_000;
-const SPARK_BUCKETS = 48;
-const SPARK_WINDOWS: Record<string, number> = {
+const PREVIEW_BUCKETS = 48;
+const PREVIEW_WINDOWS: Record<string, number> = {
   "1h": 3_600_000,
   "24h": DAY_MS,
   "7d": 7 * DAY_MS,
@@ -28,14 +29,72 @@ const window = z.object({
   to: z.iso.datetime({ offset: true }).optional(),
   points: z.coerce.number().int().min(2).max(MAX_POINTS).optional(),
 });
-const sparks = z.object({
+// 64 rules × 3 series × 48 buckets stays inside the bucket read's rows.
+const PREVIEW_RULES = 64;
+const PREVIEW_SERIES = 3;
+const previews = z.object({
   rules: z
     .string()
-    .regex(/^\d+(,\d+)*$/, "must be rule ids separated by commas")
+    .regex(/^\d{1,18}(,\d{1,18})*$/, "must be rule ids separated by commas")
     .transform((s) => [...new Set(s.split(","))])
-    .refine((ids) => ids.length <= 200, "at most 200 rules"),
+    .refine(
+      (ids) => ids.length <= PREVIEW_RULES,
+      `at most ${PREVIEW_RULES} rules`,
+    ),
   window: z.enum(["1h", "24h", "7d"]).optional(),
 });
+
+/** The longest window a rule's metrics reach back over, in seconds. */
+function reachOf(document: unknown): number {
+  if (typeof document !== "object" || document === null) return 0;
+  const node = document as { node?: string; window?: { seconds?: number } };
+  const own =
+    node.node === "metric" && typeof node.window?.seconds === "number"
+      ? node.window.seconds
+      : 0;
+  return Math.max(own, ...Object.values(document).map(reachOf));
+}
+
+/**
+ * The series a preview draws, at most three: the first read, then the
+ * metrics a band's centre may be, then the other reads a limit may be.
+ */
+function keptSeries(list: RuleSeries[]): RuleSeries[] {
+  // A rule reading only through a windowed metric has its base as its line.
+  const first =
+    list.find((s) => s.role === "read") ??
+    list.find((s) => s.role === "metric" && s.metric === null);
+  const metrics = list.filter((s) => s.role === "metric");
+  const reads = list.filter((s) => s.role === "read" && s !== first);
+  return [...(first ? [first] : []), ...metrics, ...reads].slice(
+    0,
+    PREVIEW_SERIES,
+  );
+}
+
+/** A no-argument `decimals()` in an ABI, as a read names it, or null. */
+function decimalsCall(abi: unknown[] | null): string | null {
+  for (const item of abi ?? []) {
+    const f = item as {
+      type?: string;
+      name?: string;
+      inputs?: unknown[];
+      outputs?: { type?: string }[];
+    };
+    const out = f.outputs?.[0]?.type;
+    if (
+      f.type === "function" &&
+      f.name === "decimals" &&
+      (f.inputs?.length ?? 0) === 0 &&
+      f.outputs?.length === 1 &&
+      out &&
+      /^uint\d*$/.test(out)
+    ) {
+      return `decimals() returns (${out})`;
+    }
+  }
+  return null;
+}
 
 /** Buckets as the API sends them, each starting where its stretch does. */
 function toBuckets(
@@ -53,11 +112,47 @@ function toBuckets(
   }));
 }
 
-export const seriesRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
-  app,
-  { reads },
-  done,
-) => {
+export const seriesRoutes: FastifyPluginCallback<{
+  reads: EngineReads;
+  commands: EngineCommands;
+}> = (app, { reads, commands }, done) => {
+  // A contract's decimals, read once through the engine and kept while the
+  // server runs; null when it has none. A read that failed is not kept, so
+  // it is tried again on the next request.
+  const decimals = new Map<string, number | null>();
+  const decimalsOf = async (addresses: string[]) => {
+    const missing = addresses.filter((a) => !decimals.has(a));
+    await Promise.all(
+      missing.map(async (address) => {
+        const call = decimalsCall((await reads.contract(address))?.abi ?? null);
+        if (!call) return decimals.set(address, null);
+        try {
+          const [value] = await Promise.race([
+            commands.read([{ address, function: call, args: [] }]),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("decimals() timed out")), 2000),
+            ),
+          ]);
+          // A call that failed answers null: not kept, tried again later.
+          if (typeof value !== "string" || !/^\d+$/.test(value)) return;
+          const n = Number(value);
+          decimals.set(
+            address,
+            Number.isInteger(n) && n >= 0 && n <= 77 ? n : null,
+          );
+        } catch {
+          // The engine is starting or stopped: no scale this time.
+        }
+      }),
+    );
+    return Object.fromEntries(
+      addresses.flatMap((a) => {
+        const d = decimals.get(a);
+        return d === undefined || d === null ? [] : [[a, d]];
+      }),
+    );
+  };
+
   app.get<{ Params: { id: string } }>(
     "/series/:id/points",
     async (request, reply): Promise<SeriesWindow | undefined> => {
@@ -101,37 +196,152 @@ export const seriesRoutes: FastifyPluginCallback<{ reads: EngineReads }> = (
     },
   );
 
-  // One request for every visible row: a list of fifty rules costs the
-  // same few reads as a list of one.
+  // Everything a page of rule previews draws, in a fixed number of reads
+  // however many rules are on it.
   app.get(
-    "/sparklines",
-    async (request, reply): Promise<Sparkline[] | undefined> => {
-      const params = sparks.safeParse(request.query);
+    "/previews",
+    async (request, reply): Promise<RulePreview[] | undefined> => {
+      const params = previews.safeParse(request.query);
       if (!params.success) {
         return refuse(reply, 400, "invalid_request", "Invalid query.", {
           issues: issuesOf(params.error),
         });
       }
-      const first = await firstSeries(reads, params.data.rules);
-      const to = new Date();
-      const span = SPARK_WINDOWS[params.data.window ?? "24h"]!;
-      const from = new Date(to.getTime() - span);
-      const rows = await reads.buckets(
-        [...new Set(first.values())],
-        from,
-        to,
-        SPARK_BUCKETS,
+      const ids = params.data.rules;
+      const [byRule, tripped, documents] = await Promise.all([
+        seriesByRule(reads, ids),
+        reads.lastTripped(ids),
+        reads.rules(),
+      ]);
+      const kept = new Map(
+        [...byRule].map(([id, list]) => [id, keptSeries(list)]),
       );
-      const width = span / SPARK_BUCKETS;
-      return [...first].map(([ruleId, seriesId]) => ({
-        ruleId,
-        seriesId,
-        buckets: toBuckets(
-          rows.filter((b) => b.series_id === seriesId),
-          from,
-          width,
+      const seriesIds = [
+        ...new Set([...kept.values()].flat().map((s) => s.id)),
+      ];
+      const to = new Date();
+      const span = PREVIEW_WINDOWS[params.data.window ?? "24h"]!;
+      const from = new Date(to.getTime() - span);
+      const addresses = [
+        ...new Set(
+          [...kept.values()].flat().map((s) => s.call.address.toLowerCase()),
         ),
-      }));
+      ];
+      // A series holding less than the window is cut over what it holds, so
+      // its preview is as fine as a full day's.
+      const firsts = await reads.firstPoints(seriesIds, from);
+      const startOf = new Map(
+        seriesIds.map((id) => {
+          const at = firsts.find((f) => f.series_id === id)?.first_at;
+          return [
+            id,
+            at ? new Date(Math.max(from.getTime(), Date.parse(at))) : from,
+          ];
+        }),
+      );
+      // A windowed limit needs the window before the first time shown, as
+      // the full chart reads it: 48 buckets of each rule's first read there.
+      const reach = new Map<string, number>();
+      const needs = new Set<string>();
+      for (const ruleId of ids) {
+        const first = kept.get(ruleId)?.[0];
+        const document = documents.find((d) => d.id === ruleId)?.document;
+        const seconds = document ? reachOf(document) : 0;
+        if (first && seconds > 0) {
+          needs.add(ruleId);
+          reach.set(first.id, Math.max(reach.get(first.id) ?? 0, seconds));
+        }
+      }
+      const historyOf = (id: string) => {
+        const end = startOf.get(id)!;
+        return {
+          from: new Date(end.getTime() - reach.get(id)! * 1000),
+          to: end,
+        };
+      };
+      const [rows, before, newest, scales] = await Promise.all([
+        reads.bucketsFrom(
+          seriesIds.map((id) => ({ seriesId: id, from: startOf.get(id)!, to })),
+          PREVIEW_BUCKETS,
+        ),
+        reads.bucketsFrom(
+          [...reach.keys()].map((id) => ({ seriesId: id, ...historyOf(id) })),
+          PREVIEW_BUCKETS,
+        ),
+        reads.newestPoints(seriesIds),
+        decimalsOf(addresses),
+      ]);
+      // The same width the bucket read cuts by, at least a second.
+      const widthOf = (id: string) =>
+        Math.max(
+          (to.getTime() - startOf.get(id)!.getTime()) / PREVIEW_BUCKETS,
+          1000,
+        );
+      return ids.map((ruleId) => {
+        const series = kept.get(ruleId) ?? [];
+        const fired = tripped.find((t) => t.rule_id === ruleId);
+        return {
+          ruleId,
+          series,
+          buckets: Object.fromEntries(
+            series.map((s) => [
+              s.id,
+              toBuckets(
+                rows.filter((b) => b.series_id === s.id),
+                startOf.get(s.id)!,
+                widthOf(s.id),
+              ),
+            ]),
+          ),
+          history: Object.fromEntries(
+            series
+              .filter((s) => needs.has(ruleId) && reach.has(s.id))
+              .map((s) => {
+                const h = historyOf(s.id);
+                return [
+                  s.id,
+                  toBuckets(
+                    before.filter((b) => b.series_id === s.id),
+                    h.from,
+                    Math.max(
+                      (h.to.getTime() - h.from.getTime()) / PREVIEW_BUCKETS,
+                      1000,
+                    ),
+                  ),
+                ];
+              }),
+          ),
+          latest: Object.fromEntries(
+            series.flatMap((s) => {
+              const p = newest.find((n) => n.series_id === s.id);
+              return p
+                ? [
+                    [
+                      s.id,
+                      {
+                        value: p.value,
+                        blockNumber: p.block_number,
+                        blockTime: new Date(p.block_time).toISOString(),
+                      },
+                    ],
+                  ]
+                : [];
+            }),
+          ),
+          decimals: Object.fromEntries(
+            series
+              .map((s) => s.call.address.toLowerCase())
+              .filter((a) => a in scales)
+              .map((a) => [a, scales[a]!]),
+          ),
+          lastFired: fired
+            ? {
+                blockNumber: fired.block_number,
+                blockTime: new Date(fired.block_time).toISOString(),
+              }
+            : null,
+        };
+      });
     },
   );
 

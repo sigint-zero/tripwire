@@ -20,6 +20,8 @@ import {
   severities,
 } from "../components/wizard/ResponseStep";
 import { api } from "../lib/api";
+import { contractDecimals, scaleOf } from "../lib/preview";
+import { usePreviews } from "../lib/usePreviews";
 import { formatBig, shortAddress, showValue, timeAgo } from "../lib/format";
 
 const heading =
@@ -45,6 +47,8 @@ export function RulePage({ id }: { id: string }) {
     queryKey: ["violations", { rule: id }],
     queryFn: ({ signal }) => api.violations({ rule: id, limit: 200 }, signal),
   });
+  // The contract's decimals(), the scale a rule with none set is shown in.
+  const preview = usePreviews([id]).get(id);
 
   const changed = async (updated: SavedRule) => {
     queryClient.setQueryData(["rule", id], updated);
@@ -91,6 +95,14 @@ export function RulePage({ id }: { id: string }) {
     );
   }
   if (!rule) return back;
+  // A rule with no scale set is shown in its contract's, as its preview is.
+  const scale = scaleOf(rule, preview);
+  const shown: SavedRule = scale.auto
+    ? {
+        ...rule,
+        display: { decimals: scale.decimals, unit: rule.display.unit },
+      }
+    : rule;
 
   const address = rule.rule.contract.toLowerCase();
   const contract = contracts?.find((c) => c.address === address);
@@ -229,12 +241,13 @@ export function RulePage({ id }: { id: string }) {
       </dl>
 
       <RuleValues
-        rule={rule}
+        rule={shown}
         violations={violations}
         format={
           <DisplayForm
             key={`${rule.display.decimals}:${rule.display.unit}`}
             display={rule.display}
+            auto={contractDecimals(preview)}
             onSave={changed}
             id={id}
           />
@@ -299,10 +312,13 @@ function Fact({
 function DisplayForm({
   id,
   display,
+  auto,
   onSave,
 }: {
   id: string;
   display: RuleDisplay;
+  /** The contract's decimals(), used while none is chosen. */
+  auto: number | null;
   onSave: (rule: SavedRule) => Promise<void>;
 }) {
   const [decimals, setDecimals] = useState(
@@ -330,8 +346,15 @@ function DisplayForm({
     current?.find((c) => /^-?\d+$/.test(c.value))?.value ??
     "1234500000000000000000";
   const label = unit.trim() || null;
+  // Unset follows the contract's decimals() where it has one, so raw is
+  // then a choice of its own: no decimals.
   const choices: [string, string][] = [
-    ["", "raw"],
+    ...(auto === null
+      ? ([["", "raw"]] as [string, string][])
+      : ([
+          ["", `auto, ${auto}`],
+          ["0", "raw"],
+        ] as [string, string][])),
     ["6", "6 decimals"],
     ["8", "8 decimals"],
     ["18", "18 decimals"],
@@ -361,7 +384,7 @@ function DisplayForm({
           >
             <span className="block font-mono text-sm">
               {showValue(sample, {
-                decimals: value === "" ? null : Number(value),
+                decimals: value === "" ? auto : Number(value),
                 unit: label,
               })}
             </span>

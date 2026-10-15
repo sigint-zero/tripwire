@@ -9,8 +9,10 @@ import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PageHeader } from "../components/PageHeader";
+import { SearchCount, SearchInput } from "../components/SearchInput";
 import {
   Button,
+  buttonClass,
   choice,
   EmptyState,
   fieldClass,
@@ -21,11 +23,14 @@ import { responseModes } from "../components/wizard/ResponseStep";
 import { api } from "../lib/api";
 import { formatBig, formatUnits, shortAddress, timeAgo } from "../lib/format";
 import { responseStatuses } from "../lib/responses";
+import { matches, readQuery, responseText } from "../lib/search";
 
 /** Which tab, and which response is open, kept in the URL. */
 export interface ResponsesSearch {
   tab?: ResponseTab;
   open?: string;
+  /** Searched within the tab. */
+  q?: string;
 }
 
 const TABS: { tab: ResponseTab; title: string; statuses: ResponseStatus[] }[] =
@@ -53,6 +58,8 @@ export function readResponsesSearch(
   if (typeof search.open === "string" && /^\d+$/.test(search.open)) {
     out.open = search.open;
   }
+  const q = readQuery(search);
+  if (q) out.q = q;
   return out;
 }
 
@@ -155,6 +162,17 @@ export function ResponsesPage({
     queryFn: ({ signal }) => api.rules(undefined, signal),
   });
 
+  const { q } = search;
+  const shown = items?.filter((item) =>
+    matches(
+      q ?? "",
+      responseText(
+        item,
+        rules?.find((r) => r.id === item.rule.id),
+      ),
+    ),
+  );
+
   const count = (t: ResponseTab) =>
     t === "waiting"
       ? counts?.waiting
@@ -191,35 +209,69 @@ export function ResponsesPage({
         </p>
       )}
 
-      <div className={`mb-6 ${track}`}>
-        {TABS.map((t) => (
-          <button
-            key={t.tab}
-            type="button"
-            onClick={() => onSearch({ tab: t.tab })}
-            className={choice(tab === t.tab)}
-          >
-            {t.title}
-            {count(t.tab) !== undefined && (
-              <span
-                className={`font-mono tabular-nums ${
-                  t.tab === "waiting" && count(t.tab)! > 0
-                    ? "text-amber-400"
-                    : "text-gray-500"
-                }`}
-              >
-                {count(t.tab)}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className={track}>
+          {TABS.map((t) => (
+            <button
+              key={t.tab}
+              type="button"
+              onClick={() => onSearch({ tab: t.tab, q })}
+              className={choice(tab === t.tab)}
+            >
+              {t.title}
+              {count(t.tab) !== undefined && (
+                <span
+                  className={`font-mono tabular-nums ${
+                    t.tab === "waiting" && count(t.tab)! > 0
+                      ? "text-amber-400"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {count(t.tab)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {((items && items.length > 0) || q) && (
+          <SearchInput
+            value={q}
+            onChange={(next) => onSearch({ ...search, q: next })}
+            label="Search responses"
+            placeholder="Search by rule, contract, function, transaction…"
+          />
+        )}
+        <span className="ml-auto">
+          {items && items.length > 0 && (
+            <SearchCount
+              query={q}
+              shown={shown?.length ?? 0}
+              total={items.length}
+              noun={["response", "responses"]}
+            />
+          )}
+        </span>
       </div>
 
       {error && <p className="text-sm text-red-400">{error.message}</p>}
       {items?.length === 0 && <EmptyState {...empty[tab]} />}
-      {items && items.length > 0 && (
+      {items && items.length > 0 && shown?.length === 0 && (
+        <EmptyState
+          title="Nothing matches"
+          hint={`No response in ${TABS.find((t) => t.tab === tab)!.title} matches “${q}”. Other tabs may have one.`}
+        >
+          <button
+            type="button"
+            onClick={() => onSearch({ tab: search.tab, open: search.open })}
+            className={buttonClass("ghost")}
+          >
+            Clear search
+          </button>
+        </EmptyState>
+      )}
+      {shown && shown.length > 0 && (
         <ul className="space-y-2">
-          {items.map((item) => (
+          {shown.map((item) => (
             <ResponseRow
               key={item.id}
               item={item}
@@ -228,6 +280,7 @@ export function ResponsesPage({
               onToggle={() =>
                 onSearch({
                   tab: search.tab,
+                  q,
                   open: search.open === item.id ? undefined : item.id,
                 })
               }

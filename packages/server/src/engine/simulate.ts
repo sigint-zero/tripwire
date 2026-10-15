@@ -71,6 +71,8 @@ export function simulatedValue(
   }
   if (type === "bool") return "false";
   if (type === "string") return "simulated";
+  // A token's scale is a small fixed number, not a wandering amount.
+  if (fn.startsWith("decimals()")) return "18";
   if (type.startsWith("bytes")) return "0x";
   return simulatedRead(contract, fn, returns, clock).toString();
 }

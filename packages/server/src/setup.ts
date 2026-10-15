@@ -3,7 +3,7 @@ import type { FastifyPluginCallback } from "fastify";
 import type { EngineReads } from "./engine/types";
 import type { AppStore } from "./store";
 
-// First-run progress (`FIRST-RUN.md`), derived from state, with only the
+// First-run progress, derived from state, with only the
 // dismissal stored. The dashboard is reachable only with an account, so
 // that step is done by the time anyone asks.
 

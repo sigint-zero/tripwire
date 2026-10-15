@@ -1,10 +1,10 @@
 import type {
   CheckNow,
   CurrentValue,
+  RulePreview,
   RuleSeries,
   SavedRule,
   SeriesWindow,
-  Sparkline,
   StoredRuleCheck,
 } from "@tripwire/shared";
 import type { FastifyInstance } from "fastify";
@@ -216,20 +216,216 @@ describe("series", () => {
   });
 });
 
-describe("sparklines", () => {
-  it("draws every asked rule's first series in one request", async () => {
-    const lines = await get<Sparkline[]>(
-      `/sparklines?rules=${tripping},${holding},999`,
+describe("previews", () => {
+  const scaled = "0x6666666666666666666666666666666666666666";
+  let reading: string;
+  let decimalReads = 0;
+  beforeAll(async () => {
+    const read = stub.read.bind(stub);
+    stub.read = (calls) => {
+      decimalReads += calls.filter((c) =>
+        c.function.startsWith("decimals()"),
+      ).length;
+      return read(calls);
+    };
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/contracts",
+      payload: {
+        address: scaled,
+        name: "Scaled token",
+        abi: [
+          {
+            type: "function",
+            name: "decimals",
+            inputs: [],
+            outputs: [{ name: "", type: "uint8" }],
+            stateMutability: "view",
+          },
+        ],
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/rules",
+      payload: { rule: { ...supply("Scaled supply", "lt"), contract: scaled } },
+    });
+    reading = res.json<StoredRuleCheck>().id;
+    now += 12_000;
+    await stub.tick();
+  });
+
+  it("gives each rule its series, their buckets and newest points, in one request", async () => {
+    const all = await get<RulePreview[]>(
+      `/previews?rules=${tripping},${holding},${reading},999`,
     );
-    expect(lines.map((l) => l.ruleId).sort()).toEqual(
-      [tripping, holding].sort(),
-    );
-    for (const line of lines) {
-      expect(line.buckets.length).toBeGreaterThan(0);
-      expect(line.buckets.length).toBeLessThanOrEqual(48);
+    expect(all.map((p) => p.ruleId)).toEqual([
+      tripping,
+      holding,
+      reading,
+      "999",
+    ]);
+    const [first] = all;
+    expect(first!.series.length).toBeGreaterThan(0);
+    expect(first!.series.length).toBeLessThanOrEqual(3);
+    for (const s of first!.series) {
+      expect(first!.buckets[s.id]!.length).toBeGreaterThan(0);
+      expect(first!.buckets[s.id]!.length).toBeLessThanOrEqual(48);
+      expect(first!.latest[s.id]!.value).toMatch(/^-?\d+$/);
     }
+    // An unknown rule answers empty, not an error.
+    expect(all[3]).toEqual({
+      ruleId: "999",
+      series: [],
+      buckets: {},
+      history: {},
+      latest: {},
+      decimals: {},
+      lastFired: null,
+    });
+  });
+
+  it("cuts a series holding less than the window over what it holds", async () => {
+    const [p] = await get<RulePreview[]>(`/previews?rules=${reading}`);
+    const id = p!.series[0]!.id;
+    const buckets = p!.buckets[id]!;
+    // Nothing recorded within the day comes before the first bucket, so
+    // the buckets begin where the series' points do. The server's window
+    // ends at its own now, so this reads from a minute inside it.
+    const start = Date.parse(buckets[0]!.start);
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ${STUB_VIEWS}.series_points
+        WHERE series_id = $1 AND block_time >= $2 AND block_time < $3`,
+      [id, new Date(Date.now() - 86_400_000 + 60_000), new Date(start - 1000)],
+    );
+    expect(rows[0]!.n).toBe(0);
+    expect(buckets.length).toBeGreaterThan(40);
+  });
+
+  it("says when a rule last tripped", async () => {
+    const all = await get<RulePreview[]>(
+      `/previews?rules=${tripping},${holding}`,
+    );
+    expect(all[0]!.lastFired).toMatchObject({
+      blockNumber: expect.any(Number) as unknown,
+    });
+    expect(all[1]!.lastFired).toBeNull();
+  });
+
+  it("reads a contract's decimals once, and only where it has them", async () => {
+    const [plain, withScale] = await get<RulePreview[]>(
+      `/previews?rules=${tripping},${reading}`,
+    );
+    expect(plain!.decimals).toEqual({});
+    expect(withScale!.decimals).toEqual({ [scaled]: 18 });
+    // Three requests so far ask for the scaled token; the engine was asked once.
+    expect(decimalReads).toBe(1);
+  });
+
+  it("gives a windowed rule the history before its window", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/rules",
+      payload: {
+        rule: {
+          ...supply("Drop in an hour", "gt"),
+          // A read beside the windowed metric: the stand-in links no
+          // metric's base series, which the engine does.
+          trip_when: {
+            node: "or",
+            terms: [
+              supply("", "lt").trip_when,
+              {
+                node: "compare",
+                op: "gt",
+                left: {
+                  node: "metric",
+                  metric: "windowed_drop",
+                  of: {
+                    node: "view_call",
+                    function: "totalSupply() returns (uint256)",
+                    args: [],
+                  },
+                  window: { seconds: 3600 },
+                },
+                right: { node: "literal", value: "5" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const id = res.json<StoredRuleCheck>().id;
+    now += 12_000;
+    await stub.tick();
+    const [windowed, plain] = await get<RulePreview[]>(
+      `/previews?rules=${id},${holding}`,
+    );
+    const first = windowed!.series[0]!.id;
+    const before = windowed!.history[first]!;
+    expect(before.length).toBeGreaterThan(0);
+    // It ends where the shown buckets begin, an hour back at most.
+    const start = Date.parse(windowed!.buckets[first]![0]!.start);
+    expect(Date.parse(before.at(-1)!.start)).toBeLessThan(start);
+    expect(Date.parse(before[0]!.start)).toBeGreaterThanOrEqual(
+      start - 3_600_000 - 1000,
+    );
+    expect(plain!.history).toEqual({});
+  });
+
+  it("does not keep a decimals() read that failed", async () => {
+    const other = "0x7777777777777777777777777777777777777777";
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/contracts",
+      payload: {
+        address: other,
+        name: "Flaky token",
+        abi: [
+          {
+            type: "function",
+            name: "decimals",
+            inputs: [],
+            outputs: [{ name: "", type: "uint8" }],
+            stateMutability: "view",
+          },
+        ],
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/rules",
+      payload: { rule: { ...supply("Flaky supply", "lt"), contract: other } },
+    });
+    const id = res.json<StoredRuleCheck>().id;
+    now += 12_000;
+    await stub.tick();
+    const read = stub.read.bind(stub);
+    // The engine answers null for a call that failed.
+    stub.read = (calls) =>
+      calls.some(
+        (c) => c.function.startsWith("decimals()") && c.address === other,
+      )
+        ? Promise.resolve(calls.map(() => null as unknown as string))
+        : read(calls);
+    const [failed] = await get<RulePreview[]>(`/previews?rules=${id}`);
+    stub.read = read;
+    expect(failed!.decimals).toEqual({});
+    const [later] = await get<RulePreview[]>(`/previews?rules=${id}`);
+    expect(later!.decimals).toEqual({ [other]: 18 });
+  });
+
+  it("refuses more than 64 rules, and malformed ids", async () => {
+    const many = Array.from({ length: 65 }, (_, i) => i + 1).join(",");
     expect(
-      (await app.inject({ url: "/api/v1/sparklines?rules=a" })).statusCode,
+      (await app.inject({ url: `/api/v1/previews?rules=${many}` })).statusCode,
+    ).toBe(400);
+    expect(
+      (await app.inject({ url: "/api/v1/previews?rules=a" })).statusCode,
+    ).toBe(400);
+    expect(
+      (await app.inject({ url: `/api/v1/previews?rules=${"9".repeat(30)}` }))
+        .statusCode,
     ).toBe(400);
   });
 });

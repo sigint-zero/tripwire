@@ -21,8 +21,8 @@ import type { ChannelSecrets } from "./secrets";
 import type { ChannelRow, ChannelStateRow, NotificationStore } from "./store";
 import { missingFields, type NotificationWorker } from "./worker";
 
-// The feed, its read marks, the channels and the links messages carry
-// (NOTIFICATIONS.md, API). Secrets go in and are never read back.
+// The feed, its read marks, the channels and the links messages carry.
+// Secrets go in and are never read back.
 
 const PAGE = 50;
 

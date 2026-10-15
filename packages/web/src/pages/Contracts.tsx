@@ -4,11 +4,38 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AddContract } from "../components/contracts/AddContract";
 import { PageHeader } from "../components/PageHeader";
-import { Button, Eyebrow, Plus, Tag } from "../components/ui";
+import { SearchCount, SearchInput } from "../components/SearchInput";
+import {
+  Button,
+  buttonClass,
+  EmptyState,
+  Eyebrow,
+  Plus,
+  Tag,
+} from "../components/ui";
 import { api } from "../lib/api";
 import { sourceLabel } from "../lib/format";
+import { contractText, matches, readQuery } from "../lib/search";
 
-export function ContractsPage() {
+/** The search, kept in the URL so it can be linked. */
+export interface ContractsSearch {
+  q?: string;
+}
+
+export function readContractsSearch(
+  search: Record<string, unknown>,
+): ContractsSearch {
+  const q = readQuery(search);
+  return q ? { q } : {};
+}
+
+export function ContractsPage({
+  search,
+  onSearch,
+}: {
+  search: ContractsSearch;
+  onSearch: (next: ContractsSearch) => void;
+}) {
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
   const { data: contracts, error } = useQuery({
@@ -34,6 +61,13 @@ export function ContractsPage() {
     },
   });
   const none = contracts?.length === 0;
+  const { q } = search;
+  const shown = contracts?.filter((c) => {
+    const pausedNow = paused?.get(c.address.toLowerCase())?.length
+      ? "paused"
+      : null;
+    return matches(q ?? "", [...contractText(c), pausedNow]);
+  });
   const open = (address: string) =>
     void navigate({ to: "/contracts/$address", params: { address } });
 
@@ -78,8 +112,42 @@ export function ContractsPage() {
       )}
 
       {contracts && contracts.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <SearchInput
+            value={q}
+            onChange={(next) => onSearch({ q: next })}
+            label="Search contracts"
+            placeholder="Search by name or address…"
+          />
+          <span className="ml-auto">
+            <SearchCount
+              query={q}
+              shown={shown?.length ?? 0}
+              total={contracts.length}
+              noun={["contract", "contracts"]}
+            />
+          </span>
+        </div>
+      )}
+
+      {contracts && contracts.length > 0 && shown?.length === 0 && (
+        <EmptyState
+          title="Nothing matches"
+          hint={`No contract matches “${q}”.`}
+        >
+          <button
+            type="button"
+            onClick={() => onSearch({})}
+            className={buttonClass("ghost")}
+          >
+            Clear search
+          </button>
+        </EmptyState>
+      )}
+
+      {shown && shown.length > 0 && (
         <ul className="space-y-2">
-          {contracts.map((contract) => (
+          {shown.map((contract) => (
             <li key={contract.address}>
               <Link
                 to="/contracts/$address"

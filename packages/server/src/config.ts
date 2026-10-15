@@ -3,8 +3,8 @@ import { chains } from "@tripwire/shared";
 import { join } from "node:path";
 
 /**
- * The application's configuration, `TRIPWIRE_HOME/config.json`
- * (`ENGINE.md`, Configuration): the database (`DATABASE.md`) and
+ * The application's configuration, `TRIPWIRE_HOME/config.json`:
+ * the database and
  * everything the engine is configured with. `chain` is absent until first
  * run saves it; every other member takes its default when absent.
  */
@@ -78,10 +78,10 @@ export function defaultConfig(): AppConfig {
   };
 }
 
-/** The chains first run offers by name (`FIRST-RUN.md`). */
+/** The chains first run offers by name. */
 export const KNOWN_CHAINS = chains;
 
-/** Known TripwireController deployments (`RESPONSES.md`), with the block each was deployed at. */
+/** Known TripwireController deployments, with the block each was deployed at. */
 export const CONTROLLER_DEPLOYMENTS: Record<
   number,
   { address: string; block: number }

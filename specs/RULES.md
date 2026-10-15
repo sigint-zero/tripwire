@@ -62,9 +62,20 @@ to the list.
 - the rule's current value: the newest point of its first series, in
   the order the document reads them, with its display scale; a rule
   with no series (an event-triggered rule, for instance) shows none;
-- a 24-hour sparkline of the same series, drawn with the list and read
-  in one request for all visible rows;
-- filters for contract and status, kept in the URL.
+- the rule's preview (`RULE-PREVIEW.md`): its first series over 24
+  hours with its limit, axes, a legend with the headroom, read in one
+  request per 64 visible rules; the status always as a pill, Holding
+  included, and the action as a pill;
+- filters for contract and status, kept in the URL;
+- a search box (`CONTRACTS.md`, Searching) matching the rule's name,
+  description and sentence, its contract's name and address, its
+  severity, status and action, and the function it pauses or calls;
+- **Rows** or **Cards**: one full-width row per rule, or a grid of cards
+  (two across on a wide window, one on a narrow one), each card with the
+  sentence on up to three lines and the sparkline full width at its
+  foot. The choice is kept in the browser and applies to every rule
+  list, here and on a contract's page, after a reload and in other
+  tabs. Rows is the default.
 
 The empty state points to the wizard.
 
@@ -177,15 +188,22 @@ every label and hover shows the exact string, with the display scale.
 | violations | a mark at the time of each violation in the window: filled for tripped, amber for errors, hollow for pending |
 
 **Gaps.** Nothing is recorded while a rule is off, while the engine is
-stopped, or before a computed series' first warm block. The line
-breaks where consecutive points are more than three times the series'
-usual interval apart, so a gap reads as a gap and not as a straight
-line across it.
+stopped, or before a computed series' first warm block. A stretch where
+consecutive points are more than three times the series' usual interval
+apart is squeezed to a sliver of the width, marked with a dotted line
+that names the stretch on hover, and the line runs on across it, so what
+was recorded fills the chart instead of an empty middle. The rule
+preview does the same.
 
 **Display scale** applies to the series of the rule's contract reads,
 to metrics computed over them, and to thresholds compared against
 them. Values the rule computes from several reads (a ratio, a sum)
-are shown raw.
+are shown raw. A rule with no scale set is shown in the `decimals()`
+of the contract its first read reads, where it has one, labelled
+auto; the number format then offers auto and raw (0 decimals).
+
+**Under `not`** a comparison trips where it does not hold, so its
+threshold is drawn on that side: `not (x ≥ 5)` shades below 5.
 
 Hovering shows the value, block and time at that point; the chart
 follows the window as new blocks arrive (`LIVE-UPDATES.md`).
@@ -273,7 +291,7 @@ the API's error envelope. Creating and replacing rules is specified in
 | GET | `/rules/:id/series` | **added:** the rule's series: `{ id, call, metric, windowSeconds, role }`; `role` is `read` or `metric` |
 | GET | `/rules/:id/current` | **added:** the newest point of each of those series: `{ seriesId, value, blockNumber, blockTime }` |
 | GET | `/series/:id/points` | **added:** `?from&to&points`, `points` at most 500: `{ resolution, buckets: [{ start, first, last, min, max, count }] }` or, when the range holds no more than `points` values, `{ resolution: "block", points: [{ blockNumber, blockTime, value }] }` |
-| GET | `/sparklines` | **added:** `?rules=1,2,3&window=24h`, at most 200 rules: 48 buckets per rule's first series |
+| GET | `/previews` | `?rules=1,2,3&window=24h`, at most 64 rules: each rule's first three series, 48 buckets and the newest point of each, the contracts' `decimals()`, and its newest tripped violation (`RULE-PREVIEW.md`, The read) |
 | POST | `/rules/:id/check` | **added:** a dry run of the stored document: `{ block, wouldTripNow, warming, warmupSecondsLeft, evaluationError, evidence }`; `evaluationError` is null or `{ path, message }`, the node that could not be evaluated; `block` is the engine's last evaluated block (`api_v1.engine_status`); stores nothing |
 
 Every value is a decimal string. A rule's status is computed from the

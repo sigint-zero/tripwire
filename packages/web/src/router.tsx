@@ -12,7 +12,7 @@ import { AppShell } from "./components/AppShell";
 import { Scanlines } from "./components/Scanlines";
 import { ActivityPage } from "./pages/Activity";
 import { ContractPage } from "./pages/Contract";
-import { ContractsPage } from "./pages/Contracts";
+import { ContractsPage, readContractsSearch } from "./pages/Contracts";
 import { EditRulePage } from "./pages/EditRule";
 import { FirstRunPage } from "./pages/FirstRun";
 import { LoginPage } from "./pages/Login";
@@ -99,7 +99,17 @@ const overviewRoute = createRoute({
 const contractsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/contracts",
-  component: ContractsPage,
+  validateSearch: readContractsSearch,
+  component: function Contracts() {
+    const search = contractsRoute.useSearch();
+    const navigate = contractsRoute.useNavigate();
+    return (
+      <ContractsPage
+        search={search}
+        onSearch={(next) => void navigate({ search: next, replace: true })}
+      />
+    );
+  },
 });
 
 const contractRoute = createRoute({

@@ -27,7 +27,7 @@ import { refuse } from "./refuse";
 import { toTx } from "./responses";
 import { DASHBOARD, type AppStore } from "./store";
 
-// The keys responses are signed with (`RESPONSES.md`, Keys). The engine
+// The keys responses are signed with. The engine
 // holds them; a passphrase passes through here to the engine and is
 // dropped, never stored, returned or logged. Their names are the
 // application's own. For now there is one key: the engine signs with the

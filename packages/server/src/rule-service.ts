@@ -47,10 +47,18 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-/** What makes two rules the same watch; name, description and severity do not. */
+/**
+ * What makes two rules the same watch; name, description and severity do
+ * not. The contracts a rule watches do: they change which pending
+ * transactions it judges. The engine returns them sorted, and none as
+ * absent.
+ */
 function watchKey(document: Rule): string {
   const { contract, when, trip_when, on_trip } = document;
-  return JSON.stringify(canonical({ contract, when, trip_when, on_trip }));
+  const watch = document.watch?.length ? document.watch : undefined;
+  return JSON.stringify(
+    canonical({ contract, when, trip_when, on_trip, watch }),
+  );
 }
 
 /** Every contract read in the evidence, with the value the engine saw. */
