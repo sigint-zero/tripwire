@@ -312,7 +312,8 @@
         "cooldown_seconds": {
           "anyOf": [
             {
-              "description": "Suppresses repeat firings inside the window; the violation is still recorded. Default 0",
+              "description": "Suppresses repeat firings inside the window, at most 365 days; the violation is still recorded. Default 0",
+              "maximum": 31536000,
               "minimum": 0,
               "type": "integer"
             },
@@ -830,6 +831,23 @@
       "const": 1,
       "description": "The rule-language version; must be 1",
       "title": "Language version"
+    },
+    "watch": {
+      "anyOf": [
+        {
+          "description": "Contracts this rule's values depend on, chosen by the owner (at most 16, not the rule's own contract). Pending transactions sent to them are judged against the rule; they change nothing it evaluates",
+          "items": {
+            "$ref": "#/$defs/address"
+          },
+          "maxItems": 16,
+          "title": "Watched dependencies",
+          "type": "array",
+          "uniqueItems": true
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "when": {
       "$ref": "#/$defs/trigger"

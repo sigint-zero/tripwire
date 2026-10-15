@@ -6,7 +6,7 @@
     "actions.tx": "the same shape as responses.tx",
     "notifications.payload": {
       "_envelope": "every payload additionally carries chain_id (integer) and engine_version (string), completed at insert",
-      "action": "the response settlement shape (id is the action id), or kind, target, selector, note, status, detail for worker decisions",
+      "action": "for a settlement: id and action_id (the action's id), kind, target, selector, function, value_wei, key, note, then status, tx_hash, block_number and error as for a response; for worker decisions: kind, target, selector, note, status, detail",
       "health": {
         "cause": "string | null (what degrades the engine)",
         "evaluated_block": "integer | null",
@@ -25,9 +25,15 @@
         "status": "string"
       },
       "response (settlement)": {
+        "action": "string",
         "block_number": "integer",
+        "contract": "string (0x address)",
         "error": "string | null",
         "id": "integer (response id)",
+        "response_id": "integer (the same id)",
+        "rule": "string (name)",
+        "rule_id": "integer",
+        "severity": "string",
         "status": "confirmed | failed",
         "tx_hash": "string"
       },
@@ -49,9 +55,11 @@
       "approval_rebuilt": "boolean",
       "attempts": [
         {
+          "broadcast": "boolean (false until a node is known to hold it; absent on older attempts, which were recorded only after a node took them and read as true)",
           "hash": "string",
           "max_fee_per_gas": "string (wei)",
           "max_priority_fee_per_gas": "string (wei)",
+          "raw": "string (0x signed transaction, recorded before broadcast)",
           "submitted_block": "integer"
         }
       ],
@@ -64,9 +72,17 @@
       "max_fee_per_gas": "string (wei)",
       "max_priority_fee_per_gas": "string (wei)",
       "nonce": "integer",
+      "signer": "string (0x address of the key that signs every attempt; absent on records written before the record named it)",
       "target": "string (0x address)",
       "value": "string (wei)"
-    }
+    },
+    "rules.dependencies": [
+      {
+        "acknowledged": "boolean (the owner acknowledged it through the control interface)",
+        "address": "string (0x address the rule's reads, verify or simulations touched that it neither names nor watches)",
+        "first_block": "integer (the block whose evaluation first touched it; after a reorg it may name an abandoned block)"
+      }
+    ]
   },
   "views": [
     {
@@ -455,6 +471,11 @@
           "name": "last_evaluated_block",
           "nullable": true,
           "type": "bigint"
+        },
+        {
+          "name": "dependencies",
+          "nullable": true,
+          "type": "jsonb"
         }
       ],
       "view": "rules"
@@ -675,6 +696,11 @@
           "name": "created_at",
           "nullable": true,
           "type": "timestamp with time zone"
+        },
+        {
+          "name": "orphaned",
+          "nullable": true,
+          "type": "boolean"
         }
       ],
       "view": "violations"
